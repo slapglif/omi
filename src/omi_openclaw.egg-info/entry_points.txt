@@ -1,0 +1,3 @@
+[console_scripts]
+omi = omi.cli:main
+

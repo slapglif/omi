@@ -87,7 +87,7 @@ class MemoryTools:
             memory_id: UUID for created memory
         """
         # Generate embedding with caching
-        embedding = self.cache.get_or_compute(content, self.embedder)
+        embedding = self.cache.get_or_compute(content)
         
         # Store in palace
         memory_id = self.palace.store_memory(

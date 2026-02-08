@@ -1,5 +1,4 @@
 from .now import NowStorage
-from .daily import DailyStorage
-from .graph_storage import GraphStorage
+from .graph_palace import GraphPalace, Memory, Edge
 
-__all__ = ["NowStorage", "DailyStorage", "GraphStorage"]
+__all__ = ["NowStorage", "GraphPalace", "Memory", "Edge"]
