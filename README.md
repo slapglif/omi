@@ -27,7 +27,7 @@ OMI solves the 6 failure modes every agent hits:
 │ TIER 2: Daily Logs (YYYY-MM-DD.md)     │
 │ Raw timeline, chronological             │
 ├─────────────────────────────────────────┤
-│ TIER 3: Graph Palace (SQLite + Ollama) │
+│ TIER 3: Graph Palace (SQLite + NIM)    │
 │ Semantic search, relationships, beliefs │
 ├─────────────────────────────────────────┤
 │ TIER 4: MoltVault Backup               │
@@ -37,24 +37,87 @@ OMI solves the 6 failure modes every agent hits:
 
 ## Quick Start
 
-```bash
-# Install
-pip install omi-openclaw
+### Prerequisites
 
-# Initialize
+```bash
+# NVIDIA NIM (recommended - highest quality embeddings)
+export NIM_API_KEY="nvapi-..."  # From https://integrate.api.nvidia.com
+
+# Or Ollama (fallback - local, airgapped)
+ollama pull nomic-embed-text
+```
+
+### Install
+
+```bash
+# From PyPI (when published)
+pip install omi-openclaw[nim]
+
+# From source
+git clone https://github.com/slapglif/omi.git
+cd omi
+pip install -e ".[nim]"
+```
+
+### Initialize
+
+```bash
+# Create memory infrastructure
 omi init
 
-# Start agent session
-omi session-start  # Auto-loads NOW.md, relevant memories
+# Configure (edit ~/.openclaw/omi/config.yaml)
+cat > ~/.openclaw/omi/config.yaml << 'EOF'
+embedding:
+  provider: nim
+  model: baai/bge-m3
+  dimensions: 1024
+  api_key: ${NIM_API_KEY}
+EOF
+
+# Or use Ollama (offline/airgapped)
+omi config --set embedding.provider=ollama
+omi config --set embedding.model=nomic-embed-text
+```
+
+### Daily Use
+
+```bash
+# Start session (auto-loads NOW.md + relevant memories)
+omi session-start
 
 # During work
-omi check          # Pre-compression checkpoint
-omi store "Learned that X works" --type experience
-omi belief-update "X is reliable" --confidence 0.8
+omi recall "session checkpoint"          # Search memories
+omi store "Fixed the auth bug" --type experience
+omi belief-update "SQLite works" --confidence 0.9
+
+# Pre-compression checkpoint (auto at 70% context)
+omi check
 
 # End session
-omi session-end    # Auto-backs up to MoltVault
+omi session-end
+
+# Verify integrity
+omi audit
 ```
+
+## Embeddings: NIM vs Ollama
+
+| Provider | Model | Quality | Speed | Offline? |
+|----------|-------|---------|-------|----------|
+| **NVIDIA NIM** | baai/bge-m3 | ⭐⭐⭐⭐⭐ | Fast | ❌ |
+| **Ollama** | nomic-embed-text | ⭐⭐⭐ | Variable | ✅ |
+
+**Recommendation:** Use NIM for production, Ollama for development/airgapped.
+
+NIM provides:
+- Higher quality embeddings (bge-m3 > nomic on benchmarks)
+- Consistent performance (no local GPU variance)
+- Already configured in MEMORY.md setup
+
+Ollama provides:
+- Complete offline operation
+- No API key required
+- Works on any machine with Ollama installed
 
 ## Why Not Just Files?
 
@@ -69,11 +132,11 @@ OMI combines the best patterns from 50+ working agent implementations:
 
 ## Features
 
-- **Semantic Search**: Local Ollama embeddings, no cloud dependency
-- **Belief Networks**: Track confidence, not just "importance flags"
-- **Security by Architecture**: Topology verification, tamper detection
-- **MCP Integration**: Native OpenClaw tools (`memory_recall`, `belief_update`, etc.)
-- **Full Continuity**: MoltVault backup/restore, multi-instance consensus
+- **NVIDIA NIM Integration**: baai/bge-m3 embeddings, highest quality
+- **Belief Networks**: Track confidence with EMA updates
+- **Security by Architecture**: Byzantine verification, tamper detection
+- **MCP Integration**: Native OpenClaw tools
+- **Full Continuity**: MoltVault backup/restore
 
 ## Documentation
 
@@ -95,13 +158,7 @@ The bird of Hermes eats her wings. The palace lets her keep eating.
 
 **Version 0.1.0** — Research phase complete. Implementation in progress.
 
-- [x] Architecture specification
-- [x] Research subagents (6 teams)
-- [ ] Core implementation (SQLite, Ollama, MCP)
-- [ ] Graph topology layer
-- [ ] Belief networks
-- [ ] Security verification
-- [ ] OpenClaw integration
+See [Issues](https://github.com/slapglif/omi/issues) for current priorities.
 
 ## License
 
@@ -109,7 +166,7 @@ MIT — Because trust requires transparency.
 
 ## The Name
 
-**OMI** = OpenClaw Memory Infrastructure
+**OMI** = OpenClaw Memory Infrastructure  
 **The Palace at the River** — SandyBlake's graph architecture (the palace) + Pith's continuity metaphor (the river)
 
 ---

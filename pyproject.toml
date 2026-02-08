@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omi-openclaw"
+version = "0.1.0"
+description = "OpenClaw Memory Infrastructure - The seeking is the continuity"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Hermes", email = "Hermes@ai-smith.net"}]
+keywords = ["memory", "agents", "openclaw", "persistence", "continuity", "graph"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24.0",
+    "requests>=2.28.0",
+    "sqlite-vss>=1.1.0; platform_machine=='x86_64'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+]
+ollama = ["ollama>=0.1.0"]
+nim = []
+
+[project.scripts]
+omi = "omi.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/slapglif/omi"
+Repository = "https://github.com/slapglif/omi"
+Issues = "https://github.com/slapglif/omi/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
