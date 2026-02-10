@@ -391,8 +391,8 @@ class GraphPalace:
                     recency = self._calculate_recency_score(last_accessed)
                     
                     # Weight: 70% relevance, 30% recency
-                    final_score = (relevance * 0.7) + (recency * 0.3)
-                    
+                    final_score = min((relevance * 0.7) + (recency * 0.3), 1.0)
+
                     memory = Memory(
                         id=row[0],
                         content=row[1],

@@ -389,33 +389,156 @@ class GraphPalace:
 class VaultBackup:
     """
     Tier 4: Full snapshots for disaster recovery
-    
-    Pattern: POST to molt-vault.com, base64 encode
-    Frequency: Daily or session-end
+
+    Local filesystem backup to ~/.openclaw/omi/vault/ as .tar.gz archives.
+    Each backup is a timestamped archive containing critical OMI data files.
     """
-    
-    VAULT_API = "https://molt-vault.com/api/v1"
-    
-    def __init__(self, api_key: Optional[str] = None):
+
+    def __init__(self, api_key: Optional[str] = None,
+                 base_path: Optional[Path] = None):
+        """
+        Args:
+            api_key: Unused, kept for interface compatibility
+            base_path: OMI data directory (default: ~/.openclaw/omi)
+        """
         self.api_key = api_key
-    
+        self.base_path = Path(base_path) if base_path else Path.home() / ".openclaw" / "omi"
+        self.vault_dir = self.base_path / "vault"
+        self.vault_dir.mkdir(parents=True, exist_ok=True)
+
     def backup(self, memory_content: str) -> str:
         """
-        Full backup to MoltVault
-        
+        Create a local .tar.gz backup of OMI data.
+
+        The archive contains palace.sqlite, NOW.md, config.yaml, MEMORY.md,
+        and all daily log files. The memory_content argument is written to a
+        snapshot.txt file inside the archive for session-level context.
+
+        Args:
+            memory_content: Additional text content to include in the backup
+
         Returns:
-            backup_id: Identifier for restore
+            backup_id: Timestamped identifier for the created backup
         """
-        import base64
-        
-        encoded = base64.b64encode(memory_content.encode()).decode()
-        
-        # TODO: POST to vault API
-        # response = requests.post(f"{self.VAULT_API}/vault/backup", ...)
-        
-        return "backup_id_placeholder"
-    
+        import tarfile
+        import tempfile
+        import uuid
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_id = f"omi_backup_{timestamp}_{uuid.uuid4().hex[:8]}"
+        archive_path = self.vault_dir / f"{backup_id}.tar.gz"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write the session snapshot
+            snapshot_path = Path(tmpdir) / "snapshot.txt"
+            snapshot_path.write_text(memory_content)
+
+            with tarfile.open(archive_path, "w:gz") as tar:
+                # Include the session snapshot
+                tar.add(snapshot_path, arcname="snapshot.txt")
+
+                # Include critical OMI files
+                critical_files = [
+                    self.base_path / "palace.sqlite",
+                    self.base_path / "NOW.md",
+                    self.base_path / "config.yaml",
+                    self.base_path / "MEMORY.md",
+                ]
+                for file_path in critical_files:
+                    if file_path.exists():
+                        tar.add(file_path, arcname=file_path.name)
+
+                # Include daily logs
+                memory_dir = self.base_path / "memory"
+                if memory_dir.exists() and memory_dir.is_dir():
+                    for log_file in memory_dir.glob("*.md"):
+                        tar.add(log_file, arcname=f"memory/{log_file.name}")
+
+        # Write metadata alongside the archive
+        metadata = {
+            "backup_id": backup_id,
+            "created_at": datetime.now().isoformat(),
+            "archive_path": str(archive_path),
+            "checksum": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+        }
+        meta_path = self.vault_dir / f"{backup_id}.json"
+        meta_path.write_text(json.dumps(metadata, indent=2))
+
+        return backup_id
+
     def restore(self, backup_id: str) -> str:
-        """Restore from vault"""
-        # TODO: POST to vault API
-        return ""
+        """
+        Restore from a local vault backup.
+
+        Extracts the archive back into the OMI base_path, overwriting
+        existing files. Returns the snapshot.txt content that was saved
+        during the backup.
+
+        Args:
+            backup_id: Identifier returned by backup()
+
+        Returns:
+            Content of the snapshot.txt from the backup, or empty string
+            if not found.
+        """
+        import tarfile
+
+        archive_path = self.vault_dir / f"{backup_id}.tar.gz"
+        if not archive_path.exists():
+            raise FileNotFoundError(f"Backup archive not found: {archive_path}")
+
+        # Verify integrity via metadata
+        meta_path = self.vault_dir / f"{backup_id}.json"
+        if meta_path.exists():
+            metadata = json.loads(meta_path.read_text())
+            expected_checksum = metadata.get("checksum", "")
+            actual_checksum = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            if expected_checksum and actual_checksum != expected_checksum:
+                raise ValueError(
+                    f"Checksum mismatch for {backup_id}: "
+                    f"expected {expected_checksum}, got {actual_checksum}"
+                )
+
+        snapshot_content = ""
+        with tarfile.open(archive_path, "r:gz") as tar:
+            # Security: validate all members to prevent path traversal
+            for member in tar.getmembers():
+                member_path = self.base_path / member.name
+                try:
+                    member_path.resolve().relative_to(self.base_path.resolve())
+                except ValueError:
+                    raise ValueError(
+                        f"Path traversal detected in archive member: {member.name}"
+                    )
+
+            # Extract snapshot.txt content before overwriting
+            try:
+                snapshot_file = tar.extractfile("snapshot.txt")
+                if snapshot_file:
+                    snapshot_content = snapshot_file.read().decode("utf-8")
+            except (KeyError, AttributeError):
+                snapshot_content = ""
+
+            # Extract everything except snapshot.txt to base_path
+            for member in tar.getmembers():
+                if member.name == "snapshot.txt":
+                    continue
+                tar.extract(member, path=self.base_path)
+
+        return snapshot_content
+
+    def list_backups(self) -> List[Dict[str, Any]]:
+        """
+        List all local vault backups.
+
+        Returns:
+            List of backup metadata dicts, sorted newest first.
+        """
+        backups = []
+        for meta_file in sorted(self.vault_dir.glob("*.json"), reverse=True):
+            try:
+                metadata = json.loads(meta_file.read_text())
+                backups.append(metadata)
+            except (json.JSONDecodeError, OSError):
+                continue
+        return backups

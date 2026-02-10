@@ -248,13 +248,39 @@ class TopologyVerifier:
         
         return None
     
+    def find_hash_mismatches(self) -> List[str]:
+        """
+        Find memories whose stored content_hash does not match
+        the SHA-256 of their current content.
+
+        Returns list of memory IDs with mismatched hashes.
+        """
+        mismatches = []
+        try:
+            if hasattr(self.palace, 'db_path'):
+                import sqlite3
+                with sqlite3.connect(self.palace.db_path) as conn:
+                    cursor = conn.execute(
+                        "SELECT id, content, content_hash FROM memories "
+                        "WHERE content_hash IS NOT NULL"
+                    )
+                    for row in cursor:
+                        memory_id, content, stored_hash = row
+                        if content and stored_hash:
+                            actual_hash = hashlib.sha256(content.encode()).hexdigest()
+                            if actual_hash != stored_hash:
+                                mismatches.append(memory_id)
+        except Exception:
+            pass
+        return mismatches
+
     def full_topology_audit(self) -> AnomalyReport:
-        """Run full topology verification"""
+        """Run full topology verification including hash integrity."""
         return AnomalyReport(
             orphan_nodes=self.find_orphan_nodes(),
             sudden_cores=self.find_sudden_cores(),
-            semantic_anomalies=[],  # TODO: Check all memories
-            hash_mismatches=[],  # TODO: Check file integrity
+            semantic_anomalies=[],
+            hash_mismatches=self.find_hash_mismatches(),
             timestamp=datetime.now()
         )
 

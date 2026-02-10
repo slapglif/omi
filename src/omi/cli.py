@@ -18,8 +18,16 @@ DEFAULT_BASE_PATH = Path.home() / ".openclaw" / "omi"
 DEFAULT_CONFIG_PATH = DEFAULT_BASE_PATH / "config.yaml"
 
 
-def get_base_path() -> Path:
-    """Get the base path for OMI data."""
+def get_base_path(ctx_data_dir: Optional[Path] = None) -> Path:
+    """Get the base path for OMI data.
+
+    Priority: --data-dir flag > OMI_BASE_PATH env var > default path.
+
+    Args:
+        ctx_data_dir: Value from --data-dir CLI option, if provided.
+    """
+    if ctx_data_dir:
+        return Path(ctx_data_dir)
     env_path = os.getenv("OMI_BASE_PATH")
     if env_path:
         return Path(env_path)
@@ -45,11 +53,14 @@ def ensure_imports():
 
 @click.group()
 @click.version_option(version=__version__, prog_name="omi")
-def cli():
+@click.option('--data-dir', type=click.Path(), default=None, envvar='OMI_BASE_PATH',
+              help='Base directory for OMI data (default: ~/.openclaw/omi)')
+@click.pass_context
+def cli(ctx, data_dir):
     """OMI - OpenClaw Memory Infrastructure
-    
+
     A unified memory system for AI agents.
-    
+
     \b
     Key Commands:
         init              Initialize memory infrastructure
@@ -61,7 +72,7 @@ def cli():
         status            Show health and size
         audit             Security audit
         config            Configuration management
-    
+
     \b
     Examples:
         omi init
@@ -71,21 +82,25 @@ def cli():
         omi check
         omi session-end
     """
-    pass
+    ctx.ensure_object(dict)
+    if data_dir:
+        ctx.obj['data_dir'] = Path(data_dir)
+    else:
+        ctx.obj['data_dir'] = None
 
 
 @cli.command()
 @click.pass_context
 def init(ctx) -> None:
     """Initialize memory infrastructure.
-    
+
     Creates the following:
     - ~/.openclaw/omi/ directory structure
     - config.yaml with default settings
     - SQLite database for Graph Palace
     - NOW.md template
     """
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     
     click.echo(click.style("Initializing OMI Memory Infrastructure...", fg="cyan", bold=True))
     
@@ -209,15 +224,16 @@ Initializing OMI memory infrastructure.
 
 @cli.command("session-start")
 @click.option("--show-now", is_flag=True, help="Display NOW.md content")
-def session_start(show_now: bool) -> None:
+@click.pass_context
+def session_start(ctx, show_now: bool) -> None:
     """Load context and start a session.
-    
+
     Performs:
     - Loads NOW.md hot context
     - Runs semantic recall of relevant memories
     - Prints session summary
     """
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style(f"Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -288,25 +304,26 @@ def session_start(show_now: bool) -> None:
 
 @cli.command()
 @click.argument('content')
-@click.option('--type', 'memory_type', default='experience', 
+@click.option('--type', 'memory_type', default='experience',
               type=click.Choice(['fact', 'experience', 'belief', 'decision']),
               help='Type of memory to store')
 @click.option('--confidence', '-c', type=float, default=None,
               help='Confidence level (0.0-1.0, for beliefs only)')
-def store(content: str, memory_type: str, confidence: Optional[float]) -> None:
+@click.pass_context
+def store(ctx, content: str, memory_type: str, confidence: Optional[float]) -> None:
     """Store a memory in the Graph Palace.
-    
+
     Args:
         content: The memory content to store
         --type: Memory type (fact|experience|belief|decision)
         --confidence: Confidence level for beliefs (0.0-1.0)
-    
+
     Examples:
         omi store "Fixed the auth bug" --type experience
         omi store "Python has GIL limitations" --type fact
         omi store "This approach works better" --type belief --confidence 0.85
     """
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -346,20 +363,21 @@ def store(content: str, memory_type: str, confidence: Optional[float]) -> None:
 @click.argument('query')
 @click.option('--limit', '-l', default=10, help='Maximum number of results')
 @click.option('--json-output', is_flag=True, help='Output as JSON')
-def recall(query: str, limit: int, json_output: bool) -> None:
+@click.pass_context
+def recall(ctx, query: str, limit: int, json_output: bool) -> None:
     """Search memories using semantic recall.
-    
+
     Args:
         query: Search query text
         --limit: Maximum number of results (default: 10)
         --json: Output as JSON (for scripts)
-    
+
     Examples:
         omi recall "session checkpoint"
         omi recall "auth bug fix" --limit 5
         omi recall "recent decisions" --json
     """
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -417,15 +435,16 @@ def recall(query: str, limit: int, json_output: bool) -> None:
 
 
 @cli.command()
-def check() -> None:
+@click.pass_context
+def check(ctx) -> None:
     """Create a pre-compression checkpoint.
-    
+
     Performs:
     - Updates NOW.md with current state
     - Creates state capsule
     - Reports memory system status
     """
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -480,15 +499,16 @@ def check() -> None:
 
 @cli.command("session-end")
 @click.option('--no-backup', is_flag=True, help="Skip vault backup")
-def session_end(no_backup: bool) -> None:
+@click.pass_context
+def session_end(ctx, no_backup: bool) -> None:
     """End session and backup.
-    
+
     Performs:
     - Updates NOW.md
     - Appends to daily log
     - Triggers vault backup (if enabled and configured)
     """
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -534,9 +554,10 @@ def session_end(no_backup: bool) -> None:
 
 
 @cli.command()
-def status() -> None:
+@click.pass_context
+def status(ctx) -> None:
     """Show OMI health and size statistics."""
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -612,15 +633,16 @@ def status() -> None:
 
 
 @cli.command()
-def audit() -> None:
+@click.pass_context
+def audit(ctx) -> None:
     """Run security audit.
-    
+
     Checks:
     - File integrity (NOW.md, MEMORY.md)
     - Graph topology (orphan nodes, sudden cores)
     - Git history for suspicious modifications
     """
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -687,27 +709,29 @@ def audit() -> None:
 
 
 @cli.group()
-def config():
+@click.pass_context
+def config(ctx):
     """Configuration management commands."""
-    pass
+    ctx.ensure_object(dict)
 
 
 @config.command('set')
 @click.argument('key')
 @click.argument('value')
-def config_set(key: str, value: str) -> None:
+@click.pass_context
+def config_set(ctx, key: str, value: str) -> None:
     """Set a configuration value.
-    
+
     Args:
         key: Configuration key (e.g., 'embedding.provider')
         value: Value to set
-    
+
     Examples:
         omi config set embedding.provider ollama
         omi config set embedding.model nomic-embed-text
         omi config set vault.enabled true
     """
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
     
     if not config_path.exists():
@@ -738,17 +762,18 @@ def config_set(key: str, value: str) -> None:
 
 @config.command('get')
 @click.argument('key')
-def config_get(key: str) -> None:
+@click.pass_context
+def config_get(ctx, key: str) -> None:
     """Get a configuration value.
-    
+
     Args:
         key: Configuration key (e.g., 'embedding.provider')
-    
+
     Examples:
         omi config get embedding.provider
         omi config get vault.enabled
     """
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
     
     if not config_path.exists():
@@ -775,9 +800,10 @@ def config_get(key: str) -> None:
 
 
 @config.command('show')
-def config_show() -> None:
+@click.pass_context
+def config_show(ctx) -> None:
     """Display full configuration."""
-    base_path = get_base_path()
+    base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
     
     if not config_path.exists():

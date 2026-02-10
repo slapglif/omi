@@ -192,8 +192,6 @@ class TestDailyLogStore:
         store.append("Entry 1")
         store.append("Entry 2")
         
-        # TODO: Currently returns empty list
-        # This is a stub in the implementation
         files = store.list_days(days=30)
         assert isinstance(files, list)
     
@@ -265,40 +263,72 @@ class TestGraphPalace:
 
 
 class TestVaultBackup:
-    """Tests for VaultBackup (cloud storage)."""
-    
-    def test_vault_backup_stubs(self):
-        """Vault backup stubs work."""
+    """Tests for VaultBackup (local filesystem backup)."""
+
+    def test_vault_backup_creates_archive(self, tmp_path):
+        """Vault backup creates a .tar.gz archive in vault/ directory."""
         from omi.persistence import VaultBackup
-        
-        vault = VaultBackup(api_key="test-key")
+
+        base = tmp_path / "omi"
+        base.mkdir(parents=True)
+        (base / "palace.sqlite").write_text("fake db")
+        (base / "NOW.md").write_text("# NOW")
+
+        vault = VaultBackup(base_path=base)
         backup_id = vault.backup("memory content")
-        
-        # Currently returns placeholder
+
         assert isinstance(backup_id, str)
-    
-    def test_vault_restore_stubs(self):
-        """Vault restore stubs work."""
+        assert backup_id.startswith("omi_backup_")
+        assert (base / "vault" / f"{backup_id}.tar.gz").exists()
+        assert (base / "vault" / f"{backup_id}.json").exists()
+
+    def test_vault_restore_returns_snapshot(self, tmp_path):
+        """Vault restore extracts archive and returns snapshot content."""
         from omi.persistence import VaultBackup
-        
-        vault = VaultBackup(api_key="test-key")
-        result = vault.restore("backup-id-123")
-        
-        assert isinstance(result, str)
-    
-    @pytest.mark.nim
-    def test_vault_with_real_api(self):
-        """Test with real vault API (if configured)."""
-        import os
+
+        base = tmp_path / "omi"
+        base.mkdir(parents=True)
+        (base / "palace.sqlite").write_text("original db")
+        (base / "NOW.md").write_text("# NOW original")
+
+        vault = VaultBackup(base_path=base)
+        backup_id = vault.backup("session snapshot text")
+
+        # Modify files
+        (base / "NOW.md").write_text("# NOW modified")
+
+        # Restore
+        result = vault.restore(backup_id)
+
+        assert result == "session snapshot text"
+        assert (base / "NOW.md").read_text() == "# NOW original"
+
+    def test_vault_list_backups(self, tmp_path):
+        """Vault list_backups returns metadata sorted newest first."""
         from omi.persistence import VaultBackup
-        
-        api_key = os.getenv("VAULT_API_KEY", "")
-        if not api_key:
-            pytest.skip("VAULT_API_KEY not set")
-        
-        vault = VaultBackup(api_key=api_key)
-        # Would test actual backup/restore here
-        assert vault is not None
+
+        base = tmp_path / "omi"
+        base.mkdir(parents=True)
+        (base / "palace.sqlite").write_text("db")
+
+        vault = VaultBackup(base_path=base)
+        vault.backup("backup 1")
+        vault.backup("backup 2")
+
+        backups = vault.list_backups()
+        assert len(backups) == 2
+        assert backups[0]["created_at"] >= backups[1]["created_at"]
+
+    def test_vault_restore_missing_archive_raises(self, tmp_path):
+        """Vault restore raises FileNotFoundError for missing backup."""
+        from omi.persistence import VaultBackup
+
+        base = tmp_path / "omi"
+        base.mkdir(parents=True)
+
+        vault = VaultBackup(base_path=base)
+        with pytest.raises(FileNotFoundError):
+            vault.restore("nonexistent_backup_id")
 
 
 class TestEdgeCases:

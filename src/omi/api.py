@@ -406,7 +406,7 @@ def get_all_mcp_tools(config: dict) -> dict:
     now_store = NOWStore(base_path)
     daily_store = DailyLogStore(base_path)
     palace = GraphPalace(db_path)
-    vault = VaultBackup(config.get('vault_api_key'))
+    vault = VaultBackup(api_key=config.get('vault_api_key'), base_path=base_path)
     
     # Initialize embedders
     embedder = OllamaEmbedder(
