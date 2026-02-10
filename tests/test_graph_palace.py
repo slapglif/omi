@@ -17,6 +17,7 @@ import unittest
 import tempfile
 import time
 import math
+import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List
@@ -41,10 +42,9 @@ class TestGraphPalace(unittest.TestCase):
     def tearDown(self):
         """Clean up test database."""
         self.palace.close()
-        if self.db_path.exists():
-            self.db_path.unlink()
-        if self.db_path.parent.exists():
-            self.db_path.parent.rmdir()
+        import shutil
+        if Path(self.temp_dir).exists():
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def _generate_embedding(self, dim: int = 1024) -> List[float]:
         """Generate a random normalized embedding vector."""
@@ -629,8 +629,9 @@ class TestEdgeTypes(unittest.TestCase):
 
     def tearDown(self):
         self.palace.close()
-        if self.db_path.exists():
-            self.db_path.unlink()
+        import shutil
+        if self.db_path.parent.exists():
+            shutil.rmtree(str(self.db_path.parent), ignore_errors=True)
 
     def test_all_edge_types(self):
         """Test all valid edge types can be created."""

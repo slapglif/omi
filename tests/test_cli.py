@@ -202,11 +202,15 @@ class TestCLIRecall:
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                 runner.invoke(cli, ["init"])
 
-            # Mock GraphPalace
-            mock_results = [
-                {"id": "1", "content": "Test memory", "memory_type": "fact"}
-            ]
-            with patch.object(GraphPalace, 'recall', return_value=mock_results):
+            # Mock GraphPalace.full_text_search (CLI uses full_text_search, not recall)
+            mock_mem = MagicMock()
+            mock_mem.id = "1"
+            mock_mem.content = "Test memory"
+            mock_mem.memory_type = "fact"
+            mock_mem.confidence = None
+            mock_mem.created_at = None
+            mock_results = [mock_mem]
+            with patch.object(GraphPalace, 'full_text_search', return_value=mock_results):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["recall", "test", "--json-output"])
 

@@ -276,7 +276,7 @@ Initial task
         temp_omi_setup["now_path"].write_text(initial_content)
         
         # Update with new task
-        checkpoint_tools.now_update(pending=["new task"])
+        checkpoint_tools.now_update(pending_decisions=["new task"])
         
         # Read the file directly
         updated_content = temp_omi_setup["now_path"].read_text()
@@ -396,7 +396,7 @@ class TestOpenClawIntegration:
         checkpoint_tools.now_update(
             current_task="Review and merge feature X",
             recent_completions=["Implemented feature X"],
-            pending=["Add tests for feature X"],
+            pending_decisions=["Add tests for feature X"],
             key_files=["feature_x.py", "test_feature_x.py"]
         )
         

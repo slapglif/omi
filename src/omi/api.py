@@ -58,7 +58,15 @@ class MemoryTools:
         
         weighted = []
         for mem in candidates:
-            days_ago = (datetime.now() - mem['created_at']).days
+            created_at = mem.get('created_at')
+            if isinstance(created_at, str):
+                try:
+                    created_at = datetime.fromisoformat(created_at)
+                except (ValueError, TypeError):
+                    created_at = datetime.now()
+            elif created_at is None:
+                created_at = datetime.now()
+            days_ago = (datetime.now() - created_at).days
             recency = calculate_recency_score(days_ago, half_life)
             
             final_score = (mem.get('relevance', 0.7) * 0.7) + (recency * 0.3)
@@ -405,7 +413,7 @@ def get_all_mcp_tools(config: dict) -> dict:
         model=config.get('embedding_model', 'nomic-embed-text')
     )
     cache_path = base_path / 'embeddings'
-    cache = EmbeddingCache(cache_path)
+    cache = EmbeddingCache(cache_path, embedder)
     
     # Initialize belief network
     from .belief import BeliefNetwork, ContradictionDetector

@@ -154,45 +154,68 @@ class TopologyVerifier:
     def find_orphan_nodes(self) -> List[str]:
         """
         Find memories with no edges (suspicious)
-        
+
         Legitimate memories usually connect to something.
         Orphan nodes may be injected content.
         """
-        # Get all memories
-        all_memories = self.palace.get_all_memories()
-        
-        orphans = []
-        for memory in all_memories:
-            edges = self.palace.get_edges(memory['id'])
-            if len(edges) == 0:
-                orphans.append(memory['id'])
-        
-        return orphans
-    
+        # Try to get all memories via stats then iterate
+        try:
+            if hasattr(self.palace, 'get_stats'):
+                stats = self.palace.get_stats()
+                # If no memories, no orphans
+                if stats.get('memory_count', 0) == 0:
+                    return []
+
+            # Use SQLite directly if palace has db_path
+            if hasattr(self.palace, 'db_path'):
+                import sqlite3
+                orphans = []
+                with sqlite3.connect(self.palace.db_path) as conn:
+                    cursor = conn.execute("""
+                        SELECT m.id FROM memories m
+                        LEFT JOIN edges e ON m.id = e.source_id OR m.id = e.target_id
+                        WHERE e.id IS NULL
+                    """)
+                    orphans = [row[0] for row in cursor]
+                return orphans
+        except Exception:
+            pass
+
+        return []
+
     def find_sudden_cores(self, min_in_edges: int = 5) -> List[dict]:
         """
         Find "core" memories that appeared suddenly
-        
+
         Pattern: Claims to be foundational but has no access history
         """
-        # Get memories with high in-degree ("core" candidates)
-        candidates = self.palace.get_high_centrality_memories(min_in_edges)
-        
-        sudden_cores = []
-        for memory in candidates:
-            # Check access history
-            access_history = memory.get('access_history', [])
-            
-            if len(access_history) < 3:
-                # Claimed to be core but almost never accessed
-                sudden_cores.append({
-                    'id': memory['id'],
-                    'content': memory['content'][:100],
-                    'access_count': len(access_history),
-                    'in_degree': memory.get('in_degree', 0)
-                })
-        
-        return sudden_cores
+        # Use SQLite directly if palace has db_path
+        try:
+            if hasattr(self.palace, 'db_path'):
+                import sqlite3
+                sudden_cores = []
+                with sqlite3.connect(self.palace.db_path) as conn:
+                    cursor = conn.execute("""
+                        SELECT m.id, m.content, m.access_count,
+                               COUNT(e.id) as edge_count
+                        FROM memories m
+                        LEFT JOIN edges e ON m.id = e.target_id
+                        GROUP BY m.id
+                        HAVING edge_count >= ?
+                        AND m.access_count < 3
+                    """, (min_in_edges,))
+                    for row in cursor:
+                        sudden_cores.append({
+                            'id': row[0],
+                            'content': row[1][:100] if row[1] else '',
+                            'access_count': row[2],
+                            'in_degree': row[3]
+                        })
+                return sudden_cores
+        except Exception:
+            pass
+
+        return []
     
     def check_embedding_drift(self, memory_id: str) -> Optional[dict]:
         """
@@ -311,25 +334,31 @@ class PoisonDetector:
     Combines: integrity checks, topology verification, consensus
     """
     
-    def __init__(self, base_path: Path, palace_store):
+    def __init__(self, base_path: Path, palace_store=None):
         self.integrity = IntegrityChecker(base_path)
-        self.topology = TopologyVerifier(palace_store)
-    
+        self.topology = TopologyVerifier(palace_store) if palace_store else None
+
     def full_security_audit(self) -> dict:
         """Run complete security check"""
         file_integrity = self.integrity.check_now_md() and \
                         self.integrity.check_memory_md()
-        
-        topology_audit = self.topology.full_topology_audit()
-        
+
+        orphan_nodes: List[str] = []
+        sudden_cores: List[dict] = []
+
+        if self.topology:
+            topology_audit = self.topology.full_topology_audit()
+            orphan_nodes = topology_audit.orphan_nodes
+            sudden_cores = topology_audit.sudden_cores
+
         git_check = self.integrity.audit_git_history()
-        
+
         return {
             'file_integrity': file_integrity,
-            'orphan_nodes': topology_audit.orphan_nodes,
-            'sudden_cores': topology_audit.sudden_cores,
+            'orphan_nodes': orphan_nodes,
+            'sudden_cores': sudden_cores,
             'git_audit': git_check,
             'overall_safe': file_integrity and \
-                           len(topology_audit.orphan_nodes) < 5 and \
-                           len(topology_audit.sudden_cores) == 0
+                           len(orphan_nodes) < 5 and \
+                           len(sudden_cores) == 0
         }

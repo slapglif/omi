@@ -175,33 +175,14 @@ class GraphPalace:
                 CREATE INDEX IF NOT EXISTS idx_edges_bidirectional ON edges(source_id, target_id);
             """)
             
-            # Create FTS5 virtual table for full-text search
+            # Create standalone FTS5 virtual table for full-text search
+            # Note: Using standalone FTS5 (no content= sync) because memories.id
+            # is TEXT (UUID), and FTS5 content_rowid requires INTEGER.
             conn.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-                    content, 
-                    content='memories', 
-                    content_rowid='id'
+                    memory_id,
+                    content
                 )
-            """)
-            
-            # Triggers to keep FTS in sync
-            conn.execute("""
-                CREATE TRIGGER IF NOT EXISTS memories_fts_insert AFTER INSERT ON memories BEGIN
-                    INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
-                END
-            """)
-            
-            conn.execute("""
-                CREATE TRIGGER IF NOT EXISTS memories_fts_delete AFTER DELETE ON memories BEGIN
-                    INSERT INTO memories_fts(memories_fts, rowid, content) VALUES ('delete', old.id, old.content);
-                END
-            """)
-            
-            conn.execute("""
-                CREATE TRIGGER IF NOT EXISTS memories_fts_update AFTER UPDATE ON memories BEGIN
-                    INSERT INTO memories_fts(memories_fts, rowid, content) VALUES ('delete', old.id, old.content);
-                    INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
-                END
             """)
             
             conn.commit()
@@ -271,15 +252,15 @@ class GraphPalace:
         
         memory_id = str(uuid.uuid4())
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        now = datetime.now()
-        
+        now = datetime.now().isoformat()
+
         # Convert embedding to blob
         embedding_blob = self._embed_to_blob(embedding) if embedding else None
-        
+
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
-                INSERT INTO memories 
-                (id, content, embedding, memory_type, confidence, created_at, 
+                INSERT INTO memories
+                (id, content, embedding, memory_type, confidence, created_at,
                  last_accessed, access_count, instance_ids, content_hash)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -294,12 +275,16 @@ class GraphPalace:
                 json.dumps([]),
                 content_hash
             ))
+            # Insert into FTS index
+            conn.execute("""
+                INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
+            """, (memory_id, content))
             conn.commit()
-        
+
         # Cache the embedding for fast access
         if embedding:
             self._embedding_cache[memory_id] = embedding
-        
+
         return memory_id
 
     def get_memory(self, memory_id: str) -> Optional[Memory]:
@@ -315,13 +300,13 @@ class GraphPalace:
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA foreign_keys=ON")
-            
+
             # Update access stats
             conn.execute("""
-                UPDATE memories 
+                UPDATE memories
                 SET access_count = access_count + 1, last_accessed = ?
                 WHERE id = ?
-            """, (datetime.now(), memory_id))
+            """, (datetime.now().isoformat(), memory_id))
             conn.commit()
             
             # Retrieve memory
@@ -440,12 +425,12 @@ class GraphPalace:
         memories = []
         
         with sqlite3.connect(self.db_path) as conn:
-            # Use FTS5 MATCH
+            # Use FTS5 MATCH via standalone FTS table
             cursor = conn.execute("""
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                        m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
                 FROM memories_fts fts
-                JOIN memories m ON m.id = fts.rowid
+                JOIN memories m ON m.id = fts.memory_id
                 WHERE memories_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
@@ -495,7 +480,7 @@ class GraphPalace:
             conn.execute("""
                 INSERT INTO edges (id, source_id, target_id, edge_type, strength, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (edge_id, source_id, target_id, edge_type, strength, datetime.now()))
+            """, (edge_id, source_id, target_id, edge_type, strength, datetime.now().isoformat()))
             conn.commit()
         
         return edge_id
@@ -766,13 +751,17 @@ class GraphPalace:
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA foreign_keys=ON")
+            # Remove from FTS index first
+            conn.execute("""
+                DELETE FROM memories_fts WHERE memory_id = ?
+            """, (memory_id,))
             cursor = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
             conn.commit()
-            
+
             # Remove from cache
             if memory_id in self._embedding_cache:
                 del self._embedding_cache[memory_id]
-            
+
             return cursor.rowcount > 0
 
     def get_stats(self) -> Dict[str, Any]:

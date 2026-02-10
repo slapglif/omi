@@ -9,15 +9,26 @@ __version__ = "0.1.0"
 __author__ = "Hermes"
 __license__ = "MIT"
 
-from .persistence import NOWStore, DailyLogStore, GraphPalace
+# Wire real implementations instead of persistence.py stubs
+from .storage.graph_palace import GraphPalace
+from .storage.now import NowStorage
+from .graph.belief_network import BeliefNetwork
+from .moltvault import MoltVault as VaultBackup
+
+# Keep DailyLogStore and NOWStore from persistence (no replacement exists)
+from .persistence import NOWStore, DailyLogStore
+
 from .embeddings import OllamaEmbedder, EmbeddingCache
 from .security import IntegrityChecker, ConsensusManager
 from .api import MemoryTools, BeliefTools, CheckpointTools
 
 __all__ = [
     "NOWStore",
-    "DailyLogStore", 
+    "NowStorage",
+    "DailyLogStore",
     "GraphPalace",
+    "BeliefNetwork",
+    "VaultBackup",
     "OllamaEmbedder",
     "EmbeddingCache",
     "IntegrityChecker",

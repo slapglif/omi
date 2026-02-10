@@ -1,0 +1,89 @@
+{
+  "name": "omi",
+  "version": "0.1.0",
+  "description": "Persistent memory, belief networks, and continuity for OpenClaw agents",
+  "author": "Hermes",
+  "license": "MIT",
+  "repository": "https://github.com/slapglif/omi",
+  "entry_point": "omi.api:get_all_mcp_tools",
+  "tools": [
+    {
+      "name": "memory_recall",
+      "description": "Semantic search with recency weighting",
+      "parameters": {
+        "query": {"type": "string", "required": true},
+        "limit": {"type": "integer", "default": 10},
+        "min_relevance": {"type": "number", "default": 0.7},
+        "memory_type": {"type": "string", "enum": ["fact", "experience", "belief", "decision"]}
+      }
+    },
+    {
+      "name": "memory_store",
+      "description": "Persist memory with embedding",
+      "parameters": {
+        "content": {"type": "string", "required": true},
+        "memory_type": {"type": "string", "default": "experience", "enum": ["fact", "experience", "belief", "decision"]},
+        "related_to": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    {
+      "name": "belief_update",
+      "description": "Add evidence, update belief confidence using EMA",
+      "parameters": {
+        "belief_id": {"type": "string", "required": true},
+        "evidence_memory_id": {"type": "string", "required": true},
+        "supports": {"type": "boolean", "required": true},
+        "strength": {"type": "number", "required": true, "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    {
+      "name": "now_read",
+      "description": "Load current operational context (read FIRST on session start)",
+      "parameters": {}
+    },
+    {
+      "name": "now_update",
+      "description": "Update operational state at context threshold or task completion",
+      "parameters": {
+        "current_task": {"type": "string"},
+        "recent_completions": {"type": "array", "items": {"type": "string"}},
+        "pending_decisions": {"type": "array", "items": {"type": "string"}},
+        "key_files": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    {
+      "name": "integrity_check",
+      "description": "Verify memory file integrity and graph topology",
+      "parameters": {
+        "scope": {"type": "string", "default": "all", "enum": ["now", "daily", "graph", "all"]}
+      }
+    }
+  ],
+  "hooks": [
+    {
+      "event": "session_start",
+      "description": "Loads NOW.md + relevant memories",
+      "action": "now_read"
+    },
+    {
+      "event": "pre_compression",
+      "description": "Updates NOW.md, creates state capsule",
+      "action": "now_update"
+    },
+    {
+      "event": "session_end",
+      "description": "Daily log append, vault backup",
+      "action": "vault_backup"
+    }
+  ],
+  "config": {
+    "base_path": "~/.openclaw/omi",
+    "embedding_provider": "nim",
+    "embedding_model": "baai/bge-m3"
+  },
+  "dependencies": {
+    "python": ">=3.10",
+    "packages": ["numpy", "requests", "click", "pyyaml"]
+  }
+}

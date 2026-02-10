@@ -138,7 +138,7 @@ session:
             palace = GraphPalace(db_path)
             palace.close()
             click.echo(f" ✓ Initialized database: {db_path}")
-        except RuntimeError as e:
+        except Exception as e:
             # Fallback: create minimal schema if storage deps not available
             import sqlite3
             conn = sqlite3.connect(db_path)

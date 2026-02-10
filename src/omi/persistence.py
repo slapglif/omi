@@ -42,8 +42,49 @@ class NOWEntry:
     @classmethod
     def from_markdown(cls, content: str) -> "NOWEntry":
         """Parse from NOW.md format"""
-        # TODO: Implement parsing
-        pass
+        current_task = ""
+        recent_completions: List[str] = []
+        pending_decisions: List[str] = []
+        key_files: List[str] = []
+        timestamp = datetime.now()
+
+        # Extract timestamp from header line: # NOW - 2024-01-01T00:00:00
+        lines = content.split("\n")
+        section = None
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("# NOW - "):
+                ts_str = stripped.replace("# NOW - ", "").strip()
+                try:
+                    timestamp = datetime.fromisoformat(ts_str)
+                except (ValueError, TypeError):
+                    pass
+            elif stripped == "## Current Task":
+                section = "task"
+            elif stripped == "## Recent Completions":
+                section = "completions"
+            elif stripped == "## Pending Decisions":
+                section = "pending"
+            elif stripped == "## Key Files":
+                section = "files"
+            elif stripped.startswith("## "):
+                section = None
+            elif stripped and section == "task":
+                current_task = stripped
+            elif stripped.startswith("- [x] ") and section == "completions":
+                recent_completions.append(stripped[6:])
+            elif stripped.startswith("- [ ] ") and section == "pending":
+                pending_decisions.append(stripped[6:])
+            elif stripped.startswith("- `") and stripped.endswith("`") and section == "files":
+                key_files.append(stripped[3:-1])
+
+        return cls(
+            current_task=current_task,
+            recent_completions=recent_completions,
+            pending_decisions=pending_decisions,
+            key_files=key_files,
+            timestamp=timestamp,
+        )
 
 
 class NOWStore:
@@ -63,14 +104,7 @@ class NOWStore:
         if not self.now_path.exists():
             return None
         content = self.now_path.read_text()
-        # TODO: Parse markdown to NOWEntry
-        return NOWEntry(
-            current_task="",
-            recent_completions=[],
-            pending_decisions=[],
-            key_files=[],
-            timestamp=datetime.now()
-        )
+        return NOWEntry.from_markdown(content)
     
     def write(self, entry: NOWEntry) -> None:
         """Update hot context"""
@@ -138,65 +172,218 @@ class DailyLogStore:
         return ""
     
     def list_days(self, days: int = 30) -> List[Path]:
-        """List recent daily log files"""
-        # TODO: Sort by date, return recent N
-        return []
+        """List recent daily log files, sorted newest first"""
+        cutoff = datetime.now() - timedelta(days=days)
+        results = []
+        for p in sorted(self.log_path.glob("*.md"), reverse=True):
+            # Parse date from filename (YYYY-MM-DD.md)
+            try:
+                file_date = datetime.strptime(p.stem, "%Y-%m-%d")
+                if file_date >= cutoff:
+                    results.append(p)
+            except ValueError:
+                continue
+        return results
 
 
 class GraphPalace:
     """
     Tier 3: Graph Palace - semantic memories, relationships, beliefs
-    
+
     Pattern: Structured, queryable, centrality-weighted
     Lifetime: Indefinite (with decay)
+
+    This is a minimal stub implementation. The full implementation lives in
+    omi.storage.graph_palace.GraphPalace with FTS5, vector search, and more.
     """
-    
+
     def __init__(self, db_path: Path):
-        self.db_path = db_path
-        # TODO: Initialize SQLite with FTS5, vector extension
-        pass
-    
-    def store_memory(self, content: str, memory_type: str, 
+        import sqlite3
+        import uuid
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(str(self.db_path))
+        self._conn.row_factory = sqlite3.Row
+        self._init_schema()
+
+    def _init_schema(self) -> None:
+        """Create minimal schema for stub persistence."""
+        cursor = self._conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS memories (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                memory_type TEXT NOT NULL,
+                confidence REAL,
+                embedding BLOB,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                access_count INTEGER DEFAULT 0,
+                last_accessed TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS edges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                edge_type TEXT NOT NULL,
+                strength REAL DEFAULT 1.0,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        self._conn.commit()
+
+    def store_memory(self, content: str, memory_type: str,
                      confidence: Optional[float] = None) -> str:
         """
         Store memory with embedding
-        
+
         Args:
             content: Memory text
             memory_type: 'fact' | 'experience' | 'belief' | 'decision'
             confidence: For beliefs only, 0.0-1.0
-        
+
         Returns:
             memory_id: UUID for created memory
         """
-        # TODO: Generate embedding, store in SQLite
-        return ""
-    
+        import uuid
+        memory_id = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+        self._conn.execute(
+            """INSERT INTO memories (id, content, memory_type, confidence, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (memory_id, content, memory_type, confidence, now, now)
+        )
+        self._conn.commit()
+        return memory_id
+
     def recall(self, query: str, limit: int = 10,
                min_relevance: float = 0.7) -> List[Dict[str, Any]]:
         """
         Semantic search with recency weighting
-        
+
         Recency formula: exp(-days_ago / half_life)
         Default half_life: 30 days
+
+        Note: Stub returns simple LIKE match. Full implementation uses vector similarity.
         """
-        # TODO: Embed query, search vectors, apply decay
-        return []
-    
+        cursor = self._conn.execute(
+            """SELECT id, content, memory_type, confidence, created_at
+               FROM memories
+               WHERE content LIKE ?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (f"%{query}%", limit)
+        )
+        return [dict(row) for row in cursor]
+
     def create_edge(self, source_id: str, target_id: str,
                    edge_type: str, strength: float) -> None:
         """Create relationship between memories"""
-        # TODO: Insert into edges table
-        pass
-    
+        self._conn.execute(
+            """INSERT INTO edges (source_id, target_id, edge_type, strength)
+               VALUES (?, ?, ?, ?)""",
+            (source_id, target_id, edge_type, strength)
+        )
+        self._conn.commit()
+
     def get_centrality(self, memory_id: str) -> float:
         """
         Calculate centrality score for a memory
-        
+
         Used for: hub detection, poisoning resistance
         """
-        # TODO: Calculate degree centrality + access patterns
-        return 0.0
+        cursor = self._conn.execute(
+            """SELECT COUNT(*) FROM edges
+               WHERE source_id = ? OR target_id = ?""",
+            (memory_id, memory_id)
+        )
+        count = cursor.fetchone()[0]
+        return float(count)
+
+    def get_belief(self, belief_id: str) -> Dict[str, Any]:
+        """Retrieve a belief memory by ID."""
+        cursor = self._conn.execute(
+            """SELECT id, content, memory_type, confidence, created_at
+               FROM memories WHERE id = ?""",
+            (belief_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return {'confidence': 0.5}
+
+    def update_belief_confidence(self, belief_id: str, new_confidence: float) -> None:
+        """Update the confidence value of a belief."""
+        now = datetime.now().isoformat()
+        self._conn.execute(
+            """UPDATE memories SET confidence = ?, updated_at = ?
+               WHERE id = ?""",
+            (new_confidence, now, belief_id)
+        )
+        self._conn.commit()
+
+    def get_memory(self, memory_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a memory by ID."""
+        cursor = self._conn.execute(
+            """SELECT id, content, memory_type, confidence, created_at
+               FROM memories WHERE id = ?""",
+            (memory_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+
+    def get_edges(self, memory_id: str) -> List[Dict[str, Any]]:
+        """Get all edges connected to a memory."""
+        cursor = self._conn.execute(
+            """SELECT source_id, target_id, edge_type, strength, created_at
+               FROM edges
+               WHERE source_id = ? OR target_id = ?""",
+            (memory_id, memory_id)
+        )
+        results = []
+        for row in cursor:
+            results.append({
+                'source_id': row[0],
+                'target_id': row[1],
+                'target_type': 'memory',
+                'edge_type': row[2],
+                'strength': row[3],
+                'timestamp': datetime.fromisoformat(row[4]) if row[4] else datetime.now()
+            })
+        return results
+
+    def full_text_search(self, query: str, limit: int = 10) -> List[Any]:
+        """Simple text search. Returns list of dict-like objects with attribute access."""
+        cursor = self._conn.execute(
+            """SELECT id, content, memory_type, confidence, created_at
+               FROM memories
+               WHERE content LIKE ?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (f"%{query}%", limit)
+        )
+        results = []
+        for row in cursor:
+            # Return simple namespace objects for attribute access compatibility
+            from types import SimpleNamespace
+            results.append(SimpleNamespace(
+                id=row[0],
+                content=row[1],
+                memory_type=row[2],
+                confidence=row[3],
+                created_at=row[4]
+            ))
+        return results
+
+    def close(self) -> None:
+        """Close the database connection."""
+        if self._conn:
+            self._conn.close()
+            self._conn = None
 
 
 class VaultBackup:
