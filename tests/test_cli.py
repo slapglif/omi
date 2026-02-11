@@ -413,5 +413,87 @@ class TestCommandHelp:
         assert "type" in result.output.lower()
 
 
+def test_config():
+    """Test config command group functionality."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        runner = CliRunner()
+        base_path = Path(tmpdir) / "omi"
+
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        from omi.cli import cli
+
+        # Initialize
+        with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+            result = runner.invoke(cli, ["init"])
+            assert result.exit_code == 0
+
+            # Test config set
+            result = runner.invoke(cli, ["config", "set", "embedding.provider", "ollama"])
+            assert result.exit_code == 0
+            assert "ollama" in result.output
+
+            # Test config get
+            result = runner.invoke(cli, ["config", "get", "embedding.provider"])
+            assert result.exit_code == 0
+            assert "ollama" in result.output
+
+            # Test config show
+            result = runner.invoke(cli, ["config", "show"])
+            assert result.exit_code == 0
+            assert "embedding:" in result.output
+
+
+def test_sync():
+    """Test sync command group functionality."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        runner = CliRunner()
+        base_path = Path(tmpdir) / "omi"
+
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        from omi.cli import cli
+
+        # Initialize
+        with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+            result = runner.invoke(cli, ["init"])
+            assert result.exit_code == 0
+
+            # Test sync status without cloud configured (should show disabled)
+            result = runner.invoke(cli, ["sync", "status"])
+            assert result.exit_code == 0
+            assert "Cloud Sync Status" in result.output
+
+            # Configure cloud storage
+            config_path = base_path / "config.yaml"
+            import yaml
+            config_data = yaml.safe_load(config_path.read_text())
+            config_data['cloud'] = {
+                'enabled': True,
+                'backend': 's3',
+                's3': {
+                    'bucket': 'test-bucket',
+                    'region': 'us-east-1'
+                }
+            }
+            config_path.write_text(yaml.dump(config_data))
+
+            # Test sync status with cloud configured
+            result = runner.invoke(cli, ["sync", "status"])
+            assert result.exit_code == 0
+            assert "s3" in result.output
+            assert "test-bucket" in result.output
+
+            # Test sync push
+            result = runner.invoke(cli, ["sync", "push"])
+            assert result.exit_code == 0
+            assert "Pushing to cloud storage" in result.output
+
+            # Test sync pull
+            result = runner.invoke(cli, ["sync", "pull"])
+            assert result.exit_code == 0
+            assert "Pulling from cloud storage" in result.output
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
