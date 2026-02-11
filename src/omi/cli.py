@@ -764,6 +764,9 @@ def serve(ctx, host: str, port: int) -> None:
 
     # Load config if available to get server settings
     config_path = base_path / "config.yaml"
+    api_key_configured = False
+    cors_origins_configured = False
+
     if config_path.exists():
         try:
             import yaml
@@ -775,6 +778,35 @@ def serve(ctx, host: str, port: int) -> None:
                 host = server_config['host']
             if port == 8420 and 'port' in server_config:
                 port = server_config['port']
+
+            # Set API key from config if not already in environment
+            if 'api_key' in server_config and 'OMI_API_KEY' not in os.environ:
+                api_key_value = server_config['api_key']
+                # Handle environment variable expansion like ${VAR_NAME}
+                if isinstance(api_key_value, str) and api_key_value.startswith('${') and api_key_value.endswith('}'):
+                    env_var_name = api_key_value[2:-1]
+                    api_key_value = os.environ.get(env_var_name)
+                    if api_key_value:
+                        os.environ['OMI_API_KEY'] = api_key_value
+                        api_key_configured = True
+                elif isinstance(api_key_value, str) and api_key_value:
+                    os.environ['OMI_API_KEY'] = api_key_value
+                    api_key_configured = True
+
+            # Set CORS origins from config if not already in environment
+            cors_config = server_config.get('cors', {})
+            if 'origins' in cors_config and 'OMI_CORS_ORIGINS' not in os.environ:
+                origins_value = cors_config['origins']
+                # Handle environment variable expansion
+                if isinstance(origins_value, str) and origins_value.startswith('${') and origins_value.endswith('}'):
+                    env_var_name = origins_value[2:-1]
+                    origins_value = os.environ.get(env_var_name)
+                    if origins_value:
+                        os.environ['OMI_CORS_ORIGINS'] = origins_value
+                        cors_origins_configured = True
+                elif isinstance(origins_value, str) and origins_value:
+                    os.environ['OMI_CORS_ORIGINS'] = origins_value
+                    cors_origins_configured = True
         except Exception as e:
             click.echo(click.style(f"Warning: Could not load config: {e}", fg="yellow"))
 
@@ -782,11 +814,25 @@ def serve(ctx, host: str, port: int) -> None:
     click.echo(f"  Host: {click.style(host, fg='cyan')}")
     click.echo(f"  Port: {click.style(str(port), fg='cyan')}")
     click.echo(f"  Base Path: {click.style(str(base_path), fg='cyan')}")
+
+    # Show authentication status
+    if os.environ.get('OMI_API_KEY'):
+        click.echo(f"  Auth: {click.style('Enabled (API key configured)', fg='green')}")
+    else:
+        click.echo(f"  Auth: {click.style('Disabled (development mode)', fg='yellow')}")
+
+    # Show CORS status
+    cors_origins = os.environ.get('OMI_CORS_ORIGINS', '*')
+    if cors_origins == '*':
+        click.echo(f"  CORS: {click.style('All origins allowed', fg='yellow')}")
+    else:
+        click.echo(f"  CORS: {click.style(cors_origins, fg='green')}")
+
     click.echo()
 
     try:
         # Import and start the FastAPI server
-        from .api.server import start_server
+        from .server import start_server
 
         click.echo(click.style("Server starting...", fg="green"))
         click.echo(click.style("Press Ctrl+C to stop", fg="yellow"))
