@@ -486,8 +486,9 @@ def check(ctx) -> None:
 @click.option('--dry-run', is_flag=True, help='Preview compression without executing')
 @click.option('--before', type=str, default=None, help='Only compress memories before this date (YYYY-MM-DD)')
 @click.option('--age-days', type=int, default=None, help='Only compress memories older than N days')
+@click.option('--llm-provider', type=click.Choice(['openai', 'anthropic'], case_sensitive=False), default='anthropic', help='LLM provider to use for compression (default: anthropic)')
 @click.pass_context
-def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int]) -> None:
+def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int], llm_provider: str) -> None:
     """Compress and summarize memory data.
 
     Performs:
@@ -499,6 +500,7 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int])
     Use --dry-run to preview what would be compressed without making changes.
     Use --before to specify a date cutoff for compression (e.g., --before 2024-01-01).
     Use --age-days to specify memories older than N days (e.g., --age-days 30).
+    Use --llm-provider to choose between 'openai' or 'anthropic' for compression (default: anthropic).
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
@@ -513,6 +515,8 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int])
 
     if dry_run:
         click.echo(click.style("  Preview mode - no changes will be made", fg="yellow"))
+
+    click.echo(f"  LLM Provider: {click.style(llm_provider, fg='cyan')}")
 
     click.echo("=" * 50)
 
