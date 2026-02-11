@@ -567,6 +567,17 @@ class SentenceTransformerEmbedder(EmbeddingProvider):
         return [emb.tolist() for emb in embeddings]
 
 
+# Provider registry mapping provider names to classes
+PROVIDER_REGISTRY = {
+    "nim": NIMEmbedder,
+    "openai": OpenAIEmbedder,
+    "cohere": CohereEmbedder,
+    "ollama": OllamaEmbedder,
+    "sentence_transformers": SentenceTransformerEmbedder,
+    "sentence-transformers": SentenceTransformerEmbedder,
+}
+
+
 class EmbeddingCache:
     """Disk cache for embeddings"""
 
