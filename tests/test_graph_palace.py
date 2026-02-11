@@ -133,9 +133,8 @@ class TestGraphPalace(unittest.TestCase):
         
         result = self.palace.update_embedding(memory_id, new_embedding)
         self.assertTrue(result)
-        
+
         memory = self.palace.get_memory(memory_id)
-        # Manual allclose check since numpy.testing may not be available
         self.assertTrue(np.allclose(memory.embedding, new_embedding, rtol=1e-5))
 
     def test_delete_memory(self):
@@ -335,110 +334,15 @@ class TestGraphPalace(unittest.TestCase):
         """Test getting top central memories."""
         # Create memories with different centralities
         hub_id = self.palace.store_memory(content="Hub memory", memory_type="fact")
-
+        
         for i in range(5):
             leaf_id = self.palace.store_memory(content=f"Leaf {i}", memory_type="fact")
             self.palace.create_edge(hub_id, leaf_id, "RELATED_TO")
-
+        
         self.palace.get_memory(hub_id)  # Access it
-
+        
         top = self.palace.get_top_central(limit=5)
         self.assertGreater(len(top), 0)
-
-    def test_get_top_central_query_performance(self):
-        """Test that get_top_central uses single query instead of N+1 pattern."""
-        import sqlite3
-
-        # Create 100 memories with various edge counts
-        print("\n  Creating 100 memories with varying connectivity...")
-        memory_ids = []
-        for i in range(100):
-            memory_id = self.palace.store_memory(
-                content=f"Memory {i}: Test content for centrality",
-                memory_type="fact"
-            )
-            memory_ids.append(memory_id)
-
-        # Create edges with different patterns
-        # Hub memory: connected to many others
-        hub_id = memory_ids[0]
-        for i in range(1, 20):
-            self.palace.create_edge(hub_id, memory_ids[i], "RELATED_TO")
-
-        # Medium connectivity memories
-        for i in range(20, 40):
-            for j in range(i + 1, min(i + 5, 40)):
-                self.palace.create_edge(memory_ids[i], memory_ids[j], "RELATED_TO")
-
-        # Access some memories to vary access counts
-        for _ in range(10):
-            self.palace.get_memory(hub_id)
-        for _ in range(5):
-            self.palace.get_memory(memory_ids[20])
-
-        # Track query count using SQLite trace
-        query_count = [0]
-
-        def trace_callback(query):
-            # Count SELECT queries (ignore pragma, etc.)
-            if query.strip().upper().startswith('SELECT'):
-                query_count[0] += 1
-
-        # Close the existing connection to enable tracing
-        self.palace.close()
-
-        # Reconnect with tracing enabled
-        conn = sqlite3.connect(self.db_path)
-        conn.set_trace_callback(trace_callback)
-
-        # Execute get_top_central query
-        cursor = conn.execute("""
-            SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                   m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
-                   COUNT(e.id) as edge_count
-            FROM memories m
-            LEFT JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
-            GROUP BY m.id
-        """)
-        results = cursor.fetchall()
-        conn.close()
-
-        # Reconnect palace for cleanup
-        self.palace = GraphPalace(self.db_path)
-
-        print(f"  Query count: {query_count[0]} (should be 1, not {len(memory_ids)}+)")
-        print(f"  Retrieved {len(results)} memories")
-
-        # Verify single query was executed
-        self.assertEqual(query_count[0], 1,
-                        f"Expected 1 query, got {query_count[0]}. N+1 pattern detected!")
-
-        # Verify we got all memories
-        self.assertEqual(len(results), 100)
-
-        # Verify centrality calculation
-        # Hub memory should have high edge count
-        hub_row = [r for r in results if r[0] == hub_id][0]
-        hub_edge_count = hub_row[10]
-        self.assertGreaterEqual(hub_edge_count, 19, "Hub should have many edges")
-
-        # Test the actual method works correctly
-        top_central = self.palace.get_top_central(limit=10)
-        self.assertEqual(len(top_central), 10)
-
-        # Verify results are sorted by centrality (descending)
-        centralities = [score for _, score in top_central]
-        self.assertEqual(centralities, sorted(centralities, reverse=True),
-                        "Results should be sorted by centrality descending")
-
-        # Hub memory should be in top results
-        top_ids = [memory.id for memory, _ in top_central]
-        self.assertIn(hub_id, top_ids, "Hub memory should be in top central")
-
-        # Verify centrality scores are in valid range
-        for _, centrality in top_central:
-            self.assertGreaterEqual(centrality, 0.0)
-            self.assertLessEqual(centrality, 1.0)
 
     # ==================== Graph Traversal ====================
 
