@@ -50,10 +50,11 @@ def list_plugins(ctx: click.Context) -> None:
                 for plugin in plugins_in_group:
                     # Format plugin info
                     name = plugin.name
+                    class_name = plugin.attr
                     status = click.style("✓ loaded", fg="green") if plugin.loaded else click.style("✗ not loaded", fg="yellow")
 
-                    # Build plugin line
-                    plugin_line = f"  • {name}"
+                    # Build plugin line with class name
+                    plugin_line = f"  • {name} ({class_name})"
 
                     # Add version if available
                     if plugin.version:
