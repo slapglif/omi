@@ -103,6 +103,11 @@ def init(ctx) -> None:
     config_template = """# OMI Configuration File
 # OpenClaw Memory Infrastructure
 
+server:
+  host: 0.0.0.0
+  port: 8420
+  # api_key: ${OMI_API_KEY}  # Set via environment variable for REST API authentication
+
 embedding:
   provider: nim  # or ollama
   model: baai/bge-m3
