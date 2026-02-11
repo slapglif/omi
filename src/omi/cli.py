@@ -158,7 +158,6 @@ compression:
                     confidence REAL,
                     embedding BLOB,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     access_count INTEGER DEFAULT 0,
                     last_accessed TIMESTAMP
                 )
@@ -775,7 +774,7 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
                 # Update content with timestamp
                 cursor.execute("""
                     UPDATE memories
-                    SET content = ?, updated_at = ?
+                    SET content = ?, last_accessed = ?
                     WHERE id = ?
                 """, (summary, datetime.now().isoformat(), memory_id))
 
