@@ -322,4 +322,111 @@ async def get_edges(
         )
 
 
+@router.get("/graph")
+async def get_graph(
+    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of memories and edges to return")
+) -> Dict[str, Any]:
+    """
+    Retrieve complete graph data (memories + edges) in one call.
+
+    This endpoint is optimized for dashboard visualization, returning both
+    memories and edges in a single request. Unlike /memories and /edges,
+    this endpoint returns ALL edges (up to limit) and ALL memories (up to limit),
+    without filtering.
+
+    Query Parameters:
+        limit: Maximum number of memories and edges to return (1-1000, default 100)
+
+    Returns:
+        Dict containing:
+            - memories: List of memory objects (nodes)
+            - edges: List of edge objects (relationships)
+            - memory_count: Total number of memories in database
+            - edge_count: Total number of edges in database
+            - limit: Applied limit
+
+    Raises:
+        HTTPException: If database access fails
+    """
+    try:
+        palace = get_palace_instance()
+
+        with palace._db_lock:
+            # Get total counts
+            memory_count_cursor = palace._conn.execute("SELECT COUNT(*) FROM memories")
+            total_memory_count = memory_count_cursor.fetchone()[0]
+
+            edge_count_cursor = palace._conn.execute("SELECT COUNT(*) FROM edges")
+            total_edge_count = edge_count_cursor.fetchone()[0]
+
+            # Retrieve memories (ordered by most recently accessed)
+            memory_query = """
+                SELECT id, content, memory_type, confidence,
+                       created_at, last_accessed, access_count, instance_ids, content_hash
+                FROM memories
+                ORDER BY last_accessed DESC
+                LIMIT ?
+            """
+            memory_cursor = palace._conn.execute(memory_query, [limit])
+            memory_rows = memory_cursor.fetchall()
+
+            # Retrieve edges (ordered by most recent)
+            edge_query = """
+                SELECT id, source_id, target_id, edge_type, strength, created_at
+                FROM edges
+                ORDER BY created_at DESC
+                LIMIT ?
+            """
+            edge_cursor = palace._conn.execute(edge_query, [limit])
+            edge_rows = edge_cursor.fetchall()
+
+        # Convert memory rows to dict objects
+        memories = []
+        for row in memory_rows:
+            # Don't include embedding in response (too large for graph viz)
+            memory = {
+                "id": row[0],
+                "content": row[1],
+                "memory_type": row[2],
+                "confidence": row[3],
+                "created_at": row[4],
+                "last_accessed": row[5],
+                "access_count": row[6],
+                "instance_ids": row[7] if row[7] else "[]",
+                "content_hash": row[8]
+            }
+            memories.append(memory)
+
+        # Convert edge rows to dict objects
+        edges = []
+        for row in edge_rows:
+            edge = {
+                "id": row[0],
+                "source_id": row[1],
+                "target_id": row[2],
+                "edge_type": row[3],
+                "strength": row[4],
+                "created_at": row[5]
+            }
+            edges.append(edge)
+
+        return {
+            "memories": memories,
+            "edges": edges,
+            "memory_count": total_memory_count,
+            "edge_count": total_edge_count,
+            "limit": limit
+        }
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve graph data: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve graph data: {str(e)}"
+        )
+
+
 __all__ = ['router', 'get_palace_instance']
