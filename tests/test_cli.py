@@ -150,7 +150,7 @@ class TestCLIStore:
             import sys
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
-            from omi.persistence import GraphPalace
+            from omi import GraphPalace
 
             # Initialize
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
@@ -196,7 +196,7 @@ class TestCLIRecall:
             import sys
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
-            from omi.persistence import GraphPalace
+            from omi import GraphPalace
 
             # Initialize
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
