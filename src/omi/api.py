@@ -21,7 +21,7 @@ from .embeddings import OllamaEmbedder, EmbeddingCache
 
 # Security
 from .security import IntegrityChecker, TopologyVerifier, ConsensusManager
-from .events import MemoryStoredEvent
+from .events import MemoryStoredEvent, MemoryRecalledEvent
 from .event_bus import get_event_bus
 
 # Vault
@@ -91,7 +91,17 @@ class MemoryTools:
         
         # Sort by final score
         weighted.sort(key=lambda x: x['final_score'], reverse=True)
-        return weighted[:limit]
+        results = weighted[:limit]
+
+        # Emit event
+        event = MemoryRecalledEvent(
+            query=query,
+            result_count=len(results),
+            top_results=results
+        )
+        get_event_bus().publish(event)
+
+        return results
     
     def store(self,
              content: str,
