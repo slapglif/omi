@@ -34,9 +34,10 @@ from .events import (
     SessionStartedEvent,
     SessionEndedEvent
 )
-from .api import MemoryTools
+from .api import MemoryTools, BeliefTools
 from .storage.graph_palace import GraphPalace
 from .embeddings import OllamaEmbedder, EmbeddingCache
+from .belief import BeliefNetwork, ContradictionDetector
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +63,34 @@ class RecallMemoryResponse(BaseModel):
     count: int = Field(..., description="Number of memories returned")
 
 
+class CreateBeliefRequest(BaseModel):
+    """Request body for creating a belief."""
+    content: str = Field(..., description="Belief statement")
+    initial_confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Starting confidence (0.0-1.0)")
+
+
+class CreateBeliefResponse(BaseModel):
+    """Response after creating a belief."""
+    belief_id: str = Field(..., description="UUID of created belief")
+    message: str = Field(default="Belief created successfully")
+
+
+class UpdateBeliefRequest(BaseModel):
+    """Request body for updating a belief with evidence."""
+    evidence_memory_id: str = Field(..., description="ID of evidence memory")
+    supports: bool = Field(..., description="True if evidence supports the belief, False if contradicts")
+    strength: float = Field(..., ge=0.0, le=1.0, description="Evidence strength (0.0-1.0)")
+
+
+class UpdateBeliefResponse(BaseModel):
+    """Response after updating a belief."""
+    new_confidence: float = Field(..., description="Updated confidence value")
+    message: str = Field(default="Belief updated successfully")
+
+
 # Initialize components
 _memory_tools_instance = None
+_belief_tools_instance = None
 
 def get_memory_tools() -> MemoryTools:
     """Initialize and return MemoryTools instance (lazy initialization)."""
@@ -93,6 +120,26 @@ def get_memory_tools() -> MemoryTools:
     return _memory_tools_instance
 
 
+def get_belief_tools() -> BeliefTools:
+    """Initialize and return BeliefTools instance (lazy initialization)."""
+    global _belief_tools_instance
+
+    if _belief_tools_instance is None:
+        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        db_path = base_path / 'palace.sqlite'
+
+        # Initialize components
+        palace = GraphPalace(db_path)
+        belief_network = BeliefNetwork(palace)
+        detector = ContradictionDetector()
+
+        _belief_tools_instance = BeliefTools(belief_network, detector)
+
+    return _belief_tools_instance
+
+
 # Create FastAPI app
 app = FastAPI(
     title="OMI Event Streaming API",
@@ -110,6 +157,8 @@ async def root():
         "endpoints": {
             "/api/v1/store": "POST - Store a new memory",
             "/api/v1/recall": "GET - Recall memories by semantic search",
+            "/api/v1/beliefs": "POST - Create a new belief",
+            "/api/v1/beliefs/{id}": "PUT - Update a belief with evidence",
             "/api/v1/events": "SSE endpoint for real-time event streaming",
             "/health": "Health check endpoint"
         }
@@ -191,6 +240,75 @@ async def recall_memory(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to recall memories: {str(e)}"
+        )
+
+
+@app.post("/api/v1/beliefs", response_model=CreateBeliefResponse, status_code=status.HTTP_201_CREATED)
+async def create_belief(request: CreateBeliefRequest):
+    """
+    Create a new belief with initial confidence.
+
+    Args:
+        request: Belief details (content, initial_confidence)
+
+    Returns:
+        CreateBeliefResponse with belief_id
+
+    Example:
+        curl -X POST http://localhost:8420/api/v1/beliefs \\
+            -H "Content-Type: application/json" \\
+            -d '{"content": "test belief", "initial_confidence": 0.5}'
+    """
+    try:
+        tools = get_belief_tools()
+        belief_id = tools.create(
+            content=request.content,
+            initial_confidence=request.initial_confidence
+        )
+        return CreateBeliefResponse(belief_id=belief_id)
+    except Exception as e:
+        logger.error(f"Error creating belief: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create belief: {str(e)}"
+        )
+
+
+@app.put("/api/v1/beliefs/{id}", response_model=UpdateBeliefResponse)
+async def update_belief(id: str, request: UpdateBeliefRequest):
+    """
+    Update a belief with new evidence.
+
+    Uses EMA (Exponential Moving Average) for confidence updates:
+    - Supporting evidence: λ=0.15
+    - Contradicting evidence: λ=0.30
+
+    Args:
+        id: Belief ID to update
+        request: Evidence details (evidence_memory_id, supports, strength)
+
+    Returns:
+        UpdateBeliefResponse with new_confidence
+
+    Example:
+        curl -X PUT http://localhost:8420/api/v1/beliefs/{belief_id} \\
+            -H "Content-Type: application/json" \\
+            -d '{"evidence_memory_id": "mem_123", "supports": true, "strength": 0.8}'
+    """
+    try:
+        tools = get_belief_tools()
+        new_confidence = tools.update(
+            belief_id=id,
+            evidence_memory_id=request.evidence_memory_id,
+            supports=request.supports,
+            strength=request.strength
+        )
+        return UpdateBeliefResponse(new_confidence=new_confidence)
+    except Exception as e:
+        logger.error(f"Error updating belief: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update belief: {str(e)}"
         )
 
 
