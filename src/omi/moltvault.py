@@ -405,6 +405,235 @@ def detect_conflicts(
     return None
 
 
+def resolve_conflict(
+    conflict: ConflictInfo,
+    strategy: str = "last-write-wins",
+    backend: Optional[StorageBackend] = None,
+    local_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """
+    Resolve a file conflict using the specified strategy.
+
+    Strategies:
+    - 'last-write-wins': Keep the most recently modified version
+    - 'manual': Return conflict details for manual resolution (no automatic action)
+    - 'merge': Attempt to merge both versions (for text files only)
+
+    Args:
+        conflict: ConflictInfo object describing the conflict
+        strategy: Resolution strategy to use ('last-write-wins', 'manual', 'merge')
+        backend: Optional StorageBackend for downloading remote version
+        local_path: Optional Path to local file (required for merge strategy)
+
+    Returns:
+        Dict with resolution result:
+        {
+            'status': 'resolved' | 'manual_required',
+            'action': 'keep_local' | 'keep_remote' | 'merged' | 'none',
+            'winner': 'local' | 'remote' | 'both' | None,
+            'message': str,
+            'conflict': ConflictInfo (for manual strategy)
+        }
+
+    Raises:
+        ValueError: If strategy is invalid or required parameters are missing
+
+    Examples:
+        >>> from datetime import datetime
+        >>> conflict = ConflictInfo(
+        ...     file_path="test.txt",
+        ...     local_modified=datetime(2024, 1, 1, 12, 0),
+        ...     remote_modified=datetime(2024, 1, 2, 12, 0),
+        ...     local_checksum="abc123",
+        ...     remote_checksum="def456",
+        ...     local_size=100,
+        ...     remote_size=120,
+        ...     conflict_type="both_modified"
+        ... )
+        >>> result = resolve_conflict(conflict, strategy="last-write-wins")
+        >>> result['action']
+        'keep_remote'
+    """
+    # Validate strategy
+    valid_strategies = ['last-write-wins', 'manual', 'merge']
+    if strategy not in valid_strategies:
+        raise ValueError(
+            f"Invalid strategy '{strategy}'. "
+            f"Valid options: {', '.join(valid_strategies)}"
+        )
+
+    # Manual strategy - return conflict for user decision
+    if strategy == 'manual':
+        return {
+            'status': 'manual_required',
+            'action': 'none',
+            'winner': None,
+            'message': (
+                f"Conflict detected in {conflict.file_path}. "
+                f"Local modified: {conflict.local_modified.isoformat()}, "
+                f"Remote modified: {conflict.remote_modified.isoformat()}. "
+                f"Manual resolution required."
+            ),
+            'conflict': conflict,
+        }
+
+    # Last-write-wins strategy - keep the newest version
+    if strategy == 'last-write-wins':
+        if conflict.remote_modified > conflict.local_modified:
+            return {
+                'status': 'resolved',
+                'action': 'keep_remote',
+                'winner': 'remote',
+                'message': (
+                    f"Resolved {conflict.file_path}: keeping remote version "
+                    f"(modified {conflict.remote_modified.isoformat()}, "
+                    f"newer than local {conflict.local_modified.isoformat()})"
+                ),
+            }
+        else:
+            return {
+                'status': 'resolved',
+                'action': 'keep_local',
+                'winner': 'local',
+                'message': (
+                    f"Resolved {conflict.file_path}: keeping local version "
+                    f"(modified {conflict.local_modified.isoformat()}, "
+                    f"newer than or equal to remote {conflict.remote_modified.isoformat()})"
+                ),
+            }
+
+    # Merge strategy - attempt to merge text files
+    if strategy == 'merge':
+        # Validate required parameters
+        if not local_path:
+            raise ValueError(
+                "local_path required for merge strategy"
+            )
+        if not backend:
+            raise ValueError(
+                "backend required for merge strategy to download remote version"
+            )
+
+        local_file = Path(local_path)
+        if not local_file.exists():
+            raise FileNotFoundError(f"Local file not found: {local_file}")
+
+        # Check if file appears to be text (simple heuristic)
+        try:
+            with open(local_file, 'r', encoding='utf-8') as f:
+                local_content = f.read()
+        except (UnicodeDecodeError, PermissionError) as e:
+            # Binary file or unreadable - can't merge
+            return {
+                'status': 'manual_required',
+                'action': 'none',
+                'winner': None,
+                'message': (
+                    f"Cannot merge {conflict.file_path}: file is not text or unreadable. "
+                    f"Error: {e}. Manual resolution required."
+                ),
+                'conflict': conflict,
+            }
+
+        # Download remote version for comparison
+        try:
+            with tempfile.NamedTemporaryFile(mode='w+b', delete=False) as tmp:
+                remote_tmp_path = Path(tmp.name)
+
+            try:
+                # Extract the key from file_path (relative to storage root)
+                remote_key = conflict.file_path
+                backend.download(key=remote_key, local_path=remote_tmp_path)
+
+                # Read remote content
+                try:
+                    with open(remote_tmp_path, 'r', encoding='utf-8') as f:
+                        remote_content = f.read()
+                except (UnicodeDecodeError, PermissionError):
+                    return {
+                        'status': 'manual_required',
+                        'action': 'none',
+                        'winner': None,
+                        'message': (
+                            f"Cannot merge {conflict.file_path}: "
+                            f"remote file is not text or unreadable. "
+                            f"Manual resolution required."
+                        ),
+                        'conflict': conflict,
+                    }
+
+                # Simple merge: check if files are identical (despite different metadata)
+                if local_content == remote_content:
+                    return {
+                        'status': 'resolved',
+                        'action': 'keep_local',
+                        'winner': 'both',
+                        'message': (
+                            f"Resolved {conflict.file_path}: files are identical "
+                            f"(false conflict due to metadata differences)"
+                        ),
+                    }
+
+                # Check if one is a superset of the other (simple append case)
+                if local_content in remote_content:
+                    return {
+                        'status': 'manual_required',
+                        'action': 'keep_remote',
+                        'winner': 'remote',
+                        'message': (
+                            f"Merge suggested for {conflict.file_path}: "
+                            f"remote appears to be superset of local. "
+                            f"Consider keeping remote version."
+                        ),
+                        'conflict': conflict,
+                    }
+                elif remote_content in local_content:
+                    return {
+                        'status': 'manual_required',
+                        'action': 'keep_local',
+                        'winner': 'local',
+                        'message': (
+                            f"Merge suggested for {conflict.file_path}: "
+                            f"local appears to be superset of remote. "
+                            f"Consider keeping local version."
+                        ),
+                        'conflict': conflict,
+                    }
+
+                # Complex conflict - need manual merge
+                return {
+                    'status': 'manual_required',
+                    'action': 'none',
+                    'winner': None,
+                    'message': (
+                        f"Cannot auto-merge {conflict.file_path}: "
+                        f"files have diverged. Manual merge required. "
+                        f"Local: {len(local_content)} chars, "
+                        f"Remote: {len(remote_content)} chars"
+                    ),
+                    'conflict': conflict,
+                }
+
+            finally:
+                # Cleanup temp file
+                remote_tmp_path.unlink(missing_ok=True)
+
+        except Exception as e:
+            return {
+                'status': 'manual_required',
+                'action': 'none',
+                'winner': None,
+                'message': (
+                    f"Error during merge of {conflict.file_path}: {e}. "
+                    f"Manual resolution required."
+                ),
+                'conflict': conflict,
+            }
+
+    # Should never reach here due to validation above
+    raise ValueError(f"Unhandled strategy: {strategy}")
+
+
 class EncryptionManager:
     """Handle encryption/decryption of backups"""
     
