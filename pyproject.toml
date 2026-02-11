@@ -41,6 +41,7 @@ dev = [
     "mypy>=1.0.0",
 ]
 ollama = ["ollama>=0.1.0"]
+openai = ["openai>=1.0.0"]
 nim = []
 
 [project.scripts]
