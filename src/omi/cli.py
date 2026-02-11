@@ -874,32 +874,86 @@ def sync_push(ctx, force: bool) -> None:
 
     try:
         import yaml
-        config_data = yaml.safe_load(config_path.read_text()) or {}
-        cloud_config = config_data.get('cloud', {})
+        from .moltvault import create_backend_from_config
+        from .storage_backends import StorageError
 
-        if not cloud_config.get('enabled', False):
+        config_data = yaml.safe_load(config_path.read_text()) or {}
+
+        # Check for backup configuration (used by create_backend_from_config)
+        if 'backup' not in config_data:
             click.echo(click.style("Error: Cloud storage not configured.", fg="red"))
-            click.echo("Enable cloud storage in config.yaml:")
-            click.echo("  cloud:")
-            click.echo("    enabled: true")
-            click.echo("    backend: s3  # or gcs")
+            click.echo("Configure cloud storage:")
+            click.echo("  omi config set backup.backend s3")
+            click.echo("  omi config set backup.bucket my-bucket")
             sys.exit(1)
 
-        backend = cloud_config.get('backend', 'none')
-        click.echo(f" ✓ Backend: {click.style(backend, fg='cyan')}")
+        backup_config = config_data['backup']
+        backend_type = backup_config.get('backend', 'none')
+        bucket = backup_config.get('bucket', 'unknown')
 
-        # TODO: Implement actual cloud sync logic
-        # For now, this is a placeholder that will be implemented in cloud sync subtasks
-        click.echo(f" ✓ Validated local files")
+        click.echo(f" ✓ Backend: {click.style(backend_type, fg='cyan')}")
+        click.echo(f" ✓ Bucket: {click.style(bucket, fg='cyan')}")
+
+        # Create backend from config
+        backend = create_backend_from_config(config_data)
+
+        # Files to sync
+        files_to_sync = []
+
+        # Add NOW.md if it exists
+        now_md = base_path / "NOW.md"
+        if now_md.exists():
+            files_to_sync.append(('NOW.md', now_md))
+
+        # Add daily logs directory
+        daily_logs_dir = base_path / "daily"
+        if daily_logs_dir.exists():
+            for log_file in daily_logs_dir.glob("*.md"):
+                rel_path = f"daily/{log_file.name}"
+                files_to_sync.append((rel_path, log_file))
+
+        # Add MEMORY.md if it exists
+        memory_md = base_path / "MEMORY.md"
+        if memory_md.exists():
+            files_to_sync.append(('MEMORY.md', memory_md))
+
+        # Add palace database
+        palace_db = base_path / "palace.sqlite"
+        if palace_db.exists():
+            files_to_sync.append(('palace.sqlite', palace_db))
+
+        # Add config (but be careful with credentials)
+        files_to_sync.append(('config.yaml', config_path))
+
+        if not files_to_sync:
+            click.echo(click.style("Warning: No files to sync", fg="yellow"))
+            sys.exit(0)
+
+        click.echo(f"\nUploading {len(files_to_sync)} file(s)...")
 
         if force:
             click.echo(click.style(" ⚠ Force mode: will overwrite cloud data", fg="yellow"))
 
-        click.echo(click.style("\n✓ Push complete", fg="green", bold=True))
-        click.echo("Note: Full cloud sync implementation pending")
+        # Upload each file
+        uploaded = 0
+        for remote_key, local_path in files_to_sync:
+            try:
+                backend.upload(local_path, remote_key)
+                click.echo(f"   {click.style('✓', fg='green')} {remote_key}")
+                uploaded += 1
+            except StorageError as e:
+                click.echo(f"   {click.style('✗', fg='red')} {remote_key}: {e}")
 
+        click.echo(click.style(f"\n✓ Push complete: {uploaded}/{len(files_to_sync)} files uploaded", fg="green", bold=True))
+
+    except ImportError as e:
+        click.echo(click.style(f"Error: Missing required package: {e}", fg="red"))
+        click.echo("Install with: pip install boto3  # for S3")
+        sys.exit(1)
     except Exception as e:
         click.echo(click.style(f"Error: Push failed: {e}", fg="red"))
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
@@ -936,30 +990,72 @@ def sync_pull(ctx, force: bool) -> None:
 
     try:
         import yaml
-        config_data = yaml.safe_load(config_path.read_text()) or {}
-        cloud_config = config_data.get('cloud', {})
+        from .moltvault import create_backend_from_config
+        from .storage_backends import StorageError
 
-        if not cloud_config.get('enabled', False):
+        config_data = yaml.safe_load(config_path.read_text()) or {}
+
+        # Check for backup configuration
+        if 'backup' not in config_data:
             click.echo(click.style("Error: Cloud storage not configured.", fg="red"))
-            click.echo("Enable cloud storage in config.yaml:")
-            click.echo("  cloud:")
-            click.echo("    enabled: true")
-            click.echo("    backend: s3  # or gcs")
+            click.echo("Configure cloud storage:")
+            click.echo("  omi config set backup.backend s3")
+            click.echo("  omi config set backup.bucket my-bucket")
             sys.exit(1)
 
-        backend = cloud_config.get('backend', 'none')
-        click.echo(f" ✓ Backend: {click.style(backend, fg='cyan')}")
+        backup_config = config_data['backup']
+        backend_type = backup_config.get('backend', 'none')
+        bucket = backup_config.get('bucket', 'unknown')
 
-        # TODO: Implement actual cloud sync logic
-        # For now, this is a placeholder that will be implemented in cloud sync subtasks
+        click.echo(f" ✓ Backend: {click.style(backend_type, fg='cyan')}")
+        click.echo(f" ✓ Bucket: {click.style(bucket, fg='cyan')}")
+
+        # Create backend from config
+        backend = create_backend_from_config(config_data)
+
         if force:
             click.echo(click.style(" ⚠ Force mode: will overwrite local data", fg="yellow"))
 
-        click.echo(click.style("\n✓ Pull complete", fg="green", bold=True))
-        click.echo("Note: Full cloud sync implementation pending")
+        # List all files in cloud storage
+        click.echo("\nListing remote files...")
+        try:
+            remote_objects = backend.list(prefix="")
+            if not remote_objects:
+                click.echo(click.style("Warning: No files found in cloud storage", fg="yellow"))
+                sys.exit(0)
 
+            click.echo(f"Found {len(remote_objects)} file(s) in cloud storage")
+
+            # Download each file
+            downloaded = 0
+            for obj in remote_objects:
+                remote_key = obj.key
+                local_path = base_path / remote_key
+
+                # Ensure parent directory exists
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+
+                try:
+                    backend.download(remote_key, local_path)
+                    click.echo(f"   {click.style('✓', fg='green')} {remote_key}")
+                    downloaded += 1
+                except StorageError as e:
+                    click.echo(f"   {click.style('✗', fg='red')} {remote_key}: {e}")
+
+            click.echo(click.style(f"\n✓ Pull complete: {downloaded}/{len(remote_objects)} files downloaded", fg="green", bold=True))
+
+        except StorageError as e:
+            click.echo(click.style(f"Error: Failed to list remote files: {e}", fg="red"))
+            sys.exit(1)
+
+    except ImportError as e:
+        click.echo(click.style(f"Error: Missing required package: {e}", fg="red"))
+        click.echo("Install with: pip install boto3  # for S3")
+        sys.exit(1)
     except Exception as e:
         click.echo(click.style(f"Error: Pull failed: {e}", fg="red"))
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
@@ -994,40 +1090,50 @@ def sync_status(ctx) -> None:
     try:
         import yaml
         config_data = yaml.safe_load(config_path.read_text()) or {}
-        cloud_config = config_data.get('cloud', {})
+        backup_config = config_data.get('backup', {})
 
         # Configuration status
         click.echo(f"\nConfiguration:")
-        enabled = cloud_config.get('enabled', False)
-        status_color = "green" if enabled else "yellow"
-        click.echo(f"  Enabled: {click.style(str(enabled), fg=status_color)}")
 
-        if enabled:
-            backend = cloud_config.get('backend', 'none')
-            click.echo(f"  Backend: {click.style(backend, fg='cyan')}")
+        if not backup_config:
+            click.echo(click.style("  Cloud storage not configured", fg="yellow"))
+            click.echo("\nTo configure cloud storage:")
+            click.echo("  omi config set backup.backend s3")
+            click.echo("  omi config set backup.bucket my-bucket")
+            sys.exit(0)
 
-            if backend == 's3':
-                bucket = cloud_config.get('s3', {}).get('bucket', 'not configured')
-                click.echo(f"  S3 Bucket: {click.style(bucket, fg='cyan')}")
-            elif backend == 'gcs':
-                bucket = cloud_config.get('gcs', {}).get('bucket', 'not configured')
-                click.echo(f"  GCS Bucket: {click.style(bucket, fg='cyan')}")
+        backend = backup_config.get('backend', 'none')
+        bucket = backup_config.get('bucket', 'not configured')
 
-            # TODO: Implement actual sync status check
-            # For now, show placeholder status
-            click.echo(f"\nSync Status:")
-            click.echo(f"  Last Sync: {click.style('Never', fg='yellow')}")
-            click.echo(f"  Local Files: {click.style('Not yet synced', fg='yellow')}")
-            click.echo(f"  Cloud Files: {click.style('Not yet synced', fg='yellow')}")
+        click.echo(f"  Backend: {click.style(backend, fg='cyan')}")
+        click.echo(f"  Bucket: {click.style(bucket, fg='cyan')}")
 
-            click.echo(f"\n{click.style('Status:', bold=True)} {click.style('Ready for sync', fg='green')}")
-            click.echo("Note: Full cloud sync implementation pending")
-        else:
-            click.echo(f"\nCloud storage is not enabled.")
-            click.echo("To enable, update config.yaml:")
-            click.echo("  cloud:")
-            click.echo("    enabled: true")
-            click.echo("    backend: s3  # or gcs")
+        if 'region' in backup_config:
+            click.echo(f"  Region: {click.style(backup_config['region'], fg='cyan')}")
+
+        if 'endpoint' in backup_config:
+            click.echo(f"  Endpoint: {click.style(backup_config['endpoint'], fg='cyan')}")
+
+        # Sync status
+        click.echo(f"\nSync Status:")
+        click.echo(f"  Last Sync: {click.style('Never', fg='yellow')}")
+
+        # Count local files
+        local_files = 0
+        if (base_path / "NOW.md").exists():
+            local_files += 1
+        if (base_path / "MEMORY.md").exists():
+            local_files += 1
+        if (base_path / "palace.sqlite").exists():
+            local_files += 1
+        daily_dir = base_path / "daily"
+        if daily_dir.exists():
+            local_files += len(list(daily_dir.glob("*.md")))
+
+        click.echo(f"  Local Files: {click.style(str(local_files), fg='cyan')}")
+        click.echo(f"  Cloud Files: {click.style('Unknown', fg='yellow')}")
+
+        click.echo(f"\n{click.style('Status:', bold=True)} {click.style('Ready for sync', fg='green')}")
 
     except Exception as e:
         click.echo(click.style(f"Error: Failed to check status: {e}", fg="red"))
