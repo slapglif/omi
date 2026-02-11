@@ -450,130 +450,125 @@ class GraphPalace:
 
         return memories
 
-    def create_edge(self, 
-                   source_id: str, 
-                   target_id: str, 
-                   edge_type: str, 
+    def create_edge(self,
+                   source_id: str,
+                   target_id: str,
+                   edge_type: str,
                    strength: Optional[float] = None) -> str:
         """
         Create a relationship edge between memories.
-        
+
         Args:
             source_id: Source memory ID
             target_id: Target memory ID
             edge_type: One of (SUPPORTS, CONTRADICTS, RELATED_TO, DEPENDS_ON, POSTED, DISCUSSED)
             strength: Relationship strength 0.0-1.0
-            
+
         Returns:
             edge_id: UUID of the created edge
         """
         self._validate_edge_type(edge_type)
-        
+
         edge_id = str(uuid.uuid4())
-        
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA foreign_keys=ON")
-            conn.execute("""
-                INSERT INTO edges (id, source_id, target_id, edge_type, strength, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (edge_id, source_id, target_id, edge_type, strength, datetime.now().isoformat()))
-            conn.commit()
-        
+
+        self._conn.execute("""
+            INSERT INTO edges (id, source_id, target_id, edge_type, strength, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (edge_id, source_id, target_id, edge_type, strength, datetime.now().isoformat()))
+        self._conn.commit()
+
         return edge_id
 
     def delete_edge(self, edge_id: str) -> bool:
         """Delete an edge by ID."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("DELETE FROM edges WHERE id = ?", (edge_id,))
-            conn.commit()
-            return cursor.rowcount > 0
+        cursor = self._conn.execute("DELETE FROM edges WHERE id = ?", (edge_id,))
+        self._conn.commit()
+        return cursor.rowcount > 0
 
     def get_edges(self, memory_id: str, edge_type: Optional[str] = None) -> List[Edge]:
         """
         Get all edges connected to a memory.
-        
+
         Args:
             memory_id: The memory ID
             edge_type: Optional filter by edge type
-            
+
         Returns:
             List of Edge objects
         """
         edges = []
-        
-        with sqlite3.connect(self.db_path) as conn:
-            if edge_type:
-                cursor = conn.execute("""
-                    SELECT id, source_id, target_id, edge_type, strength, created_at
-                    FROM edges WHERE (source_id = ? OR target_id = ?) AND edge_type = ?
-                """, (memory_id, memory_id, edge_type))
-            else:
-                cursor = conn.execute("""
-                    SELECT id, source_id, target_id, edge_type, strength, created_at
-                    FROM edges WHERE source_id = ? OR target_id = ?
-                """, (memory_id, memory_id))
-            
-            for row in cursor:
-                edges.append(Edge(
-                    id=row[0],
-                    source_id=row[1],
-                    target_id=row[2],
-                    edge_type=row[3],
-                    strength=row[4],
-                    created_at=datetime.fromisoformat(row[5]) if row[5] else None
-                ))
-        
+
+        if edge_type:
+            cursor = self._conn.execute("""
+                SELECT id, source_id, target_id, edge_type, strength, created_at
+                FROM edges WHERE (source_id = ? OR target_id = ?) AND edge_type = ?
+            """, (memory_id, memory_id, edge_type))
+        else:
+            cursor = self._conn.execute("""
+                SELECT id, source_id, target_id, edge_type, strength, created_at
+                FROM edges WHERE source_id = ? OR target_id = ?
+            """, (memory_id, memory_id))
+
+        for row in cursor:
+            edges.append(Edge(
+                id=row[0],
+                source_id=row[1],
+                target_id=row[2],
+                edge_type=row[3],
+                strength=row[4],
+                created_at=datetime.fromisoformat(row[5]) if row[5] else None
+            ))
+
         return edges
 
     def get_neighbors(self, memory_id: str, edge_type: Optional[str] = None) -> List[Memory]:
         """
         Get all memories directly connected to a memory.
-        
+
         Args:
             memory_id: The memory ID
             edge_type: Optional filter by edge type
-            
+
         Returns:
             List of Memory objects
         """
         memories = []
-        
-        with sqlite3.connect(self.db_path) as conn:
-            if edge_type:
-                cursor = conn.execute("""
-                    SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                           m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
-                    FROM memories m
-                    JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
-                    WHERE (e.source_id = ? OR e.target_id = ?) 
-                    AND m.id != ?
-                    AND e.edge_type = ?
-                """, (memory_id, memory_id, memory_id, edge_type))
-            else:
-                cursor = conn.execute("""
-                    SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                           m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
-                    FROM memories m
-                    JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
-                    WHERE (e.source_id = ? OR e.target_id = ?) 
-                    AND m.id != ?
-                """, (memory_id, memory_id, memory_id))
-            
-            for row in cursor:
-                embedding = self._blob_to_embed(row[2]) if row[2] else None
-                memories.append(Memory(
-                    id=row[0],
-                    content=row[1],
-                    embedding=embedding,
-                    memory_type=row[3],
-                    confidence=row[4],
-                    created_at=datetime.fromisoformat(row[5]) if row[5] else None,
-                    last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
-                    access_count=row[7],
-                    instance_ids=json.loads(row[8]) if row[8] else [],
-                    content_hash=row[9]
-                ))
-        
+
+        if edge_type:
+            cursor = self._conn.execute("""
+                SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
+                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                FROM memories m
+                JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
+                WHERE (e.source_id = ? OR e.target_id = ?)
+                AND m.id != ?
+                AND e.edge_type = ?
+            """, (memory_id, memory_id, memory_id, edge_type))
+        else:
+            cursor = self._conn.execute("""
+                SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
+                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                FROM memories m
+                JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
+                WHERE (e.source_id = ? OR e.target_id = ?)
+                AND m.id != ?
+            """, (memory_id, memory_id, memory_id))
+
+        for row in cursor:
+            embedding = self._blob_to_embed(row[2]) if row[2] else None
+            memories.append(Memory(
+                id=row[0],
+                content=row[1],
+                embedding=embedding,
+                memory_type=row[3],
+                confidence=row[4],
+                created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
+                access_count=row[7],
+                instance_ids=json.loads(row[8]) if row[8] else [],
+                content_hash=row[9]
+            ))
+
         return memories
 
     def get_centrality(self, memory_id: str) -> float:
