@@ -40,6 +40,7 @@ from .storage_backends import (
     GCSBackend,
     AzureBackend,
     StorageBackend,
+    StorageObject,
     StorageError,
     StorageAuthError
 )
@@ -264,13 +265,144 @@ class BackupMetadata:
     files_included: List[str]
     base_path_hash: str  # Hash of base path for verification
     retention_days: int  # Days to keep this backup
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BackupMetadata":
         return cls(**data)
+
+
+@dataclass
+class ConflictInfo:
+    """Information about a file conflict between local and remote versions"""
+    file_path: str  # Path to the conflicting file
+    local_modified: datetime  # Local file modification time
+    remote_modified: datetime  # Remote file modification time
+    local_checksum: Optional[str]  # Local file checksum (SHA-256)
+    remote_checksum: Optional[str]  # Remote file etag/checksum
+    local_size: int  # Local file size in bytes
+    remote_size: int  # Remote file size in bytes
+    conflict_type: str  # 'both_modified', 'checksum_mismatch', 'size_mismatch'
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            "file_path": self.file_path,
+            "local_modified": self.local_modified.isoformat(),
+            "remote_modified": self.remote_modified.isoformat(),
+            "local_checksum": self.local_checksum,
+            "remote_checksum": self.remote_checksum,
+            "local_size": self.local_size,
+            "remote_size": self.remote_size,
+            "conflict_type": self.conflict_type,
+        }
+
+
+def detect_conflicts(
+    local_path: Path,
+    remote_obj: StorageObject,
+    last_sync_time: Optional[datetime] = None,
+) -> Optional[ConflictInfo]:
+    """
+    Detect conflicts between local and remote file versions using metadata.
+
+    A conflict is detected when:
+    1. Both local and remote files have been modified since last sync
+    2. Checksums differ (indicating different content)
+    3. File sizes differ significantly
+
+    Args:
+        local_path: Path to local file
+        remote_obj: StorageObject with remote file metadata
+        last_sync_time: Optional timestamp of last successful sync
+
+    Returns:
+        ConflictInfo if conflict detected, None otherwise
+
+    Raises:
+        FileNotFoundError: If local_path doesn't exist
+
+    Examples:
+        >>> from pathlib import Path
+        >>> from datetime import datetime
+        >>> from src.omi.storage_backends import StorageObject
+        >>> local = Path("test.txt")
+        >>> remote = StorageObject(
+        ...     key="test.txt",
+        ...     size=100,
+        ...     last_modified=datetime.now(),
+        ...     etag="abc123"
+        ... )
+        >>> conflict = detect_conflicts(local, remote)
+        >>> conflict is None or isinstance(conflict, ConflictInfo)
+        True
+    """
+    if not local_path.exists():
+        raise FileNotFoundError(f"Local file not found: {local_path}")
+
+    # Get local file metadata
+    local_stat = local_path.stat()
+    local_modified = datetime.fromtimestamp(local_stat.st_mtime)
+    local_size = local_stat.st_size
+
+    # Calculate local file checksum
+    local_checksum = None
+    try:
+        with open(local_path, 'rb') as f:
+            local_checksum = hashlib.sha256(f.read()).hexdigest()
+    except Exception:
+        # If we can't read the file, we can't calculate checksum
+        pass
+
+    # Extract remote metadata
+    remote_modified = remote_obj.last_modified
+    remote_size = remote_obj.size
+    remote_checksum = remote_obj.etag
+
+    # Check for conflicts
+    conflict_type = None
+
+    # Case 1: Both modified since last sync (if last_sync_time provided)
+    if last_sync_time:
+        local_modified_since_sync = local_modified > last_sync_time
+        remote_modified_since_sync = remote_modified > last_sync_time
+
+        if local_modified_since_sync and remote_modified_since_sync:
+            # Both files changed - check if they're actually different
+            if local_checksum and remote_checksum:
+                # Remove quotes from etag if present (S3 etags are quoted)
+                remote_etag_clean = remote_checksum.strip('"')
+                if local_checksum != remote_etag_clean:
+                    conflict_type = "both_modified"
+            elif local_size != remote_size:
+                conflict_type = "both_modified"
+
+    # Case 2: Checksums differ (even without last_sync_time)
+    if not conflict_type and local_checksum and remote_checksum:
+        remote_etag_clean = remote_checksum.strip('"')
+        if local_checksum != remote_etag_clean:
+            conflict_type = "checksum_mismatch"
+
+    # Case 3: Size mismatch (strong indicator of different content)
+    if not conflict_type and local_size != remote_size:
+        conflict_type = "size_mismatch"
+
+    # Return conflict info if conflict detected
+    if conflict_type:
+        return ConflictInfo(
+            file_path=str(local_path),
+            local_modified=local_modified,
+            remote_modified=remote_modified,
+            local_checksum=local_checksum,
+            remote_checksum=remote_checksum,
+            local_size=local_size,
+            remote_size=remote_size,
+            conflict_type=conflict_type,
+        )
+
+    return None
 
 
 class EncryptionManager:
