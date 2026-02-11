@@ -497,6 +497,244 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory
 
 
 @cli.command()
+@click.option('--operation', required=True, type=click.Choice(['recall', 'store']), help='Operation to debug')
+@click.argument('content')
+@click.option('--limit', '-l', default=10, help='Maximum number of results (for recall)')
+@click.option('--type', 'memory_type', default='experience',
+              type=click.Choice(['fact', 'experience', 'belief', 'decision']),
+              help='Type of memory to store (for store)')
+@click.option('--confidence', '-c', type=float, default=None,
+              help='Confidence level (0.0-1.0, for store with beliefs)')
+@click.pass_context
+def debug(ctx, operation: str, content: str, limit: int, memory_type: str, confidence: Optional[float]) -> None:
+    """Debug mode with step-by-step operation output.
+
+    Args:
+        --operation: Operation to debug (recall|store)
+        content: Query text (for recall) or memory content (for store)
+        --limit: Maximum number of results (for recall, default: 10)
+        --type: Memory type (for store, default: experience)
+        --confidence: Confidence level (for store with beliefs)
+
+    Examples:
+        omi debug --operation recall "test query"
+        omi debug --operation recall "auth bug" --limit 5
+        omi debug --operation store "Fixed the auth bug" --type experience
+        omi debug --operation store "Python has GIL" --type fact
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    db_path = base_path / "palace.sqlite"
+    if not db_path.exists():
+        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    if operation == 'recall':
+        _debug_recall(content, db_path, limit)
+    elif operation == 'store':
+        _debug_store(content, memory_type, confidence, db_path)
+
+
+def _debug_recall(query: str, db_path: Path, limit: int) -> None:
+    """Debug recall operation with step-by-step output."""
+    from omi.embeddings import NIMEmbedder
+
+    click.echo(click.style("=== DEBUG: Recall Operation ===", fg="cyan", bold=True))
+    click.echo()
+
+    # Step 1: Generate embedding
+    click.echo(click.style("Step 1: Generating embedding for query", fg="yellow", bold=True))
+    click.echo(f"Query: {click.style(query, fg='white', bold=True)}")
+
+    try:
+        embedder = NIMEmbedder()
+        embedding = embedder.embed(query)
+        click.echo(click.style(f"✓ Generated {len(embedding)}-dimensional embedding", fg="green"))
+        click.echo(f"  First 5 values: {embedding[:5]}")
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed to generate embedding: {e}", fg="red"))
+        click.echo(click.style("Tip: Set NIM_API_KEY environment variable", fg="yellow"))
+        sys.exit(1)
+
+    click.echo()
+
+    # Step 2: Search for candidates
+    click.echo(click.style("Step 2: Searching for candidate memories", fg="yellow", bold=True))
+
+    try:
+        palace = GraphPalace(db_path)
+        results = palace.recall(embedding, limit=limit, min_relevance=0.0)
+        click.echo(click.style(f"✓ Found {len(results)} candidate memories", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"✗ Search failed: {e}", fg="red"))
+        sys.exit(1)
+
+    click.echo()
+
+    # Step 3: Scoring
+    click.echo(click.style("Step 3: Scoring results (relevance + recency)", fg="yellow", bold=True))
+    click.echo(f"Formula: {click.style('final_score = (relevance * 0.7) + (recency * 0.3)', fg='bright_black')}")
+
+    if not results:
+        click.echo(click.style("No memories found matching the query.", fg="yellow"))
+        return
+
+    click.echo()
+
+    # Step 4: Display results
+    click.echo(click.style("Step 4: Final Results", fg="yellow", bold=True))
+    click.echo("=" * 80)
+
+    for i, (mem, score) in enumerate(results, 1):
+        mem_type = mem.memory_type
+        content = mem.content
+        if len(content) > 100:
+            content = content[:97] + "..."
+
+        type_color = {
+            'fact': 'blue',
+            'experience': 'green',
+            'belief': 'yellow',
+            'decision': 'magenta'
+        }.get(mem_type, 'white')
+
+        click.echo(f"\n{i}. [{click.style(mem_type.upper(), fg=type_color)}] Score: {click.style(f'{score:.4f}', fg='cyan', bold=True)}")
+        click.echo(f"   {content}")
+        click.echo(f"   ID: {click.style(mem.id[:8], fg='bright_black')}... | "
+                   f"Created: {click.style(mem.created_at.strftime('%Y-%m-%d %H:%M') if mem.created_at else 'N/A', fg='bright_black')}")
+        click.echo(f"   {click.style('─', fg='bright_black') * 78}")
+
+
+def _debug_store(content: str, memory_type: str, confidence: Optional[float], db_path: Path) -> None:
+    """Debug store operation with step-by-step output."""
+    import hashlib
+    import time
+    from omi.embeddings import NIMEmbedder
+
+    click.echo(click.style("=== DEBUG: Store Operation ===", fg="cyan", bold=True))
+    click.echo()
+
+    # Step 1: Input validation
+    click.echo(click.style("Step 1: Input Validation", fg="yellow", bold=True))
+    click.echo(f"Content: {click.style(content, fg='white', bold=True)}")
+    click.echo(f"Type: {click.style(memory_type, fg='cyan')}")
+    if confidence is not None:
+        if memory_type != 'belief':
+            click.echo(click.style("⚠ Warning: --confidence is typically used with --type belief", fg="yellow"))
+        confidence = max(0.0, min(1.0, confidence))
+        click.echo(f"Confidence: {click.style(f'{confidence:.2f}', fg='cyan')}")
+    click.echo(click.style("✓ Input validated", fg="green"))
+
+    # Get database size before
+    db_size_before = db_path.stat().st_size if db_path.exists() else 0
+
+    click.echo()
+
+    # Step 2: Content hash generation
+    click.echo(click.style("Step 2: Content Hash Generation", fg="yellow", bold=True))
+    content_hash = hashlib.sha256(content.encode()).hexdigest()
+    click.echo(f"SHA-256: {click.style(content_hash[:16] + '...', fg='bright_black')}")
+    click.echo(click.style("✓ Content hash generated", fg="green"))
+
+    click.echo()
+
+    # Step 3: Embedding generation
+    click.echo(click.style("Step 3: Generating Embedding", fg="yellow", bold=True))
+
+    try:
+        start_time = time.time()
+        embedder = NIMEmbedder()
+        embedding = embedder.embed(content)
+        elapsed = time.time() - start_time
+        click.echo(click.style(f"✓ Generated {len(embedding)}-dimensional embedding [{elapsed:.2f}s]", fg="green"))
+        click.echo(f"  First 5 values: {embedding[:5]}")
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed to generate embedding: {e}", fg="red"))
+        click.echo(click.style("Tip: Set NIM_API_KEY environment variable", fg="yellow"))
+        sys.exit(1)
+
+    click.echo()
+
+    # Step 4: Database insertion
+    click.echo(click.style("Step 4: Database Insertion", fg="yellow", bold=True))
+
+    try:
+        start_time = time.time()
+        palace = GraphPalace(db_path)
+        memory_id = palace.store_memory(
+            content=content,
+            embedding=embedding,
+            memory_type=memory_type,
+            confidence=confidence
+        )
+        elapsed = time.time() - start_time
+        click.echo(click.style(f"✓ Memory stored [{elapsed:.2f}s]", fg="green"))
+        click.echo(f"  Memory ID: {click.style(memory_id, fg='cyan')}")
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed to store memory: {e}", fg="red"))
+        sys.exit(1)
+
+    click.echo()
+
+    # Step 5: Edge creation (check for similar memories)
+    click.echo(click.style("Step 5: Edge Creation", fg="yellow", bold=True))
+
+    try:
+        # Search for similar memories
+        similar_memories = palace.recall(embedding, limit=5, min_relevance=0.7)
+
+        if similar_memories:
+            # Filter out the newly created memory itself
+            similar_memories = [(mem, score) for mem, score in similar_memories if mem.id != memory_id]
+
+        if similar_memories:
+            click.echo(f"Found {click.style(str(len(similar_memories)), fg='cyan')} similar memories (relevance >= 0.7)")
+
+            # Create edges to similar memories
+            edges_created = 0
+            for mem, score in similar_memories:
+                try:
+                    # Create a RELATED_TO edge
+                    palace.add_edge(memory_id, mem.id, edge_type="RELATED_TO", strength=score)
+                    edges_created += 1
+                    mem_preview = mem.content[:50] + "..." if len(mem.content) > 50 else mem.content
+                    click.echo(f"  → {click.style('RELATED_TO', fg='cyan')} {click.style(mem.id[:8], fg='bright_black')}... "
+                             f"[strength: {click.style(f'{score:.2f}', fg='green')}] {mem_preview}")
+                except Exception as e:
+                    click.echo(click.style(f"  ⚠ Failed to create edge: {e}", fg="yellow"))
+
+            click.echo(click.style(f"✓ Created {edges_created} edges", fg="green"))
+        else:
+            click.echo(click.style("No similar memories found (threshold: 0.7)", fg="yellow"))
+            click.echo(click.style("✓ No edges created", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"⚠ Edge creation check failed: {e}", fg="yellow"))
+        click.echo(click.style("  Memory was stored successfully, but edges could not be checked", fg="yellow"))
+
+    palace.close()
+
+    click.echo()
+
+    # Step 6: Confirmation
+    click.echo(click.style("Step 6: Confirmation", fg="yellow", bold=True))
+    click.echo(click.style("✓ Memory stored successfully", fg="green", bold=True))
+
+    # Get database size after
+    db_size_after = db_path.stat().st_size if db_path.exists() else 0
+    db_size_diff = db_size_after - db_size_before
+
+    click.echo(f"  ID: {click.style(memory_id[:16] + '...', fg='cyan')}")
+    click.echo(f"  Type: {click.style(memory_type, fg='cyan')}")
+    if confidence is not None:
+        conf_color = "green" if confidence > 0.7 else "yellow" if confidence > 0.4 else "red"
+        click.echo(f"  Confidence: {click.style(f'{confidence:.2f}', fg=conf_color)}")
+    click.echo(f"  Database size: {db_size_before:,} → {db_size_after:,} bytes ({click.style(f'+{db_size_diff:,}', fg='green')})")
+
+
+@cli.command()
 @click.argument('memory_id')
 @click.option('--force', '-f', is_flag=True, help='Skip confirmation prompt')
 @click.pass_context
@@ -1124,6 +1362,390 @@ def status(ctx: click.Context) -> None:
     # Overall health
     click.echo(f"\n" + click.style("Overall: ", bold=True), nl=False)
     click.echo(click.style("HEALTHY ✓", fg="green", bold=True))
+
+
+@cli.command()
+@click.option('--json-output', is_flag=True, help='Output as JSON')
+@click.option('--beliefs', is_flag=True, help='Show belief network summary')
+@click.pass_context
+def inspect(ctx, json_output: bool, beliefs: bool) -> None:
+    """Show memory statistics and overview.
+
+    Displays:
+    - Total memories
+    - Breakdown by type
+    - Database size
+    - Last session timestamp (if available)
+    - Belief network summary (with --beliefs flag)
+
+    Args:
+        --json-output: Output as JSON (for scripts)
+        --beliefs: Show beliefs with confidence levels and evidence counts
+
+    Examples:
+        omi inspect
+        omi inspect --json-output
+        omi inspect --beliefs
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    db_path = base_path / "palace.sqlite"
+    if not db_path.exists():
+        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Check if memories table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='memories'
+        """)
+        memories_table_exists = cursor.fetchone() is not None
+
+        # Initialize default values for edge cases
+        total_memories = 0
+        type_counts = {}
+        last_session = None
+
+        if memories_table_exists:
+            # Total memories
+            cursor.execute("SELECT COUNT(*) FROM memories")
+            total_memories = cursor.fetchone()[0]
+
+            # Memory types breakdown (only if there are memories)
+            if total_memories > 0:
+                cursor.execute("SELECT memory_type, COUNT(*) FROM memories GROUP BY memory_type")
+                type_counts = dict(cursor.fetchall())
+
+                # Last accessed memory (as proxy for last session)
+                cursor.execute("SELECT MAX(last_accessed) FROM memories WHERE last_accessed IS NOT NULL")
+                last_accessed_result = cursor.fetchone()
+                last_session = last_accessed_result[0] if last_accessed_result and last_accessed_result[0] else None
+
+        # Database size
+        db_size_kb = db_path.stat().st_size / 1024
+
+        # Belief network summary (if --beliefs flag is set)
+        beliefs_data = []
+        beliefs_table_exists = False
+        if beliefs:
+            # Check if beliefs table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='beliefs'
+            """)
+            beliefs_table_exists = cursor.fetchone() is not None
+
+            if beliefs_table_exists:
+                cursor.execute("""
+                    SELECT id, content, confidence, evidence_count
+                    FROM beliefs
+                    ORDER BY confidence DESC
+                """)
+                beliefs_data = cursor.fetchall()
+
+        conn.close()
+
+        if json_output:
+            output = {
+                'total_memories': total_memories,
+                'memory_types': type_counts,
+                'database_size_kb': round(db_size_kb, 2),
+                'last_session': last_session
+            }
+            if beliefs:
+                if not beliefs_table_exists:
+                    output['beliefs'] = {'error': 'Belief network not initialized'}
+                elif beliefs_data:
+                    output['beliefs'] = [
+                        {
+                            'id': b[0],
+                            'content': b[1],
+                            'confidence': b[2],
+                            'evidence_count': b[3]
+                        }
+                        for b in beliefs_data
+                    ]
+                else:
+                    output['beliefs'] = []
+            click.echo(json.dumps(output, indent=2, default=str))
+        else:
+            click.echo(click.style("Memory Inspection Report", fg="cyan", bold=True))
+            click.echo("=" * 50)
+
+            # Total memories
+            click.echo(f"\nTotal Memories: {click.style(str(total_memories), fg='cyan', bold=True)}")
+
+            # Database size
+            click.echo(f"Database Size: {click.style(f'{db_size_kb:.2f} KB', fg='cyan')}")
+
+            # Breakdown by type
+            if type_counts:
+                click.echo(f"\n{click.style('Breakdown by Type:', bold=True)}")
+                for mem_type, count in sorted(type_counts.items()):
+                    type_color = {
+                        'fact': 'blue',
+                        'experience': 'green',
+                        'belief': 'yellow',
+                        'decision': 'magenta'
+                    }.get(mem_type, 'white')
+
+                    percentage = (count / total_memories * 100) if total_memories > 0 else 0
+                    mem_type_str = mem_type.capitalize().ljust(12)
+                    click.echo(f"  {click.style(mem_type_str, fg=type_color)} {count:4} ({percentage:5.1f}%)")
+            else:
+                click.echo(f"\n{click.style('No memories stored yet.', fg='yellow')}")
+
+            # Last session
+            if last_session:
+                click.echo(f"\nLast Activity: {click.style(last_session, fg='cyan')}")
+            else:
+                click.echo(f"\nLast Activity: {click.style('No activity recorded', fg='bright_black')}")
+
+            # Beliefs network summary
+            if beliefs:
+                if not beliefs_table_exists:
+                    click.echo(f"\n{click.style('Belief network not initialized yet.', fg='yellow')}")
+                    click.echo(f"  Tip: Beliefs are tracked when created with confidence scores.")
+                elif beliefs_data:
+                    click.echo(f"\n{click.style('Belief Network Summary:', bold=True)}")
+                    click.echo(f"Total Beliefs: {click.style(str(len(beliefs_data)), fg='cyan', bold=True)}")
+                    click.echo()
+                    for belief_id, content, confidence, evidence_count in beliefs_data:
+                        # Color code confidence: high (green), medium (yellow), low (red)
+                        if confidence >= 0.7:
+                            conf_color = 'green'
+                        elif confidence >= 0.4:
+                            conf_color = 'yellow'
+                        else:
+                            conf_color = 'red'
+
+                        # Truncate content if too long
+                        display_content = content if len(content) <= 60 else content[:57] + "..."
+
+                        click.echo(f"  {click.style('•', fg=conf_color)} {display_content}")
+                        click.echo(f"    Confidence: {click.style(f'{confidence:.2f}', fg=conf_color)} | "
+                                 f"Evidence: {click.style(str(evidence_count), fg='cyan')}")
+                else:
+                    click.echo(f"\n{click.style('No beliefs in network yet.', fg='yellow')}")
+
+            click.echo()
+
+    except Exception as e:
+        click.echo(click.style(f"Error: Failed to inspect memories: {e}", fg="red"))
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--limit', '-l', default=20, type=int, help='Maximum number of nodes to display')
+@click.option('--type', '-t', 'edge_type_filter', default=None, help='Filter by edge type (e.g., SUPPORTS, RELATED_TO)')
+@click.option('--depth', '-d', default=3, type=int, help='Maximum traversal depth (not currently used)')
+@click.pass_context
+def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
+    """Show ASCII graph of memory relationships.
+
+    Displays:
+    - Memory nodes with shortened IDs (ranked by centrality)
+    - Edges connecting memories with relationship types
+    - Visual representation of the memory graph
+
+    Args:
+        --limit/-l: Maximum number of nodes to display (default: 20)
+        --type/-t: Filter edges by type (e.g., SUPPORTS, CONTRADICTS, RELATED_TO)
+        --depth/-d: Maximum traversal depth (default: 3, not currently used)
+
+    Examples:
+        omi graph
+        omi graph -l 10
+        omi graph -t SUPPORTS
+        omi graph --limit 10 --type SUPPORTS
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    db_path = base_path / "palace.sqlite"
+    if not db_path.exists():
+        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Check if tables exist
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name IN ('memories', 'edges')
+        """)
+        tables = {row[0] for row in cursor.fetchall()}
+
+        if 'memories' not in tables or 'edges' not in tables:
+            click.echo(click.style("Error: Database schema incomplete. Run 'omi init' first.", fg="red"))
+            sys.exit(1)
+
+        # Get edges first (with optional filtering)
+        if edge_type_filter:
+            cursor.execute("""
+                SELECT source_id, target_id, edge_type, strength
+                FROM edges
+                WHERE edge_type = ?
+            """, (edge_type_filter,))
+        else:
+            cursor.execute("""
+                SELECT source_id, target_id, edge_type, strength
+                FROM edges
+            """)
+        edges = [(row[0], row[1], row[2], row[3]) for row in cursor.fetchall()]
+
+        # Calculate node centrality (degree = number of connections)
+        node_degrees = {}
+        for source_id, target_id, edge_type, strength in edges:
+            node_degrees[source_id] = node_degrees.get(source_id, 0) + 1
+            node_degrees[target_id] = node_degrees.get(target_id, 0) + 1
+
+        # Get top N nodes by centrality (or all memories if no edges)
+        if node_degrees:
+            # Sort by degree (descending) and take top N
+            top_node_ids = sorted(node_degrees.keys(), key=lambda x: node_degrees[x], reverse=True)[:limit]
+            placeholders = ','.join('?' * len(top_node_ids))
+            cursor.execute(f"""
+                SELECT id, content, memory_type
+                FROM memories
+                WHERE id IN ({placeholders})
+            """, top_node_ids)
+        else:
+            # If no edges, just get first N memories
+            cursor.execute(f"""
+                SELECT id, content, memory_type
+                FROM memories
+                LIMIT ?
+            """, (limit,))
+
+        memories = {row[0]: {'content': row[1], 'type': row[2]} for row in cursor.fetchall()}
+
+        # Get total counts for summary (before closing connection)
+        cursor.execute("SELECT COUNT(*) FROM memories")
+        total_memories = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM edges")
+        total_edges = cursor.fetchone()[0]
+
+        conn.close()
+
+        if not memories:
+            click.echo(click.style("No memories in graph yet.", fg="yellow"))
+            sys.exit(0)
+
+        # Display header
+        click.echo(click.style("\n╔══════════════════════════════════════════════════╗", fg="cyan"))
+        click.echo(click.style("║          Memory Graph Visualization             ║", fg="cyan", bold=True))
+        click.echo(click.style("╚══════════════════════════════════════════════════╝\n", fg="cyan"))
+
+        # Display stats
+        if node_degrees:
+            click.echo(click.style(f"Total: {total_memories} nodes, {total_edges} edges (showing top {len(memories)} by centrality)", fg="cyan"))
+        else:
+            click.echo(click.style(f"Total: {total_memories} nodes, {total_edges} edges (showing {len(memories)})", fg="cyan"))
+
+        if edge_type_filter:
+            click.echo(click.style(f"Filter: {edge_type_filter} edges only", fg="cyan"))
+        click.echo()
+
+        # Build adjacency map for displaying connections
+        adjacency = {}
+        for source_id, target_id, edge_type, strength in edges:
+            if source_id not in adjacency:
+                adjacency[source_id] = []
+            if target_id not in adjacency:
+                adjacency[target_id] = []
+            adjacency[source_id].append((target_id, edge_type, strength))
+
+        # Display nodes and their connections
+        displayed_nodes = set()
+
+        for memory_id in memories:
+            if memory_id not in displayed_nodes:
+                displayed_nodes.add(memory_id)
+
+                # Display node
+                short_id = memory_id[:8]
+                content = memories[memory_id]['content']
+                mem_type = memories[memory_id]['type']
+
+                # Truncate content for display
+                display_content = content[:50] + "..." if len(content) > 50 else content
+
+                # Color by memory type
+                type_colors = {
+                    'fact': 'blue',
+                    'experience': 'green',
+                    'belief': 'yellow',
+                    'decision': 'magenta'
+                }
+                node_color = type_colors.get(mem_type, 'white')
+
+                click.echo(click.style(f"[{short_id}]", fg=node_color, bold=True) +
+                          f" ({mem_type}) {display_content}")
+
+                # Display edges from this node
+                if memory_id in adjacency:
+                    for target_id, edge_type, strength in adjacency[memory_id]:
+                        if target_id in memories:
+                            target_short_id = target_id[:8]
+                            strength_str = f"({strength:.2f})" if strength is not None else ""
+
+                            # Edge type colors
+                            edge_colors = {
+                                'SUPPORTS': 'green',
+                                'CONTRADICTS': 'red',
+                                'RELATED_TO': 'cyan',
+                                'DEPENDS_ON': 'yellow',
+                                'POSTED': 'blue',
+                                'DISCUSSED': 'magenta'
+                            }
+                            edge_color = edge_colors.get(edge_type, 'white')
+
+                            click.echo(f"  │")
+                            click.echo(f"  ├─[{click.style(edge_type, fg=edge_color)}]─> " +
+                                     click.style(f"[{target_short_id}]", fg=node_color) +
+                                     f" {strength_str}")
+
+                click.echo()  # Blank line between nodes
+
+        # Legend
+        click.echo(click.style("\n╔══════════════════════════════════════════════════╗", fg="cyan"))
+        click.echo(click.style("║                    Legend                        ║", fg="cyan", bold=True))
+        click.echo(click.style("╚══════════════════════════════════════════════════╝\n", fg="cyan"))
+
+        click.echo(click.style("Memory Types:", bold=True))
+        click.echo(f"  {click.style('[fact]', fg='blue')} - Factual information")
+        click.echo(f"  {click.style('[experience]', fg='green')} - Experiential memories")
+        click.echo(f"  {click.style('[belief]', fg='yellow')} - Beliefs and hypotheses")
+        click.echo(f"  {click.style('[decision]', fg='magenta')} - Decision records")
+
+        click.echo(click.style("\nEdge Types:", bold=True))
+        click.echo(f"  {click.style('SUPPORTS', fg='green')} - Supporting relationship")
+        click.echo(f"  {click.style('CONTRADICTS', fg='red')} - Contradicting relationship")
+        click.echo(f"  {click.style('RELATED_TO', fg='cyan')} - General relationship")
+        click.echo(f"  {click.style('DEPENDS_ON', fg='yellow')} - Dependency relationship")
+        click.echo(f"  {click.style('POSTED', fg='blue')} - Posted relationship")
+        click.echo(f"  {click.style('DISCUSSED', fg='magenta')} - Discussion relationship")
+        click.echo()
+
+    except Exception as e:
+        click.echo(click.style(f"Error: Failed to display graph: {e}", fg="red"))
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 @cli.command()
