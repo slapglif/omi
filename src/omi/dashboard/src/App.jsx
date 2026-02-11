@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import GraphVisualization from './components/GraphVisualization';
 import BeliefNetwork from './components/BeliefNetwork';
+import StorageStats from './components/StorageStats';
 
 function App() {
   const [activeTab, setActiveTab] = useState('graph');
@@ -32,7 +33,7 @@ function App() {
         return (
           <div className="tab-content">
             <h2>Storage Statistics</h2>
-            <p>Storage statistics and charts will be implemented here.</p>
+            <StorageStats />
           </div>
         );
       case 'timeline':
