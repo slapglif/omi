@@ -82,14 +82,14 @@ class NIMConfig:
     max_tokens: int = 512
 
 
-class NIMEmbedder:
+class NIMEmbedder(EmbeddingProvider):
     """
     NVIDIA NIM embeddings (baai/bge-m3)
-    
+
     Model: baai/bge-m3 (proven in MEMORY.md)
     Dimensions: 1024
     Quality: > nomic-embed-text (768 dim)
-    
+
     Fallback: Ollama (local) for airgapped environments
     """
     
@@ -157,7 +157,12 @@ class NIMEmbedder:
             if self._ollama_embedder:
                 return self._ollama_embedder.embed(text)
             raise
-    
+
+    @property
+    def dimensions(self) -> int:
+        """Return embedding dimensionality (1024 for baai/bge-m3)"""
+        return self.DEFAULT_DIM
+
     def _embed_nim(self, text: str) -> List[float]:
         """Generate embedding via NIM"""
         response = self._session.post(
