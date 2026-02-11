@@ -111,17 +111,19 @@ class GraphPalace:
     # Target: <500ms for 1000 memories
     QUERY_TIMEOUT_MS = 500
 
-    def __init__(self, db_path: Path, enable_wal: bool = True):
+    def __init__(self, db_path: Path, enable_wal: bool = True, embedding_dim: int = None):
         """
         Initialize Graph Palace.
 
         Args:
             db_path: Path to SQLite database file
             enable_wal: Enable WAL mode for concurrent writes (default: True)
+            embedding_dim: Embedding dimension (default: 1024 for bge-m3)
         """
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._enable_wal = enable_wal
+        self.embedding_dim = embedding_dim if embedding_dim is not None else self.EMBEDDING_DIM
 
         # Create persistent connection
         # check_same_thread=False allows multi-threaded access (safe with WAL mode)

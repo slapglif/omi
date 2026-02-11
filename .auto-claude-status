@@ -1,25 +1,46 @@
 {
   "active": true,
+<<<<<<< HEAD
   "spec": "003-boost-test-coverage-to-80",
   "state": "building",
   "subtasks": {
     "completed": 6,
     "total": 7,
+=======
+  "spec": "006-additional-embedding-providers",
+  "state": "building",
+  "subtasks": {
+    "completed": 13,
+    "total": 19,
+>>>>>>> auto-claude/006-additional-embedding-providers
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
+<<<<<<< HEAD
     "current": "Final Verification",
     "id": null,
     "total": 1
+=======
+    "current": "System Integration",
+    "id": null,
+    "total": 7
+>>>>>>> auto-claude/006-additional-embedding-providers
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
+<<<<<<< HEAD
     "number": 8,
     "started_at": "2026-02-11T02:27:02.557202"
   },
   "last_update": "2026-02-11T02:50:09.749547"
+=======
+    "number": 15,
+    "started_at": "2026-02-11T10:49:53.423935"
+  },
+  "last_update": "2026-02-11T11:16:06.379807"
+>>>>>>> auto-claude/006-additional-embedding-providers
 }

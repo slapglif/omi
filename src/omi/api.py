@@ -50,13 +50,13 @@ class MemoryTools:
               memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         memory_recall: Semantic search with recency weighting
-        
+
         Args:
             query: Natural language search query
             limit: Max results (default: 10)
             min_relevance: Similarity threshold (default: 0.7)
             memory_type: Filter by type (fact|experience|belief|decision)
-        
+
         Returns:
             Memories sorted by relevance + recency
         """
