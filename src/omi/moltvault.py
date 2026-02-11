@@ -35,7 +35,7 @@ except ImportError:
     BOTO3_AVAILABLE = False
 
 # Storage backend imports
-from omi.storage_backends import S3Backend, StorageBackend, StorageError, StorageAuthError
+from .storage_backends import S3Backend, StorageBackend, StorageError, StorageAuthError
 
 
 class _MockS3BackendWrapper(StorageBackend):
@@ -88,7 +88,7 @@ class _MockS3BackendWrapper(StorageBackend):
 
     def list(self, prefix: str = "", max_keys: Optional[int] = None):
         """List objects using raw S3 client"""
-        from omi.storage_backends import StorageObject
+        from .storage_backends import StorageObject
         full_prefix = self._make_key(prefix)
         response = self._client.list_objects_v2(
             Bucket=self.bucket,
@@ -125,7 +125,7 @@ class _MockS3BackendWrapper(StorageBackend):
 
     def get_metadata(self, key: str):
         """Get metadata using raw S3 client"""
-        from omi.storage_backends import StorageObject
+        from .storage_backends import StorageObject
         full_key = self._make_key(key)
         try:
             response = self._client.head_object(Bucket=self.bucket, Key=full_key)
