@@ -361,7 +361,7 @@ class GraphPalace:
         Semantic search with recency weighting.
 
         Algorithm:
-        1. Calculate cosine similarity between query and all memories
+        1. Calculate cosine similarity between query and all memories (vectorized)
         2. Apply recency decay: score = relevance * exp(-days/30)
         3. Sort by final score and return top results
 
@@ -378,7 +378,16 @@ class GraphPalace:
         if not query_embedding:
             return []
 
-        results = []
+        # Convert query to numpy array
+        query_vec = np.array(query_embedding, dtype=np.float32)
+        query_norm = np.linalg.norm(query_vec)
+
+        if query_norm == 0:
+            return []
+
+        # Fetch all memories with embeddings
+        memory_data = []
+        embeddings = []
 
         cursor = self._conn.execute("""
             SELECT id, content, embedding, memory_type, confidence,
@@ -391,30 +400,62 @@ class GraphPalace:
             if not embedding or len(embedding) != len(query_embedding):
                 continue
 
-            # Calculate cosine similarity
-            relevance = self._cosine_similarity(query_embedding, embedding)
+            memory_data.append(row)
+            embeddings.append(embedding)
 
-            if relevance >= min_relevance:
-                # Calculate recency score
-                last_accessed = datetime.fromisoformat(row[6]) if row[6] else datetime.now()
-                recency = self._calculate_recency_score(last_accessed)
+        if not embeddings:
+            return []
 
-                # Weight: 70% relevance, 30% recency
-                final_score = min((relevance * 0.7) + (recency * 0.3), 1.0)
+        # Vectorized cosine similarity calculation
+        # Convert to numpy matrix: (n_memories, embedding_dim)
+        embeddings_matrix = np.array(embeddings, dtype=np.float32)
 
-                memory = Memory(
-                    id=row[0],
-                    content=row[1],
-                    embedding=embedding,
-                    memory_type=row[3],
-                    confidence=row[4],
-                    created_at=datetime.fromisoformat(row[5]) if row[5] else None,
-                    last_accessed=last_accessed,
-                    access_count=row[7],
-                    instance_ids=json.loads(row[8]) if row[8] else [],
-                    content_hash=row[9]
-                )
-                results.append((memory, final_score))
+        # Compute norms for all embeddings: (n_memories,)
+        norms = np.linalg.norm(embeddings_matrix, axis=1)
+
+        # Compute dot products: (n_memories,)
+        dots = np.dot(embeddings_matrix, query_vec)
+
+        # Compute cosine similarities: (n_memories,)
+        # Avoid division by zero
+        similarities = np.divide(dots, norms * query_norm,
+                                out=np.zeros_like(dots),
+                                where=(norms * query_norm) > 0)
+
+        # Filter by min_relevance
+        valid_indices = np.where(similarities >= min_relevance)[0]
+
+        if len(valid_indices) == 0:
+            return []
+
+        # Build results for valid memories
+        results = []
+        now = datetime.now()
+
+        for idx in valid_indices:
+            row = memory_data[idx]
+            relevance = float(similarities[idx])
+
+            # Calculate recency score
+            last_accessed = datetime.fromisoformat(row[6]) if row[6] else now
+            recency = self._calculate_recency_score(last_accessed)
+
+            # Weight: 70% relevance, 30% recency
+            final_score = min((relevance * 0.7) + (recency * 0.3), 1.0)
+
+            memory = Memory(
+                id=row[0],
+                content=row[1],
+                embedding=embeddings[idx],
+                memory_type=row[3],
+                confidence=row[4],
+                created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                last_accessed=last_accessed,
+                access_count=row[7],
+                instance_ids=json.loads(row[8]) if row[8] else [],
+                content_hash=row[9]
+            )
+            results.append((memory, final_score))
 
         # Sort by final score (descending)
         results.sort(key=lambda x: x[1], reverse=True)
