@@ -11,3 +11,6 @@ build/
 *.sqlite-shm
 .mypy_cache/
 .pytest_cache/
+
+# Auto Claude data directory
+.auto-claude/
