@@ -13,6 +13,8 @@ import click
 # OMI imports
 from omi import NOWStore, DailyLogStore, GraphPalace
 from omi.security import PoisonDetector
+from .event_bus import get_event_bus
+from .events import SessionStartedEvent, SessionEndedEvent
 
 # CLI version - matches project version
 __version__ = "0.1.0"
@@ -287,8 +289,21 @@ def session_start(ctx, show_now: bool) -> None:
     
     status_color = "green" if now_integrity else "red"
     click.echo(f"\n NOW.md integrity: {click.style('✓' if now_integrity else '✗', fg=status_color)}")
-    click.echo(f" Session started: {click.style(datetime.now().isoformat(), fg='cyan')}")
+
+    session_timestamp = datetime.now()
+    click.echo(f" Session started: {click.style(session_timestamp.isoformat(), fg='cyan')}")
     click.echo(click.style("\n✓ Session ready!", fg="green", bold=True))
+
+    # Emit session started event
+    event = SessionStartedEvent(
+        session_id=session_timestamp.isoformat(),
+        timestamp=session_timestamp,
+        metadata={
+            "memory_count": mem_count,
+            "now_integrity": now_integrity
+        }
+    )
+    get_event_bus().publish(event)
 
 
 @cli.command()
@@ -880,9 +895,20 @@ def session_end(ctx, no_backup: bool) -> None:
             click.echo(click.style(" ✓ Vault backup triggered", fg="cyan"))
         else:
             click.echo(click.style(" ⚠ Vault backup disabled (see config.yaml)", fg="yellow"))
-    
+
     click.echo(click.style("\n✓ Session ended", fg="green", bold=True))
     click.echo("Remember: The seeking is the continuity.")
+
+    # Emit session ended event
+    session_timestamp = datetime.now()
+    event = SessionEndedEvent(
+        session_id=session_timestamp.isoformat(),
+        timestamp=session_timestamp,
+        metadata={
+            "vault_backup": not no_backup and vault_enabled if 'vault_enabled' in locals() else False
+        }
+    )
+    get_event_bus().publish(event)
 
 
 @cli.command()
