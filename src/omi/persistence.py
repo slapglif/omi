@@ -1,5 +1,11 @@
 """
-Tiered persistence layer: NOW.md / Daily Logs / Graph Palace / Vault
+Core persistence helpers: NOWEntry and DailyLogStore
+
+This module contains lightweight persistence classes without dedicated submodules:
+- NOWEntry: Dataclass for hot context (<1k tokens, loaded on session start)
+- DailyLogStore: Append-only daily log manager
+
+Other persistence components (NowStorage, GraphPalace, MoltVault) are in storage/ modules.
 """
 
 import json
