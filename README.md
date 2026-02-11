@@ -139,6 +139,50 @@ After:   1,247 memories × 120 tokens avg = 149,640 tokens
 Savings: 411,510 tokens (73% reduction)
 ```
 
+### Web Dashboard (New!)
+
+Explore your memory graph visually with the built-in web UI. Perfect for debugging agent behavior, presenting research findings, and understanding knowledge structure.
+
+**Start the dashboard:**
+
+```bash
+# Start the API server with dashboard UI (default port: 8420)
+omi serve --dashboard
+
+# Custom port
+omi serve --dashboard --port 8421
+
+# Development mode with auto-reload
+omi serve --dashboard --reload
+```
+
+**Open in browser:** [http://localhost:8420/dashboard](http://localhost:8420/dashboard)
+
+#### Dashboard Features
+
+| Feature | Description |
+|---------|-------------|
+| **Graph Visualization** | Interactive force-directed graph showing memory nodes and relationship edges. Color-coded by memory type (fact, experience, belief, decision). Zoom, pan, and click nodes for details. |
+| **Semantic Search** | Real-time search bar with semantic recall. Highlights matching nodes in the graph with relevance scores. Debounced input for smooth performance. |
+| **Belief Network** | View all beliefs with confidence levels. Color-coded: green (high ≥0.7), yellow (medium 0.4-0.69), red (low <0.4). Sort by confidence, date, or evidence count. |
+| **Storage Statistics** | Dashboard showing memory counts, edge counts, and type distributions. Interactive charts (Pie and Bar) built with Chart.js. Real-time refresh. |
+| **Session Timeline** | Chronological view of memory operations with Server-Sent Events (SSE) for real-time updates. Shows stores, recalls, belief updates, and session events as they happen. |
+
+#### Screenshot
+
+![OMI Dashboard](docs/images/dashboard-screenshot.png)
+*Memory graph visualization with semantic search highlighting (screenshot coming soon)*
+
+#### Technical Details
+
+- **Frontend**: React 18 + Vite, Cytoscape.js for graph rendering, Chart.js for statistics
+- **Backend**: FastAPI with read-only REST API endpoints (`/api/v1/dashboard/*`)
+- **Real-time**: Server-Sent Events (SSE) for live timeline updates
+- **Performance**: Code splitting, lazy loading, responsive design (desktop/tablet/mobile)
+- **Security**: Read-only by default (no write operations from UI)
+
+See [E2E_VERIFICATION_CHECKLIST.md](.auto-claude/specs/015-web-dashboard-for-memory-exploration/E2E_VERIFICATION_CHECKLIST.md) for detailed verification steps and testing guide.
+
 ## Embeddings: NIM vs Ollama
 
 | Provider | Model | Quality | Speed | Offline? |

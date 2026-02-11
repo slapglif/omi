@@ -24,6 +24,7 @@ from .config import config_group
 from .events import events_group
 from .sync import sync_group
 from .plugins import plugins_group
+from .serve import serve_group
 
 # CLI version - matches project version
 __version__ = "0.1.0"
@@ -54,6 +55,7 @@ def cli(ctx, data_dir, verbose, quiet):
         status            Show health and size
         audit             Security audit
         config            Configuration management
+        serve             Start REST API server with dashboard
 
     \b
     Examples:
@@ -63,6 +65,7 @@ def cli(ctx, data_dir, verbose, quiet):
         omi recall "session checkpoint"
         omi check
         omi session-end
+        omi serve --dashboard
     """
     from .common import VERBOSITY_QUIET, VERBOSITY_NORMAL, VERBOSITY_VERBOSE
 
@@ -202,6 +205,9 @@ else
 fi"""
 
     click.echo(script)
+
+# Register serve command
+cli.add_command(serve_group.commands['serve'])
 
 
 def main():
