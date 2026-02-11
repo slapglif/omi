@@ -742,3 +742,285 @@ class GCSBackend(StorageBackend):
             raise StorageError(f"Failed to get metadata for {key}: {e}") from e
         except Exception as e:
             raise StorageError(f"Unexpected error getting metadata for {key}: {e}") from e
+
+
+# Azure Blob Storage imports
+try:
+    from azure.storage.blob import BlobServiceClient, BlobClient, ContentSettings
+    from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
+    AZURE_AVAILABLE = True
+except ImportError:
+    AZURE_AVAILABLE = False
+
+
+class AzureBackend(StorageBackend):
+    """
+    Azure Blob Storage backend
+
+    Supports Azure Blob Storage with authentication via:
+    - Connection string (connection_string)
+    - Account name + account key (account_name, account_key)
+    - AZURE_STORAGE_CONNECTION_STRING environment variable
+    """
+
+    def __init__(
+        self,
+        bucket: str,
+        prefix: str = "",
+        connection_string: Optional[str] = None,
+        account_name: Optional[str] = None,
+        account_key: Optional[str] = None,
+    ):
+        """
+        Initialize Azure Blob Storage backend
+
+        Args:
+            bucket: Azure container name (called bucket for consistency with other backends)
+            prefix: Optional prefix for all keys (e.g., "backups/")
+            connection_string: Azure storage connection string
+            account_name: Azure storage account name
+            account_key: Azure storage account key
+        """
+        super().__init__(bucket, prefix)
+
+        if not AZURE_AVAILABLE:
+            raise ImportError(
+                "azure-storage-blob package required for Azure backend. "
+                "Install with: pip install azure-storage-blob"
+            )
+
+        self.connection_string = connection_string or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        self.account_name = account_name or os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
+        self.account_key = account_key or os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
+
+        # Initialize Azure Blob Storage client
+        self._client = self._create_client()
+
+    def _create_client(self) -> Any:
+        """Create and configure Azure Blob Storage client"""
+        try:
+            # Prefer connection string if available
+            if self.connection_string:
+                return BlobServiceClient.from_connection_string(self.connection_string)
+            elif self.account_name and self.account_key:
+                account_url = f"https://{self.account_name}.blob.core.windows.net"
+                return BlobServiceClient(
+                    account_url=account_url,
+                    credential=self.account_key,
+                )
+            else:
+                raise StorageAuthError(
+                    "No Azure credentials found. Set AZURE_STORAGE_CONNECTION_STRING "
+                    "environment variable or pass connection_string parameter, or provide "
+                    "account_name and account_key parameters."
+                )
+
+        except Exception as e:
+            if isinstance(e, StorageAuthError):
+                raise
+            raise StorageConnectionError(
+                f"Failed to create Azure client: {e}"
+            ) from e
+
+    def upload(
+        self,
+        local_path: Path,
+        key: str,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Upload a file to Azure Blob Storage"""
+        if not local_path.exists():
+            raise FileNotFoundError(f"Local file not found: {local_path}")
+
+        full_key = self._make_key(key)
+
+        try:
+            blob_client = self._client.get_blob_client(
+                container=self.bucket,
+                blob=full_key,
+            )
+
+            with open(local_path, "rb") as data:
+                blob_client.upload_blob(
+                    data,
+                    overwrite=True,
+                    metadata=metadata,
+                )
+
+            return full_key
+
+        except ResourceNotFoundError as e:
+            raise StorageError(f"Container '{self.bucket}' does not exist") from e
+        except HttpResponseError as e:
+            if e.status_code in [401, 403]:
+                raise StorageAuthError(f"Access denied: {e}") from e
+            else:
+                raise StorageError(f"Failed to upload {key}: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error uploading {key}: {e}") from e
+
+    def download(
+        self,
+        key: str,
+        local_path: Path,
+    ) -> Path:
+        """Download a file from Azure Blob Storage"""
+        full_key = self._make_key(key)
+
+        try:
+            # Ensure parent directory exists
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+
+            blob_client = self._client.get_blob_client(
+                container=self.bucket,
+                blob=full_key,
+            )
+
+            with open(local_path, "wb") as data:
+                download_stream = blob_client.download_blob()
+                data.write(download_stream.readall())
+
+            return local_path
+
+        except ResourceNotFoundError as e:
+            raise KeyError(f"Object not found: {key}") from e
+        except HttpResponseError as e:
+            if e.status_code in [401, 403]:
+                raise StorageAuthError(f"Access denied: {e}") from e
+            else:
+                raise StorageError(f"Failed to download {key}: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error downloading {key}: {e}") from e
+
+    def list(
+        self,
+        prefix: str = "",
+        max_keys: Optional[int] = None,
+    ) -> List[StorageObject]:
+        """List objects in Azure Blob Storage"""
+        full_prefix = self._make_key(prefix)
+
+        try:
+            container_client = self._client.get_container_client(self.bucket)
+
+            # List blobs with prefix
+            blobs = container_client.list_blobs(
+                name_starts_with=full_prefix,
+            )
+
+            objects = []
+            for blob in blobs:
+                # Remove bucket prefix to get relative key
+                key = blob.name
+                if self.prefix and key.startswith(self.prefix):
+                    key = key[len(self.prefix):]
+
+                objects.append(StorageObject(
+                    key=key,
+                    size=blob.size,
+                    last_modified=blob.last_modified,
+                    etag=blob.etag.strip('"') if blob.etag else None,
+                    metadata=blob.metadata,
+                ))
+
+                # Apply max_keys limit if specified
+                if max_keys is not None and len(objects) >= max_keys:
+                    break
+
+            return objects
+
+        except ResourceNotFoundError as e:
+            raise StorageError(f"Container '{self.bucket}' does not exist") from e
+        except HttpResponseError as e:
+            if e.status_code in [401, 403]:
+                raise StorageAuthError(f"Access denied: {e}") from e
+            else:
+                raise StorageError(f"Failed to list objects: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error listing objects: {e}") from e
+
+    def delete(self, key: str) -> bool:
+        """Delete an object from Azure Blob Storage"""
+        full_key = self._make_key(key)
+
+        try:
+            blob_client = self._client.get_blob_client(
+                container=self.bucket,
+                blob=full_key,
+            )
+
+            # Check if object exists first
+            if not blob_client.exists():
+                return False
+
+            blob_client.delete_blob()
+            return True
+
+        except ResourceNotFoundError:
+            return False
+        except HttpResponseError as e:
+            if e.status_code in [401, 403]:
+                raise StorageAuthError(f"Access denied: {e}") from e
+            else:
+                raise StorageError(f"Failed to delete {key}: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error deleting {key}: {e}") from e
+
+    def exists(self, key: str) -> bool:
+        """Check if an object exists in Azure Blob Storage"""
+        full_key = self._make_key(key)
+
+        try:
+            blob_client = self._client.get_blob_client(
+                container=self.bucket,
+                blob=full_key,
+            )
+            return blob_client.exists()
+
+        except ResourceNotFoundError:
+            return False
+        except HttpResponseError as e:
+            if e.status_code in [401, 403]:
+                raise StorageAuthError(f"Access denied: {e}") from e
+            else:
+                raise StorageError(f"Failed to check existence of {key}: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error checking {key}: {e}") from e
+
+    def get_metadata(self, key: str) -> Optional[StorageObject]:
+        """Get metadata for an object without downloading it"""
+        full_key = self._make_key(key)
+
+        try:
+            blob_client = self._client.get_blob_client(
+                container=self.bucket,
+                blob=full_key,
+            )
+
+            # Check if blob exists
+            if not blob_client.exists():
+                return None
+
+            # Get blob properties
+            properties = blob_client.get_blob_properties()
+
+            # Remove bucket prefix to get relative key
+            relative_key = key
+
+            return StorageObject(
+                key=relative_key,
+                size=properties.size,
+                last_modified=properties.last_modified,
+                etag=properties.etag.strip('"') if properties.etag else None,
+                metadata=properties.metadata,
+            )
+
+        except ResourceNotFoundError:
+            return None
+        except HttpResponseError as e:
+            if e.status_code in [401, 403]:
+                raise StorageAuthError(f"Access denied: {e}") from e
+            else:
+                raise StorageError(f"Failed to get metadata for {key}: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error getting metadata for {key}: {e}") from e
