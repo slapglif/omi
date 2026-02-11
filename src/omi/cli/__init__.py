@@ -23,6 +23,7 @@ from .monitoring import monitoring_group
 from .config import config_group
 from .events import events_group
 from .sync import sync_group
+from .serve import serve_group
 
 # CLI version - matches project version
 __version__ = "0.1.0"
@@ -49,6 +50,7 @@ def cli(ctx, data_dir):
         status            Show health and size
         audit             Security audit
         config            Configuration management
+        serve             Start REST API server with dashboard
 
     \b
     Examples:
@@ -58,6 +60,7 @@ def cli(ctx, data_dir):
         omi recall "session checkpoint"
         omi check
         omi session-end
+        omi serve --dashboard
     """
     ctx.ensure_object(dict)
     if data_dir:
@@ -88,6 +91,9 @@ cli.add_command(events_group, name='events')
 
 # Register sync command group (sync status, push, pull)
 cli.add_command(sync_group, name='sync')
+
+# Register serve command
+cli.add_command(serve_group.commands['serve'])
 
 
 def main():
