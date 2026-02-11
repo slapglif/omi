@@ -691,5 +691,98 @@ def cosine_similarity(v1: List[float], v2: List[float]) -> float:
     return dot / norm if norm > 0 else 0.0
 
 
+class EmbeddingProviderFactory:
+    """
+    Factory for creating embedding providers based on configuration.
+
+    Supports all available providers:
+    - nim: NVIDIA NIM (baai/bge-m3)
+    - openai: OpenAI embeddings (text-embedding-3-small/large)
+    - cohere: Cohere embeddings (embed-english-v3.0)
+    - ollama: Local Ollama embeddings (nomic-embed-text)
+    - sentence-transformers: Local sentence-transformers (all-MiniLM-L6-v2)
+
+    Example:
+        # Default NIM provider
+        factory = EmbeddingProviderFactory()
+        provider = factory.get_provider()
+
+        # OpenAI provider with config
+        config = {
+            "provider": "openai",
+            "api_key": "sk-...",
+            "model": "text-embedding-3-large"
+        }
+        provider = factory.get_provider(config)
+    """
+
+    PROVIDER_MAP = {
+        "nim": NIMEmbedder,
+        "openai": OpenAIEmbedder,
+        "cohere": CohereEmbedder,
+        "ollama": OllamaEmbedder,
+        "sentence-transformers": SentenceTransformerEmbedder,
+        "sentence_transformers": SentenceTransformerEmbedder,
+    }
+
+    DEFAULT_PROVIDER = "nim"
+
+    def __init__(self, default_config: Optional[Dict] = None):
+        """
+        Initialize factory with optional default configuration.
+
+        Args:
+            default_config: Default configuration for provider selection
+        """
+        self.default_config = default_config or {}
+
+    def get_provider(self, config: Optional[Dict] = None) -> EmbeddingProvider:
+        """
+        Create an embedding provider based on configuration.
+
+        Args:
+            config: Provider configuration dict with keys:
+                - provider: Provider type (nim, openai, cohere, ollama, sentence-transformers)
+                - Additional provider-specific parameters
+
+        Returns:
+            Configured EmbeddingProvider instance
+
+        Raises:
+            ValueError: If provider type is unknown or configuration is invalid
+        """
+        # Merge with default config
+        merged_config = {**self.default_config, **(config or {})}
+
+        # Extract provider type
+        provider_type = merged_config.get("provider", self.DEFAULT_PROVIDER)
+
+        # Get provider class
+        provider_class = self.PROVIDER_MAP.get(provider_type)
+        if provider_class is None:
+            available = ", ".join(self.PROVIDER_MAP.keys())
+            raise ValueError(
+                f"Unknown provider type: {provider_type}. "
+                f"Available providers: {available}"
+            )
+
+        # Extract provider-specific parameters (exclude 'provider' key)
+        provider_params = {
+            k: v for k, v in merged_config.items() if k != "provider"
+        }
+
+        # Instantiate provider
+        try:
+            return provider_class(**provider_params)
+        except TypeError as e:
+            raise ValueError(
+                f"Invalid configuration for {provider_type} provider: {e}"
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to initialize {provider_type} provider: {e}"
+            )
+
+
 # Backwards compatibility
 OllamaFallbackEmbedder = OllamaEmbedder
