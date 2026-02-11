@@ -23,9 +23,44 @@ Usage:
 
 from typing import Callable, Dict, List, Any, Optional
 from threading import Lock
+from abc import ABC, abstractmethod
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class EventHandler(ABC):
+    """
+    Abstract base class for event handlers.
+
+    Event handlers provide a structured way to process events from the EventBus.
+    Subclasses must implement the handle() method to define custom event processing logic.
+
+    This enables plugin-based architecture for event processing, allowing custom handlers
+    to be registered and invoked without modifying the core EventBus implementation.
+
+    Example:
+        class MyHandler(EventHandler):
+            def handle(self, event: Any) -> None:
+                if event.event_type == 'memory.stored':
+                    print(f"Memory stored: {event.memory_id}")
+
+        handler = MyHandler()
+        bus.subscribe('memory.stored', handler.handle)
+    """
+
+    @abstractmethod
+    def handle(self, event: Any) -> None:
+        """
+        Handle an event.
+
+        Args:
+            event: Event object to process (must have 'event_type' attribute)
+
+        Raises:
+            Any exceptions raised by the handler implementation
+        """
+        pass
 
 
 class EventBus:

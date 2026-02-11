@@ -158,6 +158,53 @@ Ollama provides:
 - No API key required
 - Works on any machine with Ollama installed
 
+## Plugins
+
+OMI's plugin system lets you extend functionality through Python entry points — the same pattern that made pytest, Flask, and Datasette successful ecosystems.
+
+### What You Can Extend
+
+| Plugin Type | Entry Point Group | Use Case |
+|-------------|-------------------|----------|
+| **Embedding Providers** | `omi.embedding_providers` | Custom models (Cohere, OpenAI, HuggingFace, etc.) |
+| **Storage Backends** | `omi.storage_backends` | Alternative databases (PostgreSQL, Redis, Neo4j) |
+| **Event Handlers** | `omi.event_handlers` | React to memory events (webhooks, logging, analytics) |
+
+### Quick Start
+
+```bash
+# List all installed plugins
+omi plugins list
+
+# Install a third-party plugin
+pip install omi-embedding-cohere
+
+# Use your custom provider
+omi config set embedding.provider=cohere
+```
+
+### Create a Plugin
+
+```python
+# my_omi_plugin/provider.py
+from omi.embeddings import EmbeddingProvider
+
+class MyEmbedder(EmbeddingProvider):
+    interface_version = "1.0"  # Required for compatibility
+
+    def embed(self, text: str) -> List[float]:
+        # Your implementation
+        return self._call_api(text)
+```
+
+```toml
+# pyproject.toml
+[project.entry-points."omi.embedding_providers"]
+my-embedder = "my_omi_plugin.provider:MyEmbedder"
+```
+
+See [docs/PLUGINS.md](docs/PLUGINS.md) for the complete guide and [examples/omi-embedding-example/](examples/omi-embedding-example/) for a working example.
+
 ## Why Not Just Files?
 
 > *"Grep is not understanding. Flat files optimize for writing. Databases optimize for asking questions you haven't thought of yet."* — SandyBlake

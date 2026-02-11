@@ -1752,6 +1752,14 @@ def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, streng
         sys.exit(1)
 
 
+
+@cli.group()
+@click.pass_context
+def plugins(ctx: click.Context) -> None:
+    """Plugin management commands."""
+    ctx.ensure_object(dict)
+
+
 # Main entry point
 def main() -> None:
     """Entry point for the OMI CLI."""
