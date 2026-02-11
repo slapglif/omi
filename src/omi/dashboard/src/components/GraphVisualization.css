@@ -45,6 +45,14 @@
   color: var(--border-color);
 }
 
+.stat-highlighted {
+  color: #f59e0b;
+}
+
+.stat-highlighted strong {
+  color: #f59e0b;
+}
+
 .graph-controls {
   display: flex;
   gap: 0.5rem;
@@ -70,6 +78,12 @@
 
 .control-btn:active {
   transform: scale(0.95);
+}
+
+.graph-search-section {
+  padding: 1rem 1.5rem;
+  background-color: #fefefe;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .graph-legend {

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import cytoscape from 'cytoscape';
 import fcose from 'cytoscape-fcose';
 import { fetchGraph } from '../api/client';
+import SearchBar from './SearchBar';
 import './GraphVisualization.css';
 
 // Register the fcose layout extension
@@ -13,6 +14,7 @@ const GraphVisualization = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [stats, setStats] = useState({ nodeCount: 0, edgeCount: 0 });
+  const [highlightedNodes, setHighlightedNodes] = useState([]);
 
   // Color palette for memory types
   const memoryTypeColors = {
@@ -113,6 +115,23 @@ const GraphVisualization = () => {
                   'border-color': '#2563eb',
                   'width': 35,
                   'height': 35
+                }
+              },
+              {
+                selector: 'node.highlighted',
+                style: {
+                  'border-width': 4,
+                  'border-color': '#f59e0b',
+                  'width': 40,
+                  'height': 40,
+                  'z-index': 999,
+                  'box-shadow': '0 0 20px rgba(245, 158, 11, 0.6)'
+                }
+              },
+              {
+                selector: 'node.dimmed',
+                style: {
+                  'opacity': 0.2
                 }
               },
               {
@@ -275,6 +294,51 @@ const GraphVisualization = () => {
     }
   };
 
+  // Handle search results
+  const handleSearchResults = (matchedIds, results) => {
+    if (!cyRef.current) return;
+
+    setHighlightedNodes(matchedIds);
+
+    // Remove previous highlighting
+    cyRef.current.nodes().removeClass('highlighted dimmed');
+
+    if (matchedIds.length > 0) {
+      // Highlight matched nodes
+      matchedIds.forEach((id) => {
+        const node = cyRef.current.getElementById(id);
+        if (node) {
+          node.addClass('highlighted');
+        }
+      });
+
+      // Dim non-matched nodes
+      cyRef.current.nodes().filter((node) => !matchedIds.includes(node.id())).addClass('dimmed');
+
+      // Fit view to highlighted nodes
+      const highlightedCollection = cyRef.current.collection();
+      matchedIds.forEach((id) => {
+        const node = cyRef.current.getElementById(id);
+        if (node) {
+          highlightedCollection.merge(node);
+        }
+      });
+
+      if (highlightedCollection.length > 0) {
+        cyRef.current.fit(highlightedCollection, 100);
+      }
+    }
+  };
+
+  // Clear search highlighting
+  const handleClearSearch = () => {
+    if (!cyRef.current) return;
+
+    setHighlightedNodes([]);
+    cyRef.current.nodes().removeClass('highlighted dimmed');
+    cyRef.current.fit(null, 30);
+  };
+
   if (loading) {
     return (
       <div className="graph-container">
@@ -309,6 +373,14 @@ const GraphVisualization = () => {
           <span className="stat-item">
             <strong>{stats.edgeCount}</strong> edges
           </span>
+          {highlightedNodes.length > 0 && (
+            <>
+              <span className="stat-separator">•</span>
+              <span className="stat-item stat-highlighted">
+                <strong>{highlightedNodes.length}</strong> highlighted
+              </span>
+            </>
+          )}
         </div>
 
         <div className="graph-controls">
@@ -322,6 +394,13 @@ const GraphVisualization = () => {
             ⚡ Relayout
           </button>
         </div>
+      </div>
+
+      <div className="graph-search-section">
+        <SearchBar
+          onSearchResults={handleSearchResults}
+          onClearSearch={handleClearSearch}
+        />
       </div>
 
       <div className="graph-legend">
