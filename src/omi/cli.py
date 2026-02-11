@@ -695,21 +695,35 @@ def inspect(ctx, json_output: bool, beliefs: bool) -> None:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Total memories
-        cursor.execute("SELECT COUNT(*) FROM memories")
-        total_memories = cursor.fetchone()[0]
+        # Check if memories table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='memories'
+        """)
+        memories_table_exists = cursor.fetchone() is not None
 
-        # Memory types breakdown
-        cursor.execute("SELECT memory_type, COUNT(*) FROM memories GROUP BY memory_type")
-        type_counts = dict(cursor.fetchall())
+        # Initialize default values for edge cases
+        total_memories = 0
+        type_counts = {}
+        last_session = None
+
+        if memories_table_exists:
+            # Total memories
+            cursor.execute("SELECT COUNT(*) FROM memories")
+            total_memories = cursor.fetchone()[0]
+
+            # Memory types breakdown (only if there are memories)
+            if total_memories > 0:
+                cursor.execute("SELECT memory_type, COUNT(*) FROM memories GROUP BY memory_type")
+                type_counts = dict(cursor.fetchall())
+
+                # Last accessed memory (as proxy for last session)
+                cursor.execute("SELECT MAX(last_accessed) FROM memories WHERE last_accessed IS NOT NULL")
+                last_accessed_result = cursor.fetchone()
+                last_session = last_accessed_result[0] if last_accessed_result and last_accessed_result[0] else None
 
         # Database size
         db_size_kb = db_path.stat().st_size / 1024
-
-        # Last accessed memory (as proxy for last session)
-        cursor.execute("SELECT MAX(last_accessed) FROM memories WHERE last_accessed IS NOT NULL")
-        last_accessed_result = cursor.fetchone()
-        last_session = last_accessed_result[0] if last_accessed_result and last_accessed_result[0] else None
 
         # Belief network summary (if --beliefs flag is set)
         beliefs_data = []
