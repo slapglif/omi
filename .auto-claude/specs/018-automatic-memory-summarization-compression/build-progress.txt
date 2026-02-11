@@ -116,3 +116,29 @@ Phase 1: LLM Summarizer Module
   - Commit: c7f520e
 
 Next: Subtask 1-3 - Add batch_summarize() for efficient bulk processing
+
+[$(date -u +"%Y-%m-%d %H:%M:%S UTC")] subtask-4-1: COMPLETED
+- Implemented full compress workflow with MoltVault backup integration
+- Added 4-step compression process:
+  1. MoltVault backup (with local fallback)
+  2. Batch summarization using LLM
+  3. Embedding regeneration
+  4. Database updates
+- Dry-run verification passes:
+  ✓ Shows memories to compress
+  ✓ Estimates token savings
+  ✓ No actual changes made
+- Works with existing database schema
+- Handles missing R2 credentials gracefully
+- Commit: fd60524
+
+[$(date -u +"%Y-%m-%d %H:%M:%S UTC")] subtask-4-2: COMPLETED
+- Verified embedding regeneration after summarization implementation
+- Embedding regeneration already fully implemented in compress workflow (Step 3, lines 734-770):
+  ✓ NIMEmbedder initialization with config.yaml settings
+  ✓ Batch embedding generation using embed_batch() on all summaries
+  ✓ Database update with new embeddings (lines 794-803)
+  ✓ Proper error handling with graceful degradation
+  ✓ Follows pattern from embeddings.py exactly
+- Implementation maintains semantic search accuracy by regenerating embeddings for compressed content
+- No code changes needed - feature was complete from subtask-4-1

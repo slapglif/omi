@@ -263,8 +263,9 @@
             "type": "manual",
             "instructions": "Run 'omi compress --age-days 90 --dry-run' and verify: (1) shows memories to compress, (2) estimates token savings, (3) no actual changes made"
           },
-          "status": "pending",
-          "notes": "Flow: (1) Create MoltVault backup FIRST, (2) Query old memories, (3) Summarize in batches, (4) Regenerate embeddings, (5) Update GraphPalace, (6) Report results."
+          "status": "completed",
+          "notes": "Implemented full compress workflow with MoltVault backup. Flow: (1) Creates MoltVault backup FIRST (with local fallback if R2 not configured), (2) Queries old memories using SQL, (3) Batch summarizes using MemorySummarizer, (4) Regenerates embeddings with NIMEmbedder, (5) Updates database with new content and embeddings, (6) Reports results with token savings. Dry-run verification passes: shows memories to compress, estimates token savings, makes no actual changes.",
+          "updated_at": "2026-02-11T00:39:15.693323+00:00"
         },
         {
           "id": "subtask-4-2",
@@ -281,8 +282,9 @@
             "type": "manual",
             "instructions": "After compression, verify embeddings are updated by running semantic recall on summarized content"
           },
-          "status": "pending",
-          "notes": "Use NIMEmbedder to regenerate embeddings for summarized content. Call GraphPalace.update_embedding() for each memory. Maintain semantic search accuracy."
+          "status": "completed",
+          "notes": "Embedding regeneration after summarization is already fully implemented in the compress command (Step 3, lines 734-770). Implementation includes: (1) NIMEmbedder initialization with config.yaml settings, (2) Batch embedding generation for all summaries using embed_batch(), (3) Database update with new embeddings (lines 794-803), (4) Proper error handling with graceful degradation. Follows pattern from embeddings.py exactly. Maintains semantic search accuracy by regenerating embeddings for compressed content.",
+          "updated_at": "2026-02-11T00:41:28.850697+00:00"
         },
         {
           "id": "subtask-4-3",
@@ -299,8 +301,9 @@
             "type": "manual",
             "instructions": "Run compress and verify output shows: memories compressed, original tokens, compressed tokens, savings %"
           },
-          "status": "pending",
-          "notes": "Calculate: original_tokens = sum(len(content)/4), compressed_tokens = sum(len(summary)/4), savings = (1 - compressed/original) * 100%."
+          "status": "completed",
+          "notes": "Compression reporting is fully implemented in cli.py lines 772-826. The compress command tracks actual token counts during memory updates (original_tokens, compressed_tokens) and calculates savings percentage. Final report displays: (1) Memories compressed count, (2) Original tokens with comma formatting, (3) Compressed tokens with comma formatting, (4) Savings in tokens and percentage with bold green styling. Verification confirmed: dry-run mode shows estimated savings, live mode shows actual results. Token calculation uses len(content)//4 approximation as specified in plan notes.",
+          "updated_at": "2026-02-11T00:43:41.066278+00:00"
         },
         {
           "id": "subtask-4-4",
@@ -485,6 +488,6 @@
   "qa_signoff": null,
   "status": "in_progress",
   "planStatus": "in_progress",
-  "updated_at": "2026-02-11T00:32:55.350Z",
-  "last_updated": "2026-02-11T00:32:30.120268+00:00"
+  "updated_at": "2026-02-11T00:42:19.702Z",
+  "last_updated": "2026-02-11T00:43:41.066303+00:00"
 }
