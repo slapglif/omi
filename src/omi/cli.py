@@ -527,35 +527,11 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
         sys.exit(1)
 
     try:
-        # Analyze current state
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT COUNT(*) FROM memories")
-        total_memories = cursor.fetchone()[0]
-
-        cursor.execute("SELECT memory_type, COUNT(*) FROM memories GROUP BY memory_type")
-        type_counts = dict(cursor.fetchall())
-
-        db_size_before = db_path.stat().st_size / 1024  # KB
-
-        click.echo(f"\n{click.style('Current State:', bold=True)}")
-        click.echo(f"  Total memories: {click.style(str(total_memories), fg='cyan')}")
-        click.echo(f"  Database size: {click.style(f'{db_size_before:.1f} KB', fg='cyan')}")
-
-        if type_counts:
-            click.echo(f"\n  Memory types:")
-            for mem_type, count in type_counts.items():
-                click.echo(f"    {mem_type}: {count}")
-
-        # Analyze compression candidates
-        # For now, we'll show what would be analyzed
-        click.echo(f"\n{click.style('Analysis:', bold=True)}")
-        click.echo(f"  Scanning for compression candidates...")
-
         # Validate and parse the before date if provided
+        from datetime import timedelta
         date_filter = None
+        threshold_datetime = None
+
         if before and age_days:
             click.echo(click.style(f"Error: Cannot use both --before and --age-days. Choose one.", fg="red"))
             sys.exit(1)
@@ -563,7 +539,7 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
         if before:
             try:
                 # Validate date format
-                datetime.strptime(before, '%Y-%m-%d')
+                threshold_datetime = datetime.strptime(before, '%Y-%m-%d')
                 date_filter = before
                 click.echo(f"  Using date filter: before {click.style(before, fg='cyan')}")
             except ValueError:
@@ -574,53 +550,269 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
                 click.echo(click.style(f"Error: --age-days must be a positive integer", fg="red"))
                 sys.exit(1)
             # Calculate the date from age_days
-            from datetime import timedelta
-            cutoff_date = datetime.now() - timedelta(days=age_days)
-            date_filter = cutoff_date.strftime('%Y-%m-%d')
+            threshold_datetime = datetime.now() - timedelta(days=age_days)
+            date_filter = threshold_datetime.strftime('%Y-%m-%d')
             click.echo(f"  Using date filter: older than {click.style(str(age_days) + ' days', fg='cyan')} (before {click.style(date_filter, fg='cyan')})")
-
-        # Example analysis (this would be replaced with actual compression logic)
-        if date_filter:
-            cursor.execute("""
-                SELECT COUNT(*) FROM memories
-                WHERE datetime(created_at) < datetime(?)
-            """, (date_filter,))
-            old_memories = cursor.fetchone()[0]
-            click.echo(f"  Old memories (before {date_filter}): {click.style(str(old_memories), fg='cyan')}")
         else:
-            cursor.execute("""
-                SELECT COUNT(*) FROM memories
-                WHERE datetime(created_at) < datetime('now', '-30 days')
-            """)
-            old_memories = cursor.fetchone()[0]
-            click.echo(f"  Old memories (>30 days): {click.style(str(old_memories), fg='cyan')}")
+            # Default: 30 days
+            threshold_datetime = datetime.now() - timedelta(days=30)
+            date_filter = threshold_datetime.strftime('%Y-%m-%d')
+            click.echo(f"  Using default filter: older than {click.style('30 days', fg='cyan')} (before {click.style(date_filter, fg='cyan')})")
 
-        if old_memories > 0:
-            estimated_reduction = old_memories * 0.4  # Estimate 40% compression
-            click.echo(f"  Estimated reduction: {click.style(f'~{estimated_reduction:.0f} memories', fg='green')}")
-        else:
-            click.echo(click.style("  No compression needed at this time", fg="green"))
+        # Query database directly (works with existing schema)
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
 
-        conn.close()
+        # Get total memories count
+        cursor.execute("SELECT COUNT(*) FROM memories")
+        total_memories = cursor.fetchone()[0]
 
-        # Show actions
+        # Get old memories data
+        cursor.execute("""
+            SELECT id, content, memory_type, confidence, created_at
+            FROM memories
+            WHERE datetime(created_at) < datetime(?)
+            ORDER BY created_at ASC
+        """, (threshold_datetime.isoformat(),))
+
+        old_memories_data = cursor.fetchall()
+        old_memories_count = len(old_memories_data)
+
+        # Calculate token estimates
+        total_chars = sum(len(row[1]) for row in old_memories_data)
+        estimated_tokens = total_chars // 4
+
+        # Get memory type distribution
+        cursor.execute("""
+            SELECT memory_type, COUNT(*)
+            FROM memories
+            WHERE datetime(created_at) < datetime(?)
+            GROUP BY memory_type
+        """, (threshold_datetime.isoformat(),))
+        memories_by_type = dict(cursor.fetchall())
+
+        click.echo(f"\n{click.style('Current State:', bold=True)}")
+        click.echo(f"  Total memories: {click.style(str(total_memories), fg='cyan')}")
+        click.echo(f"  Old memories (before {date_filter}): {click.style(str(old_memories_count), fg='cyan')}")
+        estimated_tokens_str = f"{estimated_tokens:,}"
+        click.echo(f"  Estimated tokens: {click.style(estimated_tokens_str, fg='cyan')}")
+
+        if memories_by_type:
+            click.echo(f"\n  Memory types:")
+            for mem_type, count in memories_by_type.items():
+                click.echo(f"    {mem_type}: {count}")
+
+        if not old_memories_data:
+            click.echo(click.style(f"\n✓ No memories to compress", fg="green", bold=True))
+            conn.close()
+            return
+
+        click.echo(f"\n{click.style('Compression Analysis:', bold=True)}")
+        click.echo(f"  Memories to compress: {click.style(str(old_memories_count), fg='cyan')}")
+
+        # Calculate token estimates
+        original_tokens = estimated_tokens
+        estimated_compressed_tokens = int(original_tokens * 0.4)  # ~60% compression
+        estimated_savings = original_tokens - estimated_compressed_tokens
+        savings_percent = (estimated_savings / original_tokens * 100) if original_tokens > 0 else 0
+
+        click.echo(f"  Original tokens: {click.style(f'{original_tokens:,}', fg='cyan')}")
+        click.echo(f"  Estimated compressed tokens: {click.style(f'{estimated_compressed_tokens:,}', fg='cyan')}")
+        click.echo(f"  Estimated savings: {click.style(f'{estimated_savings:,} tokens ({savings_percent:.1f}%)', fg='green')}")
+
+        # DRY RUN: stop here
         if dry_run:
             click.echo(f"\n{click.style('Would perform:', bold=True)}")
-            if old_memories > 0:
-                click.echo(f"  • Analyze {old_memories} old memories for compression")
-                click.echo(f"  • Generate summaries preserving key information")
-                click.echo(f"  • Update Graph Palace with compressed representations")
-                click.echo(f"  • Maintain semantic relationships and edges")
-            else:
-                click.echo(f"  • No compression actions needed")
-
+            click.echo(f"  • Create MoltVault backup (full)")
+            click.echo(f"  • Summarize {old_memories_count} memories using {llm_provider}")
+            click.echo(f"  • Regenerate embeddings for summarized content")
+            click.echo(f"  • Update Graph Palace with compressed memories")
+            click.echo(f"  • Save ~{estimated_savings:,} tokens ({savings_percent:.1f}%)")
             click.echo(click.style("\n✓ Dry run complete - no changes made", fg="yellow", bold=True))
-        else:
-            click.echo(f"\n{click.style('Note:', fg='yellow')} Compression implementation pending")
-            click.echo(f"  Run with --dry-run to preview compression analysis")
+            conn.close()
+            return
+
+        # LIVE MODE: proceed with compression
+        click.echo(f"\n{click.style('Starting compression workflow...', bold=True)}")
+
+        # Step 1: Create backup FIRST
+        click.echo(f"\n{click.style('[1/4]', fg='cyan')} Creating backup...")
+        backup_success = False
+        try:
+            from .moltvault import MoltVault
+            vault = MoltVault(base_path)
+            metadata = vault.backup(full=True)
+            click.echo(f"  ✓ Backup created: {click.style(metadata.backup_id, fg='green')}")
+            click.echo(f"    Size: {metadata.file_size / 1024:.1f} KB")
+            backup_success = True
+        except ImportError:
+            click.echo(click.style(f"  ⚠ MoltVault not available, creating local backup...", fg="yellow"))
+            # Fallback: create local backup
+            import shutil
+            backup_dir = base_path / "backups"
+            backup_dir.mkdir(exist_ok=True)
+            backup_file = backup_dir / f"pre_compress_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+            shutil.copy2(db_path, backup_file)
+            click.echo(f"  ✓ Local backup created: {click.style(str(backup_file.name), fg='green')}")
+            backup_success = True
+        except Exception as e:
+            click.echo(click.style(f"  ✗ Backup failed: {e}", fg="red"))
+            click.echo(click.style(f"  Aborting compression to protect data", fg="red"))
+            palace.close()
+            sys.exit(1)
+
+        if not backup_success:
+            click.echo(click.style(f"  Aborting: backup required before compression", fg="red"))
+            palace.close()
+            sys.exit(1)
+
+        # Step 2: Summarize memories
+        click.echo(f"\n{click.style('[2/4]', fg='cyan')} Summarizing memories...")
+        try:
+            from .summarizer import MemorySummarizer
+
+            # Get API key from environment
+            api_key_env = "OPENAI_API_KEY" if llm_provider == "openai" else "ANTHROPIC_API_KEY"
+            api_key = os.getenv(api_key_env)
+
+            if not api_key:
+                click.echo(click.style(f"  ✗ Missing {api_key_env} environment variable", fg="red"))
+                click.echo(f"    Set it with: export {api_key_env}=your-key-here")
+                conn.close()
+                sys.exit(1)
+
+            summarizer = MemorySummarizer(provider=llm_provider, api_key=api_key)
+
+            # Batch summarize (8 at a time)
+            batch_size = 8
+            summaries = []
+
+            # Build metadata from cursor data
+            # old_memories_data format: (id, content, memory_type, confidence, created_at)
+            metadata_list = [{
+                "memory_type": row[2],
+                "confidence": row[3],
+                "created_at": row[4]
+            } for row in old_memories_data]
+
+            # Extract contents
+            contents = [row[1] for row in old_memories_data]
+
+            for i in range(0, len(contents), batch_size):
+                batch_contents = contents[i:i+batch_size]
+                batch_metadata = metadata_list[i:i+batch_size]
+
+                batch_summaries = summarizer.batch_summarize(batch_contents, metadata_list=batch_metadata)
+                summaries.extend(batch_summaries)
+                click.echo(f"  Processed {min(i+batch_size, len(contents))}/{len(contents)}...")
+
+            click.echo(f"  ✓ Summarized {len(summaries)} memories")
+
+        except Exception as e:
+            click.echo(click.style(f"  ✗ Summarization failed: {e}", fg="red"))
+            import traceback
+            traceback.print_exc()
+            conn.close()
+            sys.exit(1)
+
+        # Step 3: Regenerate embeddings
+        click.echo(f"\n{click.style('[3/4]', fg='cyan')} Regenerating embeddings...")
+        try:
+            from .embeddings import NIMEmbedder
+
+            # Try to get embedder config from config.yaml
+            config_path = base_path / "config.yaml"
+            embedder = None
+
+            if config_path.exists():
+                try:
+                    import yaml
+                    config = yaml.safe_load(config_path.read_text())
+                    embed_config = config.get('embedding', {})
+                    provider = embed_config.get('provider', 'nim')
+
+                    if provider == 'nim':
+                        embedder = NIMEmbedder(
+                            model=embed_config.get('model', 'baai/bge-m3'),
+                            api_key=os.getenv('NIM_API_KEY')
+                        )
+                except Exception:
+                    pass
+
+            # Fallback to NIM with defaults
+            if embedder is None:
+                embedder = NIMEmbedder(api_key=os.getenv('NIM_API_KEY'))
+
+            # Generate embeddings for summaries
+            new_embeddings = embedder.embed_batch(summaries)
+            click.echo(f"  ✓ Generated {len(new_embeddings)} embeddings")
+
+        except Exception as e:
+            click.echo(click.style(f"  ⚠ Embedding generation failed: {e}", fg="yellow"))
+            click.echo(f"    Continuing without embeddings (will need regeneration later)")
+            new_embeddings = [None] * len(summaries)
+
+        # Step 4: Update Graph Palace
+        click.echo(f"\n{click.style('[4/4]', fg='cyan')} Updating Graph Palace...")
+        updated_count = 0
+        actual_original_tokens = 0
+        actual_compressed_tokens = 0
+
+        for memory_row, summary, embedding in zip(old_memories_data, summaries, new_embeddings):
+            memory_id = memory_row[0]
+            original_content = memory_row[1]
+
+            try:
+                # Track token counts
+                actual_original_tokens += len(original_content) // 4
+                actual_compressed_tokens += len(summary) // 4
+
+                # Update content with timestamp
+                cursor.execute("""
+                    UPDATE memories
+                    SET content = ?, updated_at = ?
+                    WHERE id = ?
+                """, (summary, datetime.now().isoformat(), memory_id))
+
+                # Update embedding if available
+                if embedding is not None:
+                    # Convert embedding list to blob
+                    import struct
+                    embedding_blob = struct.pack(f'{len(embedding)}f', *embedding)
+
+                    cursor.execute("""
+                        UPDATE memories
+                        SET embedding = ?
+                        WHERE id = ?
+                    """, (embedding_blob, memory_id))
+
+                updated_count += 1
+            except Exception as e:
+                click.echo(click.style(f"  ⚠ Failed to update memory {memory_id}: {e}", fg="yellow"))
+
+        conn.commit()
+        conn.close()
+
+        # Calculate actual savings
+        actual_savings = actual_original_tokens - actual_compressed_tokens
+        actual_savings_percent = (actual_savings / actual_original_tokens * 100) if actual_original_tokens > 0 else 0
+
+        # Final report
+        click.echo(f"\n{click.style('Compression Complete!', fg='green', bold=True)}")
+        click.echo(f"\n{click.style('Results:', bold=True)}")
+        click.echo(f"  Memories compressed: {click.style(str(updated_count), fg='cyan')}")
+        click.echo(f"  Original tokens: {click.style(f'{actual_original_tokens:,}', fg='cyan')}")
+        click.echo(f"  Compressed tokens: {click.style(f'{actual_compressed_tokens:,}', fg='cyan')}")
+        click.echo(f"  Savings: {click.style(f'{actual_savings:,} tokens ({actual_savings_percent:.1f}%)', fg='green', bold=True)}")
+
+        db_size_after = db_path.stat().st_size / 1024  # KB
+        click.echo(f"\n  Database size: {click.style(f'{db_size_after:.1f} KB', fg='cyan')}")
 
     except Exception as e:
-        click.echo(click.style(f"Error: Compression analysis failed: {e}", fg="red"))
+        click.echo(click.style(f"Error: Compression failed: {e}", fg="red"))
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
