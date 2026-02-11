@@ -21,7 +21,7 @@ from .embeddings import OllamaEmbedder, EmbeddingCache
 
 # Security
 from .security import IntegrityChecker, TopologyVerifier, ConsensusManager
-from .events import MemoryStoredEvent, MemoryRecalledEvent
+from .events import MemoryStoredEvent, MemoryRecalledEvent, BeliefUpdatedEvent
 from .event_bus import get_event_bus
 
 # Vault
@@ -179,26 +179,41 @@ class BeliefTools:
              strength: float) -> float:
         """
         belief_update: Add evidence, update confidence
-        
+
         Uses EMA: Supporting (λ=0.15), Contradicting (λ=0.30)
-        
+
         Args:
             belief_id: Belief to update
             evidence_memory_id: Source memory
             supports: True = supporting, False = contradicting
             strength: Evidence strength 0.0-1.0
-        
+
         Returns:
             new_confidence: Updated confidence value
         """
+        # Get old confidence before update
+        current = self.belief.palace.get_belief(belief_id)
+        old_confidence = current.get('confidence', 0.5)
+
         evidence = Evidence(
             memory_id=evidence_memory_id,
             supports=supports,
             strength=strength,
             timestamp=datetime.now()
         )
-        
-        return self.belief.update_with_evidence(belief_id, evidence)
+
+        new_confidence = self.belief.update_with_evidence(belief_id, evidence)
+
+        # Emit event
+        event = BeliefUpdatedEvent(
+            belief_id=belief_id,
+            old_confidence=old_confidence,
+            new_confidence=new_confidence,
+            evidence_id=evidence_memory_id
+        )
+        get_event_bus().publish(event)
+
+        return new_confidence
     
     def retrieve(self,
                query: str,
