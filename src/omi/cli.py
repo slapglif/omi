@@ -787,17 +787,33 @@ def config_get(ctx, key: str) -> None:
         sys.exit(1)
 
 
-@config.command('show')
+@config.command('list')
 @click.pass_context
-def config_show(ctx) -> None:
-    """Display full configuration."""
+def config_list(ctx) -> None:
+    """List all configuration values."""
     base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
-    
+
     if not config_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
+
+    content = config_path.read_text()
+    click.echo(click.style("Current configuration:", fg="cyan", bold=True))
+    click.echo(content)
+
+
+@config.command('show')
+@click.pass_context
+def config_show(ctx) -> None:
+    """Display full configuration (alias for list)."""
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    config_path = base_path / "config.yaml"
+
+    if not config_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
     content = config_path.read_text()
     click.echo(click.style("Current configuration:", fg="cyan", bold=True))
     click.echo(content)
