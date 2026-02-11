@@ -90,6 +90,97 @@ cli.add_command(events_group, name='events')
 cli.add_command(sync_group, name='sync')
 
 
+@cli.command()
+@click.argument('shell', type=click.Choice(['bash', 'zsh']), required=True)
+def completion(shell):
+    """Generate shell completion script.
+
+    Outputs a completion script for the specified shell that can be sourced
+    to enable tab-completion for OMI commands.
+
+    Args:
+        shell: Shell type (bash or zsh)
+
+    Examples:
+        # Bash - add to ~/.bashrc:
+        eval "$(omi completion bash)"
+
+        # Zsh - add to ~/.zshrc:
+        eval "$(omi completion zsh)"
+    """
+    # Click's shell completion works via environment variables
+    # We simulate the completion script generation process
+    prog_name = "omi"
+
+    if shell == "bash":
+        # Generate bash completion script
+        script = f"""# omi bash completion
+_{prog_name.upper()}_COMPLETE=bash_source {prog_name}() {{
+    local IFS=$'\\n'
+    local response
+
+    response=$(env COMP_WORDS="${{COMP_WORDS[*]}}" COMP_CWORD=${{COMP_CWORD}} _{prog_name.upper()}_COMPLETE=bash_complete $1)
+
+    for completion in $response; do
+        IFS=',' read type value <<< "$completion"
+
+        if [[ $type == 'dir' ]]; then
+            COMPREPLY=()
+            compopt -o dirnames
+        elif [[ $type == 'file' ]]; then
+            COMPREPLY=()
+            compopt -o default
+        elif [[ $type == 'plain' ]]; then
+            COMPREPLY+=($value)
+        fi
+    done
+
+    return 0
+}}
+
+complete -F {prog_name} -o nosort -o bashdefault -o default {prog_name}"""
+    else:  # zsh
+        # Generate zsh completion script
+        script = f"""#compdef {prog_name}
+
+_{prog_name}_completion() {{
+    local -a completions
+    local -a completions_with_descriptions
+    local -a response
+    (( ! $+commands[{prog_name}] )) && return 1
+
+    response=("${{(@f)$(env COMP_WORDS="${{words[*]}}" COMP_CWORD=${{#words[@]}} _{prog_name.upper()}_COMPLETE=zsh_complete {prog_name})}}")
+
+    for type value in ${{response}}; do
+        if [[ $type == 'plain' ]]; then
+            if [[ $value == *$'\\t'* ]]; then
+                completions_with_descriptions+=("$value")
+            else
+                completions+=("$value")
+            fi
+        fi
+    done
+
+    if [ -n "$completions_with_descriptions" ]; then
+        _describe -V unsorted completions_with_descriptions -U
+    fi
+
+    if [ -n "$completions" ]; then
+        compadd -U -V unsorted -a completions
+    fi
+}}
+
+if [[ $zsh_eval_context[-1] == loadautofunc ]]; then
+    # autoload mode, define completion function
+    _{prog_name}_completion
+else
+    # eval mode, call compdef
+    compdef _{prog_name}_completion {prog_name}
+fi"""
+
+    click.echo(script)
+
+
 def main():
     """Entry point for the CLI."""
     cli()
