@@ -34,6 +34,111 @@ try:
 except ImportError:
     BOTO3_AVAILABLE = False
 
+# Storage backend imports
+from omi.storage_backends import S3Backend, StorageBackend, StorageError, StorageAuthError
+
+
+class _MockS3BackendWrapper(StorageBackend):
+    """
+    Wrapper for mocked S3 client to provide StorageBackend interface
+    Used for backward compatibility with tests that mock _s3_client
+    """
+
+    def __init__(self, s3_client: Any, bucket: str):
+        super().__init__(bucket, prefix="")
+        self._client = s3_client
+
+    def upload(self, local_path: Path, key: str, metadata: Optional[Dict[str, str]] = None) -> str:
+        """Upload file using raw S3 client"""
+        full_key = self._make_key(key)
+        # For JSON files, use put_object to match old behavior
+        if str(local_path).endswith('.json'):
+            with open(local_path, 'r') as f:
+                self._client.put_object(
+                    Bucket=self.bucket,
+                    Key=full_key,
+                    Body=f.read(),
+                    ContentType="application/json",
+                )
+        else:
+            # For other files, use upload_fileobj
+            with open(local_path, "rb") as f:
+                extra_args = {}
+                if metadata:
+                    extra_args["Metadata"] = metadata
+                self._client.upload_fileobj(
+                    f, self.bucket, full_key,
+                    ExtraArgs=extra_args if extra_args else None
+                )
+        return full_key
+
+    def download(self, key: str, local_path: Path) -> Path:
+        """Download file using raw S3 client"""
+        full_key = self._make_key(key)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        # For JSON files, use get_object (for test compatibility)
+        # For other files, use download_file
+        if str(key).endswith('.json'):
+            response = self._client.get_object(Bucket=self.bucket, Key=full_key)
+            content = response["Body"].read()
+            local_path.write_bytes(content)
+        else:
+            self._client.download_file(self.bucket, full_key, str(local_path))
+        return local_path
+
+    def list(self, prefix: str = "", max_keys: Optional[int] = None):
+        """List objects using raw S3 client"""
+        from omi.storage_backends import StorageObject
+        full_prefix = self._make_key(prefix)
+        response = self._client.list_objects_v2(
+            Bucket=self.bucket,
+            Prefix=full_prefix,
+            **({"MaxKeys": max_keys} if max_keys else {})
+        )
+        objects = []
+        for item in response.get("Contents", []):
+            key = item.get("Key", "")
+            if self.prefix and key.startswith(self.prefix):
+                key = key[len(self.prefix):]
+            objects.append(StorageObject(
+                key=key,
+                size=item.get("Size", 0),
+                last_modified=item.get("LastModified"),
+                etag=item.get("ETag", "").strip('"'),
+            ))
+        return objects
+
+    def delete(self, key: str) -> bool:
+        """Delete object using raw S3 client"""
+        full_key = self._make_key(key)
+        self._client.delete_object(Bucket=self.bucket, Key=full_key)
+        return True
+
+    def exists(self, key: str) -> bool:
+        """Check if object exists using raw S3 client"""
+        full_key = self._make_key(key)
+        try:
+            self._client.head_object(Bucket=self.bucket, Key=full_key)
+            return True
+        except:
+            return False
+
+    def get_metadata(self, key: str):
+        """Get metadata using raw S3 client"""
+        from omi.storage_backends import StorageObject
+        full_key = self._make_key(key)
+        try:
+            response = self._client.head_object(Bucket=self.bucket, Key=full_key)
+            return StorageObject(
+                key=key,
+                size=response["ContentLength"],
+                last_modified=response["LastModified"],
+                etag=response.get("ETag", "").strip('"'),
+                metadata=response.get("Metadata"),
+            )
+        except:
+            return None
+
 
 @dataclass
 class BackupMetadata:
@@ -132,42 +237,59 @@ class MoltVault:
         self.bucket = bucket
         self.endpoint = endpoint
         self.region = region
-        
+
         # Get credentials from env or parameters
         self.access_key = access_key or os.getenv("R2_ACCESS_KEY_ID")
         self.secret_key = secret_key or os.getenv("R2_SECRET_ACCESS_KEY")
-        
+
         # State tracking
-        self._s3_client: Optional[Any] = None
+        self._backend: Optional[StorageBackend] = None
+        self._s3_client: Optional[Any] = None  # Kept for backward compatibility with tests
         self._encryption: Optional[EncryptionManager] = None
         self._last_backup_path = self.base_path / ".moltvault_last_backup"
-        
+
         # Check for encryption key
         if os.getenv("MOLTVAULT_KEY") and CRYPTO_AVAILABLE:
             self._encryption = EncryptionManager()
     
-    def _get_s3_client(self) -> Any:
-        """Get or create S3 client"""
-        if not BOTO3_AVAILABLE:
-            raise ImportError(
-                "boto3 package required. Install with: pip install boto3"
-            )
-        
-        if self._s3_client is None:
+    def _get_backend(self) -> StorageBackend:
+        """Get or create storage backend"""
+        # If _s3_client is set directly (e.g., by tests), use mock wrapper
+        if self._s3_client is not None:
+            if self._backend is None:
+                # Use mock wrapper for backward compatibility with tests
+                self._backend = _MockS3BackendWrapper(self._s3_client, self.bucket)
+            return self._backend
+
+        if self._backend is None:
+            if not BOTO3_AVAILABLE:
+                raise ImportError(
+                    "boto3 package required. Install with: pip install boto3"
+                )
+
             if not self.access_key or not self.secret_key:
                 raise ValueError(
                     "R2 credentials required. Set R2_ACCESS_KEY_ID and "
                     "R2_SECRET_ACCESS_KEY environment variables."
                 )
-            
-            self._s3_client = boto3.client(
-                "s3",
-                endpoint_url=self.endpoint,
-                aws_access_key_id=self.access_key,
-                aws_secret_access_key=self.secret_key,
-                region_name=self.region,
+
+            self._backend = S3Backend(
+                bucket=self.bucket,
+                prefix="",
+                endpoint=self.endpoint,
+                access_key=self.access_key,
+                secret_key=self.secret_key,
+                region=self.region,
             )
-        return self._s3_client
+
+        return self._backend
+
+    def _get_s3_client(self) -> Any:
+        """Get or create S3 client (deprecated - for backward compatibility)"""
+        backend = self._get_backend()
+        if hasattr(backend, '_client'):
+            return backend._client
+        return None
     
     def _get_files_to_backup(self, incremental: bool = False) -> List[Path]:
         """
@@ -355,79 +477,83 @@ class MoltVault:
                 retention_days=30 if backup_type == "full" else 7,
             )
             
-            # Upload to R2/S3
+            # Upload to R2/S3 using backend abstraction
+            backend = self._get_backend()
+
             s3_key = f"backups/{backup_id}.tar.gz"
             if use_encryption:
                 s3_key += ".enc"
             meta_key = f"backups/{backup_id}.json"
-            
-            s3 = self._get_s3_client()
-            
-            # Upload archive
-            with open(archive_path, "rb") as f:
-                s3.upload_fileobj(
-                    f,
-                    self.bucket,
-                    s3_key,
-                    ExtraArgs={
-                        "Metadata": {
-                            "backup-type": backup_type,
-                            "created-at": metadata.created_at,
-                            "checksum": checksum,
-                        }
-                    }
-                )
-            
-            # Upload metadata
-            s3.put_object(
-                Bucket=self.bucket,
-                Key=meta_key,
-                Body=json.dumps(metadata.to_dict(), indent=2),
-                ContentType="application/json",
+
+            # Upload archive with metadata
+            backend.upload(
+                local_path=archive_path,
+                key=s3_key,
+                metadata={
+                    "backup-type": backup_type,
+                    "created-at": metadata.created_at,
+                    "checksum": checksum,
+                }
             )
-            
+
+            # Upload metadata JSON
+            meta_file = temp_dir / f"{backup_id}.json"
+            meta_file.write_text(json.dumps(metadata.to_dict(), indent=2))
+            backend.upload(
+                local_path=meta_file,
+                key=meta_key,
+            )
+
             # Update last backup time
             self._last_backup_path.write_text(datetime.now().isoformat())
-            
+
             return metadata
     
     def list_backups(self) -> List[BackupMetadata]:
         """
         List all available backups with metadata
-        
+
         Returns:
             List of BackupMetadata sorted by creation time (newest first)
         """
-        s3 = self._get_s3_client()
-        
+        backend = self._get_backend()
+
         backups = []
         prefix = "backups/"
-        
+
         try:
-            response = s3.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
-            
-            if "Contents" not in response:
+            objects = backend.list(prefix=prefix)
+
+            if not objects:
                 return []
-            
+
             # Find metadata files
-            for obj in response["Contents"]:
-                key = obj["Key"]
+            for obj in objects:
+                key = obj.key
                 if not key.endswith(".json"):
                     continue
-                
+
                 try:
-                    meta_obj = s3.get_object(Bucket=self.bucket, Key=key)
-                    meta_data = json.loads(meta_obj["Body"].read())
-                    backups.append(BackupMetadata.from_dict(meta_data))
+                    # Download metadata to temporary file
+                    with tempfile.NamedTemporaryFile(mode='w+b', delete=False) as tmp:
+                        tmp_path = Path(tmp.name)
+
+                    try:
+                        backend.download(key=f"{prefix}{key}", local_path=tmp_path)
+                        meta_data = json.loads(tmp_path.read_text())
+                        backups.append(BackupMetadata.from_dict(meta_data))
+                    finally:
+                        tmp_path.unlink(missing_ok=True)
+
                 except Exception:
                     continue
-            
+
             # Sort by creation time (newest first)
             backups.sort(key=lambda x: x.created_at, reverse=True)
-            
-        except ClientError as e:
+
+        except StorageError as e:
             raise RuntimeError(f"Failed to list backups: {e}")
-        
+
         return backups
     
     def restore(
@@ -438,54 +564,56 @@ class MoltVault:
     ) -> Path:
         """
         Restore from backup
-        
+
         Args:
             backup_id: ID of backup to restore
             target_path: Where to restore (default: original backup location)
             verify: Verify checksum integrity
-            
+
         Returns:
             Path to restored base directory
         """
-        s3 = self._get_s3_client()
-        
+        backend = self._get_backend()
+
         # Determine paths
         s3_key = f"backups/{backup_id}.tar.gz"
         meta_key = f"backups/{backup_id}.json"
-        
+
         # Download metadata first
-        try:
-            meta_obj = s3.get_object(Bucket=self.bucket, Key=meta_key)
-            metadata = BackupMetadata.from_dict(
-                json.loads(meta_obj["Body"].read())
-            )
-        except ClientError as e:
-            raise ValueError(f"Backup {backup_id} not found: {e}")
-        
-        # Adjust for encrypted backups
-        if metadata.encrypted:
-            if not CRYPTO_AVAILABLE:
-                raise ImportError("cryptography package required for decryption")
-            if not self._encryption:
-                raise ValueError("MOLTVAULT_KEY required to restore encrypted backup")
-            s3_key += ".enc"
-        
-        # Use base_path from metadata or provided target
-        if target_path:
-            restore_path = Path(target_path)
-        else:
-            restore_path = self.base_path
-        
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_dir = Path(tmpdir)
+            meta_path = temp_dir / f"{backup_id}.json"
+
+            try:
+                backend.download(key=meta_key, local_path=meta_path)
+                metadata = BackupMetadata.from_dict(
+                    json.loads(meta_path.read_text())
+                )
+            except (KeyError, StorageError) as e:
+                raise ValueError(f"Backup {backup_id} not found: {e}")
+
+            # Adjust for encrypted backups
+            if metadata.encrypted:
+                if not CRYPTO_AVAILABLE:
+                    raise ImportError("cryptography package required for decryption")
+                if not self._encryption:
+                    raise ValueError("MOLTVAULT_KEY required to restore encrypted backup")
+                s3_key += ".enc"
+
+            # Use base_path from metadata or provided target
+            if target_path:
+                restore_path = Path(target_path)
+            else:
+                restore_path = self.base_path
+
             archive_path = temp_dir / f"{backup_id}.tar.gz"
-            
+
             # Download archive
             try:
-                s3.download_file(self.bucket, s3_key, str(archive_path))
-            except ClientError as e:
+                backend.download(key=s3_key, local_path=archive_path)
+            except (KeyError, StorageError) as e:
                 raise RuntimeError(f"Failed to download backup: {e}")
-            
+
             # Verify checksum
             if verify:
                 actual_checksum = self._calculate_checksum(archive_path)
@@ -494,14 +622,14 @@ class MoltVault:
                         f"Checksum mismatch! Expected {metadata.checksum}, "
                         f"got {actual_checksum}"
                     )
-            
+
             # Decrypt if needed
             if metadata.encrypted:
                 archive_path = self._decrypt_file(archive_path, temp_dir)
-            
+
             # Ensure restore path exists
             restore_path.mkdir(parents=True, exist_ok=True)
-            
+
             # Extract archive
             with tarfile.open(archive_path, "r:gz") as tar:
                 # Security: validate members
@@ -515,57 +643,57 @@ class MoltVault:
                             f"Malicious archive: path traversal detected in {member.name}"
                         )
                 tar.extractall(path=restore_path)
-        
+
         return restore_path
     
     def cleanup(self, dry_run: bool = False) -> Dict[str, int]:
         """
         Apply retention policy cleanup
-        
+
         - Full backups: keep for 30 days
         - Incremental backups: keep for 7 days
-        
+
         Args:
             dry_run: If True, only report what would be deleted
-            
+
         Returns:
             Dict with 'deleted' and 'kept' counts
         """
-        s3 = self._get_s3_client()
+        backend = self._get_backend()
         backups = self.list_backups()
-        
+
         now = datetime.now()
         deleted = 0
         kept = 0
-        
+
         for backup in backups:
             try:
                 created = datetime.fromisoformat(backup.created_at)
                 age_days = (now - created).days
-                
+
                 # Determine retention
                 max_age = backup.retention_days
-                
+
                 if age_days > max_age:
                     if not dry_run:
                         # Delete archive and metadata
                         s3_key = f"backups/{backup.backup_id}.tar.gz"
                         meta_key = f"backups/{backup.backup_id}.json"
-                        
+
                         if backup.encrypted:
                             s3_key += ".enc"
-                        
+
                         try:
-                            s3.delete_object(Bucket=self.bucket, Key=s3_key)
-                            s3.delete_object(Bucket=self.bucket, Key=meta_key)
-                        except ClientError:
+                            backend.delete(s3_key)
+                            backend.delete(meta_key)
+                        except StorageError:
                             pass
                     deleted += 1
                 else:
                     kept += 1
             except Exception:
                 kept += 1
-        
+
         return {"deleted": deleted, "kept": kept}
 
 
