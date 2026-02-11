@@ -169,6 +169,368 @@ class TestCLIStore:
             assert result.exit_code == 0
 
 
+class TestCLIBelief:
+    """Tests for belief commands."""
+
+    def test_belief_group_exists(self):
+        """Test that belief command group exists."""
+        runner = CliRunner()
+
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        from omi.cli import cli
+
+        result = runner.invoke(cli, ["belief", "--help"])
+
+        assert result.exit_code == 0
+        assert "Belief management commands" in result.output
+        assert "evidence" in result.output
+        assert "update" in result.output
+
+    def test_belief_evidence_requires_init(self):
+        """Test that belief evidence requires initialization."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(Path(tmpdir) / "not_initialized")}):
+                result = runner.invoke(cli, ["belief", "evidence", "test-belief-id"])
+
+            assert result.exit_code == 1
+            assert "not initialized" in result.output.lower()
+
+    def test_belief_evidence_requires_belief_id(self):
+        """Test that belief evidence requires belief_id argument."""
+        runner = CliRunner()
+
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        from omi.cli import cli
+
+        result = runner.invoke(cli, ["belief", "evidence"])
+
+        assert result.exit_code != 0
+        assert "Missing argument" in result.output or "belief_id" in result.output.lower()
+
+    def test_belief_evidence_displays_chain(self):
+        """Test that belief evidence displays chain correctly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+            from omi.belief import BeliefNetwork
+            from datetime import datetime
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock GraphPalace methods
+            mock_belief = {
+                'id': 'test-belief-id',
+                'content': 'Test belief content',
+                'confidence': 0.75
+            }
+
+            mock_evidence = MagicMock()
+            mock_evidence.memory_id = 'evidence-1'
+            mock_evidence.supports = True
+            mock_evidence.strength = 0.8
+            mock_evidence.timestamp = datetime.now()
+
+            with patch.object(GraphPalace, 'get_belief', return_value=mock_belief):
+                with patch.object(BeliefNetwork, 'get_evidence_chain', return_value=[mock_evidence]):
+                    with patch.object(GraphPalace, 'get_memory', return_value={'content': 'Evidence content'}):
+                        with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                            result = runner.invoke(cli, ["belief", "evidence", "test-belief-id"])
+
+            assert result.exit_code == 0
+            assert "Test belief content" in result.output
+            assert "SUPPORTS" in result.output
+            assert "evidence-1" in result.output
+
+    def test_belief_evidence_json_output(self):
+        """Test that belief evidence accepts --json option."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+            from omi.belief import BeliefNetwork
+            from datetime import datetime
+            import json
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock GraphPalace methods
+            mock_belief = {
+                'id': 'test-belief-id',
+                'content': 'Test belief content',
+                'confidence': 0.75
+            }
+
+            mock_evidence = MagicMock()
+            mock_evidence.memory_id = 'evidence-1'
+            mock_evidence.supports = True
+            mock_evidence.strength = 0.8
+            mock_evidence.timestamp = datetime.now()
+
+            with patch.object(GraphPalace, 'get_belief', return_value=mock_belief):
+                with patch.object(BeliefNetwork, 'get_evidence_chain', return_value=[mock_evidence]):
+                    with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                        result = runner.invoke(cli, ["belief", "evidence", "test-belief-id", "--json"])
+
+            assert result.exit_code == 0
+            output = json.loads(result.output)
+            assert isinstance(output, list)
+            assert len(output) == 1
+            assert output[0]['memory_id'] == 'evidence-1'
+            assert output[0]['supports'] is True
+
+    def test_belief_evidence_handles_missing_belief(self):
+        """Test that belief evidence handles missing belief gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock GraphPalace to return None for missing belief
+            with patch.object(GraphPalace, 'get_belief', return_value=None):
+                with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                    result = runner.invoke(cli, ["belief", "evidence", "nonexistent-belief"])
+
+            assert result.exit_code == 1
+            assert "not found" in result.output.lower()
+
+    def test_belief_update_requires_init(self):
+        """Test that belief update requires initialization."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(Path(tmpdir) / "not_initialized")}):
+                result = runner.invoke(cli, ["belief", "update", "test-belief-id", "--evidence", "test-evidence-id"])
+
+            assert result.exit_code == 1
+            assert "not initialized" in result.output.lower()
+
+    def test_belief_update_requires_evidence_option(self):
+        """Test that belief update requires --evidence option."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                result = runner.invoke(cli, ["belief", "update", "test-belief-id"])
+
+            assert result.exit_code != 0
+            assert "Missing option" in result.output or "--evidence" in result.output
+
+    def test_belief_update_validates_strength_range(self):
+        """Test that belief update validates strength is between 0.0 and 1.0."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Test strength > 1.0
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                result = runner.invoke(cli, [
+                    "belief", "update", "test-belief-id",
+                    "--evidence", "test-evidence-id",
+                    "--strength", "1.5"
+                ])
+
+            assert result.exit_code == 1
+            assert "0.0 and 1.0" in result.output
+
+            # Test strength < 0.0
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                result = runner.invoke(cli, [
+                    "belief", "update", "test-belief-id",
+                    "--evidence", "test-evidence-id",
+                    "--strength", "-0.5"
+                ])
+
+            assert result.exit_code == 1
+            assert "0.0 and 1.0" in result.output
+
+    def test_belief_update_with_supports_flag(self):
+        """Test that belief update works with --supports flag."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+            from omi.belief import BeliefNetwork
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock GraphPalace methods
+            mock_belief = {
+                'id': 'test-belief-id',
+                'content': 'Test belief content',
+                'confidence': 0.5
+            }
+            mock_memory = {'id': 'test-evidence-id', 'content': 'Test evidence'}
+
+            with patch.object(GraphPalace, 'get_belief', return_value=mock_belief):
+                with patch.object(GraphPalace, 'get_memory', return_value=mock_memory):
+                    with patch.object(BeliefNetwork, 'update_with_evidence', return_value=0.6):
+                        with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                            result = runner.invoke(cli, [
+                                "belief", "update", "test-belief-id",
+                                "--evidence", "test-evidence-id",
+                                "--supports",
+                                "--strength", "0.8"
+                            ])
+
+            assert result.exit_code == 0
+            assert "SUPPORTING" in result.output
+            assert "updated successfully" in result.output.lower()
+
+    def test_belief_update_with_contradicts_flag(self):
+        """Test that belief update works with --contradicts flag."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+            from omi.belief import BeliefNetwork
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock GraphPalace methods
+            mock_belief = {
+                'id': 'test-belief-id',
+                'content': 'Test belief content',
+                'confidence': 0.6
+            }
+            mock_memory = {'id': 'test-evidence-id', 'content': 'Test evidence'}
+
+            with patch.object(GraphPalace, 'get_belief', return_value=mock_belief):
+                with patch.object(GraphPalace, 'get_memory', return_value=mock_memory):
+                    with patch.object(BeliefNetwork, 'update_with_evidence', return_value=0.4):
+                        with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                            result = runner.invoke(cli, [
+                                "belief", "update", "test-belief-id",
+                                "--evidence", "test-evidence-id",
+                                "--contradicts",
+                                "--strength", "0.6"
+                            ])
+
+            assert result.exit_code == 0
+            assert "CONTRADICTING" in result.output
+            assert "updated successfully" in result.output.lower()
+
+    def test_belief_update_handles_missing_belief(self):
+        """Test that belief update handles missing belief gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock GraphPalace to return None for missing belief
+            with patch.object(GraphPalace, 'get_belief', return_value=None):
+                with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                    result = runner.invoke(cli, [
+                        "belief", "update", "nonexistent-belief",
+                        "--evidence", "test-evidence-id"
+                    ])
+
+            assert result.exit_code == 1
+            assert "not found" in result.output.lower()
+
+    def test_belief_update_handles_missing_evidence(self):
+        """Test that belief update handles missing evidence memory gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock GraphPalace methods
+            mock_belief = {
+                'id': 'test-belief-id',
+                'content': 'Test belief content',
+                'confidence': 0.5
+            }
+
+            with patch.object(GraphPalace, 'get_belief', return_value=mock_belief):
+                with patch.object(GraphPalace, 'get_memory', return_value=None):
+                    with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                        result = runner.invoke(cli, [
+                            "belief", "update", "test-belief-id",
+                            "--evidence", "nonexistent-evidence"
+                        ])
+
+            assert result.exit_code == 1
+            assert "not found" in result.output.lower()
+
+
 class TestCLIRecall:
     """Tests for 'omi recall' command."""
 
