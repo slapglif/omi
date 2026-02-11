@@ -318,6 +318,127 @@ class OpenAIEmbedder(EmbeddingProvider):
         return results
 
 
+@dataclass
+class CohereConfig:
+    """Cohere embeddings configuration"""
+    api_key: str
+    base_url: str = "https://api.cohere.ai/v1"
+    model: str = "embed-english-v3.0"
+    embedding_dim: int = 1024
+    timeout: int = 30
+    input_type: str = "search_document"
+
+
+class CohereEmbedder(EmbeddingProvider):
+    """
+    Cohere embeddings (embed-english-v3.0)
+
+    Models:
+    - embed-english-v3.0: 1024 dimensions (recommended)
+    - embed-multilingual-v3.0: 1024 dimensions (multilingual support)
+
+    High-quality embeddings optimized for semantic search and retrieval
+    """
+
+    DEFAULT_MODEL = "embed-english-v3.0"
+    DEFAULT_DIM = 1024
+
+    MODEL_DIMENSIONS = {
+        "embed-english-v3.0": 1024,
+        "embed-multilingual-v3.0": 1024,
+        "embed-english-light-v3.0": 384,
+        "embed-multilingual-light-v3.0": 384
+    }
+
+    def __init__(self,
+                 api_key: Optional[str] = None,
+                 base_url: str = "https://api.cohere.ai/v1",
+                 model: str = DEFAULT_MODEL,
+                 input_type: str = "search_document"):
+        """
+        Args:
+            api_key: Cohere API key (or COHERE_API_KEY env var)
+            base_url: Cohere API endpoint
+            model: embed-english-v3.0 (default) or other Cohere embedding model
+            input_type: search_document (default), search_query, classification, or clustering
+        """
+        self.api_key = api_key or os.getenv("COHERE_API_KEY")
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.input_type = input_type
+
+        if not self.api_key:
+            raise ValueError("COHERE_API_KEY required or set COHERE_API_KEY env var")
+
+        # Initialize HTTP session
+        import requests
+        self._session = requests.Session()
+        self._session.headers.update({
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        })
+        self._test_connection()
+
+    def _test_connection(self) -> None:
+        """Test Cohere API connection"""
+        test_response = self._session.post(
+            f"{self.base_url}/embed",
+            json={
+                "model": self.model,
+                "texts": ["test"],
+                "input_type": self.input_type
+            },
+            timeout=10
+        )
+        test_response.raise_for_status()
+
+    def embed(self, text: str) -> List[float]:
+        """Generate embedding via Cohere API"""
+        response = self._session.post(
+            f"{self.base_url}/embed",
+            json={
+                "model": self.model,
+                "texts": [text],
+                "input_type": self.input_type
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        return data["embeddings"][0]
+
+    @property
+    def dimensions(self) -> int:
+        """Return embedding dimensionality based on model"""
+        return self.MODEL_DIMENSIONS.get(self.model, self.DEFAULT_DIM)
+
+    def embed_batch(self, texts: List[str], batch_size: int = 96) -> List[List[float]]:
+        """
+        Generate embeddings for multiple texts
+
+        Cohere supports up to 96 texts per batch
+        """
+        results = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            response = self._session.post(
+                f"{self.base_url}/embed",
+                json={
+                    "model": self.model,
+                    "texts": batch,
+                    "input_type": self.input_type
+                },
+                timeout=60
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            results.extend(data["embeddings"])
+
+        return results
+
+
 class OllamaEmbedder(EmbeddingProvider):
     """
     Local Ollama fallback embeddings
@@ -449,7 +570,7 @@ class SentenceTransformerEmbedder(EmbeddingProvider):
 class EmbeddingCache:
     """Disk cache for embeddings"""
 
-    def __init__(self, cache_dir: Path, embedder: Union[NIMEmbedder, OpenAIEmbedder, OllamaEmbedder, SentenceTransformerEmbedder]):
+    def __init__(self, cache_dir: Path, embedder: Union[NIMEmbedder, OpenAIEmbedder, CohereEmbedder, OllamaEmbedder, SentenceTransformerEmbedder]):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.embedder = embedder
