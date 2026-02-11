@@ -6,6 +6,7 @@ Pattern: Cloud API with local caching, consistent with MEMORY.md setup
 import os
 import json
 import hashlib
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Optional, Union, Dict, Any, TYPE_CHECKING
 from dataclasses import dataclass
@@ -13,6 +14,87 @@ import numpy as np
 
 if TYPE_CHECKING:
     import ollama  # type: ignore[import-not-found]
+
+
+class EmbeddingProvider(ABC):
+    """
+    Abstract base class for embedding providers
+
+    All embedding providers (NIM, Ollama, OpenAI, etc.) must implement these methods.
+    This enables plugin-based architecture for custom embedding services.
+    """
+
+    @abstractmethod
+    def embed(self, text: str) -> List[float]:
+        """
+        Generate embedding vector for a single text
+
+        Args:
+            text: Input text to embed
+
+        Returns:
+            Embedding vector as list of floats
+
+        Raises:
+            ValueError: If text is empty or invalid
+            RuntimeError: If embedding generation fails
+        """
+        pass
+
+    @abstractmethod
+    def embed_batch(self, texts: List[str], batch_size: int = 8) -> List[List[float]]:
+        """
+        Generate embeddings for multiple texts
+
+        Args:
+            texts: List of input texts to embed
+            batch_size: Number of texts to process in each batch
+
+        Returns:
+            List of embedding vectors
+
+        Raises:
+            ValueError: If texts list is empty
+            RuntimeError: If embedding generation fails
+        """
+        pass
+
+    @abstractmethod
+    def similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
+        """
+        Calculate similarity between two embedding vectors
+
+        Args:
+            embedding1: First embedding vector
+            embedding2: Second embedding vector
+
+        Returns:
+            Similarity score (typically cosine similarity, range -1.0 to 1.0)
+
+        Raises:
+            ValueError: If embeddings have different dimensions
+        """
+        pass
+
+    @abstractmethod
+    def get_dimension(self) -> int:
+        """
+        Get the dimensionality of embeddings produced by this provider
+
+        Returns:
+            Number of dimensions in embedding vectors
+        """
+        pass
+
+    @abstractmethod
+    def get_model_name(self) -> str:
+        """
+        Get the name/identifier of the embedding model
+
+        Returns:
+            Model name string (e.g., "baai/bge-m3", "nomic-embed-text")
+        """
+        pass
 
 
 @dataclass
