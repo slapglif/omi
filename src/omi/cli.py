@@ -438,6 +438,107 @@ def recall(ctx, query: str, limit: int, json_output: bool) -> None:
 
 
 @cli.command()
+@click.option('--operation', required=True, type=click.Choice(['recall']), help='Operation to debug')
+@click.argument('query')
+@click.option('--limit', '-l', default=10, help='Maximum number of results')
+@click.pass_context
+def debug(ctx, operation: str, query: str, limit: int) -> None:
+    """Debug mode with step-by-step operation output.
+
+    Args:
+        --operation: Operation to debug (recall)
+        query: Search query text
+        --limit: Maximum number of results (default: 10)
+
+    Examples:
+        omi debug --operation recall "test query"
+        omi debug --operation recall "auth bug" --limit 5
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    db_path = base_path / "palace.sqlite"
+    if not db_path.exists():
+        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    if operation == 'recall':
+        _debug_recall(query, db_path, limit)
+
+
+def _debug_recall(query: str, db_path: Path, limit: int) -> None:
+    """Debug recall operation with step-by-step output."""
+    from omi.embeddings import NIMEmbedder
+
+    click.echo(click.style("=== DEBUG: Recall Operation ===", fg="cyan", bold=True))
+    click.echo()
+
+    # Step 1: Generate embedding
+    click.echo(click.style("Step 1: Generating embedding for query", fg="yellow", bold=True))
+    click.echo(f"Query: {click.style(query, fg='white', bold=True)}")
+
+    try:
+        embedder = NIMEmbedder()
+        embedding = embedder.embed(query)
+        click.echo(click.style(f"✓ Generated {len(embedding)}-dimensional embedding", fg="green"))
+        click.echo(f"  First 5 values: {embedding[:5]}")
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed to generate embedding: {e}", fg="red"))
+        click.echo(click.style("Tip: Set NIM_API_KEY environment variable", fg="yellow"))
+        sys.exit(1)
+
+    click.echo()
+
+    # Step 2: Search for candidates
+    click.echo(click.style("Step 2: Searching for candidate memories", fg="yellow", bold=True))
+
+    try:
+        palace = GraphPalace(db_path)
+        results = palace.recall(embedding, limit=limit, min_relevance=0.0)
+        click.echo(click.style(f"✓ Found {len(results)} candidate memories", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"✗ Search failed: {e}", fg="red"))
+        sys.exit(1)
+
+    click.echo()
+
+    # Step 3: Scoring
+    click.echo(click.style("Step 3: Scoring results (relevance + recency)", fg="yellow", bold=True))
+    click.echo(f"Formula: {click.style('final_score = (relevance * 0.7) + (recency * 0.3)', fg='bright_black')}")
+
+    if not results:
+        click.echo(click.style("No memories found matching the query.", fg="yellow"))
+        return
+
+    click.echo()
+
+    # Step 4: Display results
+    click.echo(click.style("Step 4: Final Results", fg="yellow", bold=True))
+    click.echo("=" * 80)
+
+    for i, (mem, score) in enumerate(results, 1):
+        mem_type = mem.memory_type
+        content = mem.content
+        if len(content) > 100:
+            content = content[:97] + "..."
+
+        type_color = {
+            'fact': 'blue',
+            'experience': 'green',
+            'belief': 'yellow',
+            'decision': 'magenta'
+        }.get(mem_type, 'white')
+
+        click.echo(f"\n{i}. [{click.style(mem_type.upper(), fg=type_color)}] Score: {click.style(f'{score:.4f}', fg='cyan', bold=True)}")
+        click.echo(f"   {content}")
+        click.echo(f"   ID: {click.style(mem.id[:8], fg='bright_black')}... | "
+                   f"Created: {click.style(mem.created_at.strftime('%Y-%m-%d %H:%M') if mem.created_at else 'N/A', fg='bright_black')}")
+        click.echo(f"   {click.style('─', fg='bright_black') * 78}")
+
+
+@cli.command()
 @click.pass_context
 def check(ctx) -> None:
     """Create a pre-compression checkpoint.
