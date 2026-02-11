@@ -4,7 +4,7 @@ from pathlib import Path
 import click
 
 # Local CLI imports
-from .common import get_base_path
+from .common import get_base_path, echo_quiet, echo_normal
 
 
 @click.group()
@@ -32,9 +32,10 @@ def config_set(ctx, key: str, value: str) -> None:
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
+    verbosity = ctx.obj.get('verbosity', 1)
 
     if not config_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
     try:
@@ -53,9 +54,9 @@ def config_set(ctx, key: str, value: str) -> None:
 
         # Write back
         config_path.write_text(yaml.dump(config_data, default_flow_style=False))
-        click.echo(click.style(f"✓ Set {key} = {value}", fg="green"))
+        echo_normal(click.style(f"✓ Set {key} = {value}", fg="green"), verbosity)
     except Exception as e:
-        click.echo(click.style(f"Error: Failed to set config: {e}", fg="red"))
+        echo_quiet(click.style(f"Error: Failed to set config: {e}", fg="red"), verbosity)
         sys.exit(1)
 
 
@@ -74,9 +75,10 @@ def config_get(ctx, key: str) -> None:
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
+    verbosity = ctx.obj.get('verbosity', 1)
 
     if not config_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
     try:
@@ -88,13 +90,13 @@ def config_get(ctx, key: str) -> None:
         current = config_data
         for k in keys:
             if k not in current:
-                click.echo(click.style(f"Key '{key}' not found", fg="yellow"))
+                echo_quiet(click.style(f"Key '{key}' not found", fg="yellow"), verbosity)
                 sys.exit(1)
             current = current[k]
 
-        click.echo(current)
+        echo_quiet(current, verbosity)
     except Exception as e:
-        click.echo(click.style(f"Error: Failed to get config: {e}", fg="red"))
+        echo_quiet(click.style(f"Error: Failed to get config: {e}", fg="red"), verbosity)
         sys.exit(1)
 
 
@@ -104,11 +106,12 @@ def config_show(ctx) -> None:
     """Display full configuration."""
     base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
+    verbosity = ctx.obj.get('verbosity', 1)
 
     if not config_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
     content = config_path.read_text()
-    click.echo(click.style("Current configuration:", fg="cyan", bold=True))
-    click.echo(content)
+    echo_normal(click.style("Current configuration:", fg="cyan", bold=True), verbosity)
+    echo_quiet(content, verbosity)
