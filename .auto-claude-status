@@ -3,23 +3,23 @@
   "spec": "015-web-dashboard-for-memory-exploration",
   "state": "building",
   "subtasks": {
-    "completed": 14,
+    "completed": 20,
     "total": 24,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Frontend Dashboard Components",
+    "current": "Integration and Polish",
     "id": null,
-    "total": 5
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 16,
+    "number": 22,
     "started_at": "2026-02-11T02:26:53.709005"
   },
-  "last_update": "2026-02-11T03:11:21.307799"
+  "last_update": "2026-02-11T03:32:40.464165"
 }
