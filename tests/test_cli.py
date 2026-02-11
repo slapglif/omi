@@ -413,6 +413,175 @@ class TestCLIProgressIndicators:
             assert result.exit_code != 0
 
 
+class TestCLIDelete:
+    """Tests for 'omi delete' command."""
+
+    def test_delete_requires_init(self):
+        """Test that delete requires initialization."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(Path(tmpdir) / "not_initialized")}):
+                result = runner.invoke(cli, ["delete", "test-id-123"])
+
+            assert result.exit_code == 1
+            assert "not initialized" in result.output.lower()
+
+    def test_delete_nonexistent_memory(self):
+        """Test that deleting a non-existent memory fails gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock GraphPalace.get_memory to return None (memory not found)
+            with patch.object(GraphPalace, 'get_memory', return_value=None):
+                with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                    result = runner.invoke(cli, ["delete", "nonexistent-id", "--force"])
+
+            assert result.exit_code == 1
+            assert "not found" in result.output.lower()
+
+    def test_delete_with_confirmation_cancel(self):
+        """Test that delete prompts for confirmation and can be cancelled."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock memory to delete
+            mock_mem = MagicMock()
+            mock_mem.id = "test-id-123"
+            mock_mem.content = "Test memory content"
+            mock_mem.memory_type = "fact"
+
+            # Mock GraphPalace methods
+            with patch.object(GraphPalace, 'get_memory', return_value=mock_mem):
+                with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                    # Simulate user saying 'no' to confirmation
+                    result = runner.invoke(cli, ["delete", "test-id-123"], input="n\n")
+
+            assert result.exit_code == 0
+            assert "cancelled" in result.output.lower()
+
+    def test_delete_with_confirmation_accept(self):
+        """Test that delete prompts for confirmation and can be accepted."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock memory to delete
+            mock_mem = MagicMock()
+            mock_mem.id = "test-id-123"
+            mock_mem.content = "Test memory content"
+            mock_mem.memory_type = "fact"
+
+            # Mock GraphPalace methods
+            with patch.object(GraphPalace, 'get_memory', return_value=mock_mem):
+                with patch.object(GraphPalace, 'delete_memory', return_value=True):
+                    with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                        # Simulate user saying 'yes' to confirmation
+                        result = runner.invoke(cli, ["delete", "test-id-123"], input="y\n")
+
+            assert result.exit_code == 0
+            assert "deleted successfully" in result.output.lower()
+
+    def test_delete_with_force_flag(self):
+        """Test that delete with --force skips confirmation."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock memory to delete
+            mock_mem = MagicMock()
+            mock_mem.id = "test-id-123"
+            mock_mem.content = "Test memory content"
+            mock_mem.memory_type = "fact"
+
+            # Mock GraphPalace methods
+            with patch.object(GraphPalace, 'get_memory', return_value=mock_mem):
+                with patch.object(GraphPalace, 'delete_memory', return_value=True):
+                    with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                        result = runner.invoke(cli, ["delete", "test-id-123", "--force"])
+
+            assert result.exit_code == 0
+            assert "deleted successfully" in result.output.lower()
+            # Should not contain confirmation prompt
+            assert "are you sure" not in result.output.lower()
+
+    def test_delete_displays_memory_details(self):
+        """Test that delete displays memory details before confirmation."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Mock memory to delete
+            mock_mem = MagicMock()
+            mock_mem.id = "test-id-123"
+            mock_mem.content = "Test memory content to display"
+            mock_mem.memory_type = "experience"
+
+            # Mock GraphPalace methods
+            with patch.object(GraphPalace, 'get_memory', return_value=mock_mem):
+                with patch.object(GraphPalace, 'delete_memory', return_value=True):
+                    with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                        result = runner.invoke(cli, ["delete", "test-id-123"], input="y\n")
+
+            assert result.exit_code == 0
+            # Check that memory details are displayed
+            assert "memory to delete" in result.output.lower()
+            assert "test-id-123" in result.output.lower()
+            assert "experience" in result.output.lower()
+            assert "test memory content" in result.output.lower()
+
+
 class TestCLIStatus:
     """Tests for 'omi status' command."""
 
