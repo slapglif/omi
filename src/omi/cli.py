@@ -10,6 +10,10 @@ from datetime import datetime
 from typing import Optional
 import click
 
+# OMI imports
+from omi import NOWStore, DailyLogStore, GraphPalace
+from omi.security import PoisonDetector
+
 # CLI version - matches project version
 __version__ = "0.1.0"
 
@@ -32,23 +36,6 @@ def get_base_path(ctx_data_dir: Optional[Path] = None) -> Path:
     if env_path:
         return Path(env_path)
     return DEFAULT_BASE_PATH
-
-
-def ensure_imports():
-    """Ensure OMI modules are importable."""
-    try:
-        from .persistence import NOWStore, DailyLogStore, GraphPalace
-        from .security import PoisonDetector
-        return NOWStore, DailyLogStore, GraphPalace, PoisonDetector
-    except ImportError as e:
-        # Try to add src to path
-        cli_path = Path(__file__).resolve()
-        src_path = cli_path.parent.parent
-        if str(src_path) not in sys.path:
-            sys.path.insert(0, str(src_path))
-        from omi.persistence import NOWStore, DailyLogStore, GraphPalace
-        from omi.security import PoisonDetector
-        return NOWStore, DailyLogStore, GraphPalace, PoisonDetector
 
 
 @click.group()
@@ -148,7 +135,6 @@ session:
     # 3. Initialize SQLite database using GraphPalace
     db_path = base_path / "palace.sqlite"
     if not db_path.exists():
-        NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
         try:
             palace = GraphPalace(db_path)
             palace.close()
@@ -237,9 +223,7 @@ def session_start(ctx, show_now: bool) -> None:
     if not base_path.exists():
         click.echo(click.style(f"Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     click.echo(click.style("Starting OMI session...", fg="cyan", bold=True))
     
     # 1. Load NOW.md
@@ -327,9 +311,7 @@ def store(ctx, content: str, memory_type: str, confidence: Optional[float]) -> N
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     db_path = base_path / "palace.sqlite"
     if not db_path.exists():
         click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
@@ -381,9 +363,7 @@ def recall(ctx, query: str, limit: int, json_output: bool) -> None:
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     db_path = base_path / "palace.sqlite"
     if not db_path.exists():
         click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
@@ -448,9 +428,7 @@ def check(ctx) -> None:
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     click.echo(click.style("Creating checkpoint...", fg="cyan", bold=True))
     
     # Update NOW.md
@@ -512,9 +490,7 @@ def session_end(ctx, no_backup: bool) -> None:
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     click.echo(click.style("Ending OMI session...", fg="cyan", bold=True))
     
     # Update NOW.md
@@ -561,9 +537,7 @@ def status(ctx) -> None:
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     click.echo(click.style("OMI Status Report", fg="cyan", bold=True))
     click.echo("=" * 50)
     
@@ -646,9 +620,7 @@ def audit(ctx) -> None:
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     click.echo(click.style("Running Security Audit...", fg="cyan", bold=True))
     click.echo("=" * 50)
     
