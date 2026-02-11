@@ -59,23 +59,6 @@ cd omi
 pip install -e ".[nim]"
 ```
 
-### Shell Completion
-
-Enable tab-completion for OMI commands in your shell:
-
-```bash
-# Bash - add to ~/.bashrc
-eval "$(omi completion bash)"
-
-# Zsh - add to ~/.zshrc
-eval "$(omi completion zsh)"
-```
-
-After sourcing, you'll get tab-completion for:
-- All OMI commands (`omi <TAB>`)
-- Subcommands (`omi config <TAB>`)
-- Command options and flags
-
 ### Initialize
 
 ```bash
@@ -113,95 +96,48 @@ omi check
 # End session
 omi session-end
 
+# Memory compression (reduce token costs)
+omi compress --dry-run                   # Preview what would be compressed
+omi compress --before 2024-06-01         # Compress memories older than date
+omi compress --age-days 30               # Compress memories older than 30 days
+
 # Verify integrity
 omi audit
 ```
 
-### API Server
+## Memory Compression
+
+OMI automatically compresses old memories to reduce token costs while preserving originals in cold storage.
+
+### How It Works
+
+1. **Automatic**: Memories older than configurable threshold are summarized (default: 30 days)
+2. **Preserves**: Original memories backed up to MoltVault before compression
+3. **Smart**: Retains key facts, confidence levels, and relationship links
+4. **Transparent**: Regenerates embeddings for summaries to maintain search accuracy
+
+### Compression Commands
 
 ```bash
-# Start the REST API with Server-Sent Events (SSE) support
-uvicorn omi.rest_api:app --reload
+# Preview compression impact
+omi compress --dry-run                   # Shows what would be compressed + token savings
 
-# Access the interactive docs
-# Open http://localhost:8000/docs in your browser
+# Manual compression
+omi compress --before 2024-06-01         # Compress memories before specific date
+omi compress --age-days 30               # Compress memories older than 30 days
 
-# Connect to real-time memory event stream
-# GET http://localhost:8000/events/stream
+# Configuration
+omi config --set compression.auto=true   # Enable automatic compression
+omi config --set compression.age_days=30 # Set compression threshold
 ```
 
-### Async API (New!)
+### Token Savings Example
 
-OMI now provides async/await API for non-blocking memory operations, ideal for concurrent workloads and high-throughput applications.
-
-**Performance:** Async API is **~4x faster** than sync for batch operations:
-- Store operations: **4.3x faster**
-- Recall operations: **3.5x faster**
-- Total throughput: **4.0x faster**
-
-#### Quick Example
-
-```python
-import asyncio
-from omi.async_api import async_session
-
-async def main():
-    # Use async context manager for session lifecycle
-    async with async_session() as session:
-        # Store memories concurrently
-        memories = [
-            "Fixed authentication bug in login flow",
-            "Implemented rate limiting for API endpoints",
-            "Optimized database query performance"
-        ]
-
-        # Concurrent stores (4x faster than sequential)
-        store_tasks = [
-            session.memory.store(mem, memory_type="experience")
-            for mem in memories
-        ]
-        memory_ids = await asyncio.gather(*store_tasks)
-
-        # Recall with semantic search (async)
-        results = await session.memory.recall(
-            "authentication issues",
-            limit=5,
-            min_relevance=0.7
-        )
-
-        # Belief updates (async)
-        await session.belief.update(
-            "SQLite works well for embedded databases",
-            confidence=0.95
-        )
-
-        # Daily log append (async with aiofiles)
-        await session.daily_log.append(
-            "Completed async API implementation"
-        )
-
-# Run async code
-asyncio.run(main())
 ```
-
-#### When to Use Async vs Sync
-
-| Use Case | API Choice | Why |
-|----------|-----------|-----|
-| **CLI Tools** | Sync | Simpler, no event loop needed |
-| **Batch Operations** | Async | 4x faster for concurrent stores/recalls |
-| **Web Servers** | Async | Non-blocking, handles concurrent requests |
-| **Background Jobs** | Async | Concurrent processing of memory operations |
-| **Interactive Scripts** | Sync | Easier to reason about, sufficient performance |
-
-#### Async Components
-
-- **AsyncGraphPalace**: Non-blocking SQLite access via `aiosqlite`
-- **AsyncNIMEmbedder**: Concurrent embedding generation via `httpx`
-- **AsyncEmbeddingCache**: Async disk cache with `aiofiles`
-- **async_session()**: Context manager for session lifecycle
-
-See [tests/benchmark_async.py](tests/benchmark_async.py) for detailed performance benchmarks.
+Before:  1,247 memories × 450 tokens avg = 561,150 tokens
+After:   1,247 memories × 120 tokens avg = 149,640 tokens
+Savings: 411,510 tokens (73% reduction)
+```
 
 ## Embeddings: NIM vs Ollama
 
@@ -235,8 +171,8 @@ OMI combines the best patterns from 50+ working agent implementations:
 
 ## Features
 
-- **Async/Await API**: Non-blocking operations, 4x faster for batch workloads
 - **NVIDIA NIM Integration**: baai/bge-m3 embeddings, highest quality
+- **Automatic Memory Compression**: LLM-powered summarization reduces token costs while preserving originals
 - **Belief Networks**: Track confidence with EMA updates
 - **Security by Architecture**: Byzantine verification, tamper detection
 - **MCP Integration**: Native OpenClaw tools
