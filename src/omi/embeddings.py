@@ -9,7 +9,66 @@ import hashlib
 from pathlib import Path
 from typing import List, Optional, Union, Dict
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 import numpy as np
+
+
+class EmbeddingProvider(ABC):
+    """
+    Abstract base class for embedding providers.
+
+    All embedding providers must implement:
+    - embed(): Generate embeddings for text
+    - dimensions: Return embedding dimensionality
+    - similarity(): Calculate similarity between embeddings
+    """
+
+    @abstractmethod
+    def embed(self, text: str) -> List[float]:
+        """
+        Generate embedding vector for input text.
+
+        Args:
+            text: Input text to embed
+
+        Returns:
+            Embedding vector as list of floats
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def dimensions(self) -> int:
+        """
+        Return the dimensionality of embeddings produced by this provider.
+
+        Returns:
+            Embedding vector dimension (e.g., 768, 1024)
+        """
+        pass
+
+    def similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
+        """
+        Calculate cosine similarity between two embeddings.
+
+        Args:
+            embedding1: First embedding vector
+            embedding2: Second embedding vector
+
+        Returns:
+            Cosine similarity score between -1 and 1
+        """
+        v1 = np.array(embedding1)
+        v2 = np.array(embedding2)
+
+        dot = np.dot(v1, v2)
+        norm1 = np.linalg.norm(v1)
+        norm2 = np.linalg.norm(v2)
+
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+
+        return float(dot / (norm1 * norm2))
 
 
 @dataclass

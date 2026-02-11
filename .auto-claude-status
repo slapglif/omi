@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "014-memory-event-streaming-pub-sub",
-  "state": "building",
+  "spec": "006-additional-embedding-providers",
+  "state": "planning",
   "subtasks": {
-    "completed": 20,
-    "total": 26,
+    "completed": 0,
+    "total": 0,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "CLI Event Query",
+    "current": "Abstract Base Class",
     "id": null,
-    "total": 4
+    "total": 1
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 22,
-    "started_at": "2026-02-10T17:04:29.825371"
+    "number": 2,
+    "started_at": "2026-02-11T10:49:53.423935"
   },
-  "last_update": "2026-02-10T18:21:59.599238"
+  "last_update": "2026-02-11T10:55:27.789855"
 }
