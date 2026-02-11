@@ -467,16 +467,19 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory
                 content = mem.content
                 if len(content) > 80:
                     content = content[:77] + "..."
-                
+
+                # Apply term highlighting to content
+                highlighted_content = highlight_terms(content, query)
+
                 type_color = {
                     'fact': 'blue',
                     'experience': 'green',
                     'belief': 'yellow',
                     'decision': 'magenta'
                 }.get(mem_type, 'white')
-                
+
                 click.echo(f"\n{i}. [{click.style(mem_type.upper(), fg=type_color)}]")
-                click.echo(f"   {content}")
+                click.echo(f"   {highlighted_content}")
                 if mem.created_at:
                     click.echo(f"   {click.style('─', fg='bright_black') * 50}")
             
