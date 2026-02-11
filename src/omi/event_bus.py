@@ -193,4 +193,185 @@ def reset_event_bus() -> None:
     _global_bus = EventBus()
 
 
-__all__ = ['EventBus', 'get_event_bus', 'reset_event_bus']
+class WebhookDispatcher:
+    """
+    Webhook dispatcher that subscribes to EventBus and sends HTTP POST notifications.
+
+    Features:
+    - Subscribes to specific event types or all events ('*')
+    - Sends POST requests to configured webhook URLs
+    - Automatic retry with exponential backoff
+    - Timeout handling
+    - Background thread execution to avoid blocking EventBus
+
+    Usage:
+        dispatcher = WebhookDispatcher(
+            webhook_url="https://example.com/webhook",
+            event_types=['memory.stored', 'belief.contradiction_detected'],
+            headers={'Authorization': 'Bearer token'}
+        )
+        dispatcher.start()  # Start listening and dispatching
+        dispatcher.stop()   # Stop and cleanup
+    """
+
+    def __init__(
+        self,
+        webhook_url: str,
+        event_types: List[str] = None,
+        headers: Dict[str, str] = None,
+        timeout: int = 10,
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+    ):
+        """
+        Initialize webhook dispatcher.
+
+        Args:
+            webhook_url: Target URL for webhook POST requests
+            event_types: List of event types to subscribe to (None = all events)
+            headers: Optional HTTP headers to include in requests
+            timeout: HTTP request timeout in seconds
+            max_retries: Maximum number of retry attempts
+            retry_delay: Initial delay between retries (exponential backoff)
+        """
+        self.webhook_url = webhook_url
+        self.event_types = event_types or ['*']
+        self.headers = headers or {}
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+
+        self._event_bus = get_event_bus()
+        self._active = False
+        self._callbacks_registered = []
+
+        # Validate requests library is available
+        try:
+            import requests
+            self._requests = requests
+        except ImportError:
+            raise ImportError(
+                "requests package required for webhooks. Install with: pip install requests"
+            )
+
+    def _send_webhook(self, event: Any) -> None:
+        """
+        Send webhook POST request for an event.
+
+        Executes in background thread to avoid blocking EventBus.
+        Implements retry logic with exponential backoff.
+
+        Args:
+            event: Event object to send
+        """
+        import time
+
+        # Serialize event
+        try:
+            if hasattr(event, 'to_dict'):
+                payload = event.to_dict()
+            else:
+                payload = {'event_type': event.event_type}
+        except Exception as e:
+            logger.error(f"Failed to serialize event for webhook: {e}")
+            return
+
+        # Prepare request
+        headers = {
+            'Content-Type': 'application/json',
+            **self.headers
+        }
+
+        # Retry loop
+        last_error = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self._requests.post(
+                    self.webhook_url,
+                    json=payload,
+                    headers=headers,
+                    timeout=self.timeout
+                )
+                response.raise_for_status()
+                logger.debug(
+                    f"Webhook delivered successfully: {event.event_type} "
+                    f"(status={response.status_code})"
+                )
+                return  # Success
+            except Exception as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    # Exponential backoff
+                    delay = self.retry_delay * (2 ** attempt)
+                    logger.warning(
+                        f"Webhook delivery failed (attempt {attempt + 1}/{self.max_retries + 1}): {e}. "
+                        f"Retrying in {delay}s..."
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(
+                        f"Webhook delivery failed after {self.max_retries + 1} attempts: {e}"
+                    )
+
+    def _handle_event(self, event: Any) -> None:
+        """
+        Event handler callback for EventBus.
+
+        Spawns background thread to send webhook without blocking.
+
+        Args:
+            event: Event received from EventBus
+        """
+        from threading import Thread
+
+        # Execute webhook in background thread
+        thread = Thread(target=self._send_webhook, args=(event,), daemon=True)
+        thread.start()
+
+    def start(self) -> None:
+        """
+        Start webhook dispatcher.
+
+        Subscribes to EventBus for configured event types.
+        """
+        if self._active:
+            logger.warning("WebhookDispatcher already started")
+            return
+
+        # Subscribe to event types
+        for event_type in self.event_types:
+            self._event_bus.subscribe(event_type, self._handle_event)
+            self._callbacks_registered.append(event_type)
+            logger.info(f"WebhookDispatcher subscribed to {event_type} -> {self.webhook_url}")
+
+        self._active = True
+
+    def stop(self) -> None:
+        """
+        Stop webhook dispatcher.
+
+        Unsubscribes from EventBus and cleans up.
+        """
+        if not self._active:
+            return
+
+        # Unsubscribe from all registered event types
+        for event_type in self._callbacks_registered:
+            self._event_bus.unsubscribe(event_type, self._handle_event)
+            logger.debug(f"WebhookDispatcher unsubscribed from {event_type}")
+
+        self._callbacks_registered.clear()
+        self._active = False
+        logger.info("WebhookDispatcher stopped")
+
+    def is_active(self) -> bool:
+        """
+        Check if dispatcher is active.
+
+        Returns:
+            True if dispatcher is running, False otherwise
+        """
+        return self._active
+
+
+__all__ = ['EventBus', 'get_event_bus', 'reset_event_bus', 'WebhookDispatcher']
