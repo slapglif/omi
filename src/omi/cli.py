@@ -484,8 +484,9 @@ def check(ctx) -> None:
 
 @cli.command()
 @click.option('--dry-run', is_flag=True, help='Preview compression without executing')
+@click.option('--before', type=str, default=None, help='Only compress memories before this date (YYYY-MM-DD)')
 @click.pass_context
-def compress(ctx, dry_run: bool) -> None:
+def compress(ctx, dry_run: bool, before: Optional[str]) -> None:
     """Compress and summarize memory data.
 
     Performs:
@@ -495,6 +496,7 @@ def compress(ctx, dry_run: bool) -> None:
     - Reduces storage size while maintaining semantic relationships
 
     Use --dry-run to preview what would be compressed without making changes.
+    Use --before to specify a date cutoff for compression (e.g., --before 2024-01-01).
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
@@ -546,14 +548,33 @@ def compress(ctx, dry_run: bool) -> None:
         click.echo(f"\n{click.style('Analysis:', bold=True)}")
         click.echo(f"  Scanning for compression candidates...")
 
-        # Example analysis (this would be replaced with actual compression logic)
-        cursor.execute("""
-            SELECT COUNT(*) FROM memories
-            WHERE datetime(created_at) < datetime('now', '-30 days')
-        """)
-        old_memories = cursor.fetchone()[0]
+        # Validate and parse the before date if provided
+        date_filter = None
+        if before:
+            try:
+                # Validate date format
+                datetime.strptime(before, '%Y-%m-%d')
+                date_filter = before
+                click.echo(f"  Using date filter: before {click.style(before, fg='cyan')}")
+            except ValueError:
+                click.echo(click.style(f"Error: Invalid date format. Use YYYY-MM-DD (e.g., 2024-01-01)", fg="red"))
+                sys.exit(1)
 
-        click.echo(f"  Old memories (>30 days): {click.style(str(old_memories), fg='cyan')}")
+        # Example analysis (this would be replaced with actual compression logic)
+        if date_filter:
+            cursor.execute("""
+                SELECT COUNT(*) FROM memories
+                WHERE datetime(created_at) < datetime(?)
+            """, (date_filter,))
+            old_memories = cursor.fetchone()[0]
+            click.echo(f"  Old memories (before {date_filter}): {click.style(str(old_memories), fg='cyan')}")
+        else:
+            cursor.execute("""
+                SELECT COUNT(*) FROM memories
+                WHERE datetime(created_at) < datetime('now', '-30 days')
+            """)
+            old_memories = cursor.fetchone()[0]
+            click.echo(f"  Old memories (>30 days): {click.style(str(old_memories), fg='cyan')}")
 
         if old_memories > 0:
             estimated_reduction = old_memories * 0.4  # Estimate 40% compression
