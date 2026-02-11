@@ -20,7 +20,7 @@ class TestImports:
         """Can we import the main omi module?"""
         import omi
         assert omi.__version__
-        assert omi.__version__ == "0.1.0"
+        assert omi.__version__ == "0.2.0"
     
     def test_import_persistence(self):
         """Can we import persistence module?"""
