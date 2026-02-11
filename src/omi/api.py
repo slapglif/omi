@@ -227,10 +227,18 @@ class CheckpointTools:
     """
     Session checkpoint and recovery
     """
-    
-    def __init__(self, now_store: NowStorage,
+
+    def __init__(self, now_store,
                  vault: MoltVault):
-        self.now = now_store
+        # Accept either NowStorage or NOWStore for backward compatibility
+        # If given NowStorage, wrap it with NOWStore for the old API
+        from . import NOWStore
+        if hasattr(now_store, 'write') and hasattr(now_store, 'read'):
+            # Already has the old API (NOWStore wrapper)
+            self.now = now_store
+        else:
+            # New NowStorage, need to wrap it
+            self.now = NOWStore(now_store.base_path)
         self.vault = vault
     
     def now_read(self) -> dict:

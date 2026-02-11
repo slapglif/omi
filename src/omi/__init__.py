@@ -22,8 +22,63 @@ from .embeddings import OllamaEmbedder, EmbeddingCache
 from .security import IntegrityChecker, ConsensusManager
 from .api import MemoryTools, BeliefTools, CheckpointTools
 
-# Backward compatibility aliases (deprecated, will be removed in v0.2.0)
-NOWStore = NowStorage  # Use NowStorage instead
+# Backward compatibility wrapper (deprecated, will be removed in v0.2.0)
+class NOWStore:
+    """Backward compatibility wrapper for NowStorage.
+
+    Provides the old NOWStore API (read/write with NOWEntry objects)
+    while delegating to the new NowStorage implementation.
+
+    DEPRECATED: Use NowStorage directly instead.
+    """
+    def __init__(self, base_path):
+        from pathlib import Path
+        self._storage = NowStorage(base_path)
+        self.base_path = Path(base_path)
+        self.now_path = self._storage.now_file  # Old API compatibility
+        self.hash_file = self.base_path / ".now.hash"
+
+    def read(self):
+        """Read NOW.md and return NOWEntry object or None."""
+        from .persistence import NOWEntry
+        content = self._storage.read()
+        if not content or content == self._storage._default_content():
+            return None
+        try:
+            return NOWEntry.from_markdown(content)
+        except Exception:
+            return None
+
+    def write(self, entry):
+        """Write a NOWEntry object to NOW.md."""
+        from .persistence import NOWEntry
+        if not isinstance(entry, NOWEntry):
+            raise TypeError(f"Expected NOWEntry, got {type(entry)}")
+        self._storage.update(
+            current_task=entry.current_task,
+            recent_completions=entry.recent_completions,
+            pending_decisions=entry.pending_decisions,
+            key_files=entry.key_files
+        )
+        # Create hash file for integrity checking (old API)
+        # Hash the actual content written to disk, not entry.to_markdown()
+        import hashlib
+        current_content = self._storage.now_file.read_text()
+        content_hash = hashlib.sha256(current_content.encode()).hexdigest()
+        self.hash_file.write_text(content_hash)
+
+    def check_integrity(self) -> bool:
+        """Check if NOW.md hash matches stored hash."""
+        if not self.hash_file.exists():
+            return False
+        if not self._storage.now_file.exists():
+            return False
+
+        import hashlib
+        stored_hash = self.hash_file.read_text().strip()
+        current_content = self._storage.now_file.read_text()
+        current_hash = hashlib.sha256(current_content.encode()).hexdigest()
+        return stored_hash == current_hash
 
 __all__ = [
     "NowStorage",

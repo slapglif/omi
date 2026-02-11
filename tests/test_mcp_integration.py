@@ -701,7 +701,7 @@ class TestNOWEntry:
     
     def test_now_entry_to_markdown(self):
         """Test NOWEntry serialization to markdown"""
-        from omi.storage.now import NOWEntry
+        from omi.persistence import NOWEntry
 
         entry = NOWEntry(
             current_task="Test task",

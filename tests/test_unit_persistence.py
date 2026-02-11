@@ -230,24 +230,24 @@ class TestGraphPalace:
     def test_store_memory_returns_id(self, tmp_path):
         """store_memory returns a memory ID."""
         from omi import GraphPalace
-        
+
         palace = GraphPalace(tmp_path / "test.db")
-        # Currently returns empty string (stub)
-        memory_id = palace.store_memory("Test content", "fact")
+        # Use real implementation signature: content, embedding, memory_type
+        memory_id = palace.store_memory("Test content", memory_type="fact")
         # Should be string
         assert isinstance(memory_id, str)
     
     def test_store_memory_type_filtering_stub(self, tmp_path):
         """store_memory accepts valid types."""
         from omi import GraphPalace
-        
+
         palace = GraphPalace(tmp_path / "test.db")
-        
-        # These don't raise currently (stubbed)
-        palace.store_memory("Fact", "fact")
-        palace.store_memory("Experience", "experience")
-        palace.store_memory("Belief", "belief", confidence=0.8)
-        palace.store_memory("Decision", "decision")
+
+        # Use real implementation signature: content, embedding, memory_type
+        palace.store_memory("Fact", memory_type="fact")
+        palace.store_memory("Experience", memory_type="experience")
+        palace.store_memory("Belief", memory_type="belief", confidence=0.8)
+        palace.store_memory("Decision", memory_type="decision")
     
     def test_recall_returns_list(self, tmp_path):
         """recall returns a list."""
