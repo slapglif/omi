@@ -13,6 +13,7 @@ import click
 # OMI imports
 from omi import NOWStore, DailyLogStore, GraphPalace
 from omi.security import PoisonDetector
+from omi.belief import BeliefNetwork, ContradictionDetector
 from .event_bus import get_event_bus
 from .events import SessionStartedEvent, SessionEndedEvent
 
@@ -1196,6 +1197,108 @@ def subscribe_events(ctx: click.Context, event_type: Optional[str]) -> None:
 def belief(ctx):
     """Belief management commands."""
     ctx.ensure_object(dict)
+
+
+@belief.command('evidence')
+@click.argument('belief_id')
+@click.option('--json', 'json_output', is_flag=True, help='Output as JSON')
+@click.pass_context
+def belief_evidence(ctx, belief_id: str, json_output: bool) -> None:
+    """Display evidence chain for a belief.
+
+    Shows all supporting and contradicting evidence entries with
+    timestamps, strength, and memory IDs.
+
+    Args:
+        belief_id: ID of the belief to query
+        --json: Output as JSON (for scripts)
+
+    Examples:
+        omi belief evidence abc123
+        omi belief evidence abc123 --json
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    db_path = base_path / "palace.sqlite"
+    if not db_path.exists():
+        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    try:
+        palace = GraphPalace(db_path)
+        belief_network = BeliefNetwork(palace)
+        detector = ContradictionDetector()
+
+        # Get the belief to verify it exists
+        belief = palace.get_belief(belief_id)
+        if not belief:
+            click.echo(click.style(f"Error: Belief '{belief_id}' not found.", fg="red"))
+            sys.exit(1)
+
+        # Get evidence chain
+        evidence_chain = belief_network.get_evidence_chain(belief_id)
+
+        if json_output:
+            output = []
+            for evidence in evidence_chain:
+                output.append({
+                    'memory_id': evidence.memory_id,
+                    'supports': evidence.supports,
+                    'strength': evidence.strength,
+                    'timestamp': evidence.timestamp.isoformat()
+                })
+            click.echo(json.dumps(output, indent=2))
+        else:
+            # Display belief info first
+            belief_content = belief.get('content', 'Unknown')
+            confidence = belief.get('confidence', 0.0)
+            click.echo(click.style(f"Belief: {belief_content}", fg="cyan", bold=True))
+            click.echo(click.style(f"Current Confidence: {confidence:.2f}", fg="white"))
+            click.echo("=" * 60)
+
+            if not evidence_chain:
+                click.echo(click.style("\nNo evidence entries found.", fg="yellow"))
+            else:
+                click.echo(click.style(f"\nEvidence Chain ({len(evidence_chain)} entries)", fg="cyan", bold=True))
+                click.echo()
+
+                for i, evidence in enumerate(evidence_chain, 1):
+                    # Determine support type and color
+                    if evidence.supports:
+                        support_text = "SUPPORTS"
+                        support_color = "green"
+                    else:
+                        support_text = "CONTRADICTS"
+                        support_color = "red"
+
+                    click.echo(f"{i}. {click.style(support_text, fg=support_color, bold=True)}")
+                    click.echo(f"   Memory ID: {click.style(evidence.memory_id, fg='cyan')}")
+                    click.echo(f"   Strength: {evidence.strength:.2f}")
+                    click.echo(f"   Timestamp: {evidence.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+
+                    # Get memory content if available
+                    try:
+                        memory = palace.get_memory(evidence.memory_id)
+                        if memory:
+                            content = memory.get('content', '')
+                            if len(content) > 80:
+                                content = content[:77] + "..."
+                            click.echo(f"   Content: {content}")
+                    except:
+                        pass
+
+                    if i < len(evidence_chain):
+                        click.echo(f"   {click.style('─', fg='bright_black') * 50}")
+                        click.echo()
+
+        palace.close()
+
+    except Exception as e:
+        click.echo(click.style(f"Error: {str(e)}", fg="red"))
+        sys.exit(1)
 
 
 # Main entry point
