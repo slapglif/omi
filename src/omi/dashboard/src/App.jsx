@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import GraphVisualization from './components/GraphVisualization';
 import BeliefNetwork from './components/BeliefNetwork';
 import StorageStats from './components/StorageStats';
+import SessionTimeline from './components/SessionTimeline';
 
 function App() {
   const [activeTab, setActiveTab] = useState('graph');
@@ -40,7 +41,7 @@ function App() {
         return (
           <div className="tab-content">
             <h2>Session Timeline</h2>
-            <p>Session timeline will be implemented here.</p>
+            <SessionTimeline />
           </div>
         );
       default:
