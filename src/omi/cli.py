@@ -837,6 +837,181 @@ def inspect(ctx, json_output: bool, beliefs: bool) -> None:
 
 
 @cli.command()
+@click.option('--limit', default=20, type=int, help='Maximum number of nodes to display')
+@click.option('--type', 'edge_type_filter', default=None, help='Filter by edge type (e.g., SUPPORTS, RELATED_TO)')
+@click.pass_context
+def graph(ctx, limit: int, edge_type_filter: Optional[str]) -> None:
+    """Show ASCII graph of memory relationships.
+
+    Displays:
+    - Memory nodes with shortened IDs
+    - Edges connecting memories with relationship types
+    - Visual representation of the memory graph
+
+    Args:
+        --limit: Maximum number of nodes to display (default: 20)
+        --type: Filter edges by type (e.g., SUPPORTS, CONTRADICTS, RELATED_TO)
+
+    Examples:
+        omi graph
+        omi graph --limit 10
+        omi graph --type SUPPORTS
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    db_path = base_path / "palace.sqlite"
+    if not db_path.exists():
+        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Check if tables exist
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name IN ('memories', 'edges')
+        """)
+        tables = {row[0] for row in cursor.fetchall()}
+
+        if 'memories' not in tables or 'edges' not in tables:
+            click.echo(click.style("Error: Database schema incomplete. Run 'omi init' first.", fg="red"))
+            sys.exit(1)
+
+        # Get memories
+        cursor.execute(f"""
+            SELECT id, content, memory_type
+            FROM memories
+            LIMIT ?
+        """, (limit,))
+        memories = {row[0]: {'content': row[1], 'type': row[2]} for row in cursor.fetchall()}
+
+        if not memories:
+            click.echo(click.style("No memories in graph yet.", fg="yellow"))
+            sys.exit(0)
+
+        # Get edges
+        if edge_type_filter:
+            cursor.execute("""
+                SELECT source_id, target_id, edge_type, strength
+                FROM edges
+                WHERE edge_type = ?
+            """, (edge_type_filter,))
+        else:
+            cursor.execute("""
+                SELECT source_id, target_id, edge_type, strength
+                FROM edges
+            """)
+        edges = [(row[0], row[1], row[2], row[3]) for row in cursor.fetchall()]
+
+        conn.close()
+
+        # Display header
+        click.echo(click.style("\n╔══════════════════════════════════════════════════╗", fg="cyan"))
+        click.echo(click.style("║          Memory Graph Visualization             ║", fg="cyan", bold=True))
+        click.echo(click.style("╚══════════════════════════════════════════════════╝\n", fg="cyan"))
+
+        # Display stats
+        click.echo(click.style(f"Nodes: {len(memories)}", fg="cyan"))
+        click.echo(click.style(f"Edges: {len(edges)}", fg="cyan"))
+        if edge_type_filter:
+            click.echo(click.style(f"Filter: {edge_type_filter}", fg="cyan"))
+        click.echo()
+
+        # Build adjacency map for displaying connections
+        adjacency = {}
+        for source_id, target_id, edge_type, strength in edges:
+            if source_id not in adjacency:
+                adjacency[source_id] = []
+            if target_id not in adjacency:
+                adjacency[target_id] = []
+            adjacency[source_id].append((target_id, edge_type, strength))
+
+        # Display nodes and their connections
+        displayed_nodes = set()
+
+        for memory_id in memories:
+            if memory_id not in displayed_nodes:
+                displayed_nodes.add(memory_id)
+
+                # Display node
+                short_id = memory_id[:8]
+                content = memories[memory_id]['content']
+                mem_type = memories[memory_id]['type']
+
+                # Truncate content for display
+                display_content = content[:50] + "..." if len(content) > 50 else content
+
+                # Color by memory type
+                type_colors = {
+                    'fact': 'blue',
+                    'experience': 'green',
+                    'belief': 'yellow',
+                    'decision': 'magenta'
+                }
+                node_color = type_colors.get(mem_type, 'white')
+
+                click.echo(click.style(f"[{short_id}]", fg=node_color, bold=True) +
+                          f" ({mem_type}) {display_content}")
+
+                # Display edges from this node
+                if memory_id in adjacency:
+                    for target_id, edge_type, strength in adjacency[memory_id]:
+                        if target_id in memories:
+                            target_short_id = target_id[:8]
+                            strength_str = f"({strength:.2f})" if strength is not None else ""
+
+                            # Edge type colors
+                            edge_colors = {
+                                'SUPPORTS': 'green',
+                                'CONTRADICTS': 'red',
+                                'RELATED_TO': 'cyan',
+                                'DEPENDS_ON': 'yellow',
+                                'POSTED': 'blue',
+                                'DISCUSSED': 'magenta'
+                            }
+                            edge_color = edge_colors.get(edge_type, 'white')
+
+                            click.echo(f"  │")
+                            click.echo(f"  ├─[{click.style(edge_type, fg=edge_color)}]─> " +
+                                     click.style(f"[{target_short_id}]", fg=node_color) +
+                                     f" {strength_str}")
+
+                click.echo()  # Blank line between nodes
+
+        # Legend
+        click.echo(click.style("\n╔══════════════════════════════════════════════════╗", fg="cyan"))
+        click.echo(click.style("║                    Legend                        ║", fg="cyan", bold=True))
+        click.echo(click.style("╚══════════════════════════════════════════════════╝\n", fg="cyan"))
+
+        click.echo(click.style("Memory Types:", bold=True))
+        click.echo(f"  {click.style('[fact]', fg='blue')} - Factual information")
+        click.echo(f"  {click.style('[experience]', fg='green')} - Experiential memories")
+        click.echo(f"  {click.style('[belief]', fg='yellow')} - Beliefs and hypotheses")
+        click.echo(f"  {click.style('[decision]', fg='magenta')} - Decision records")
+
+        click.echo(click.style("\nEdge Types:", bold=True))
+        click.echo(f"  {click.style('SUPPORTS', fg='green')} - Supporting relationship")
+        click.echo(f"  {click.style('CONTRADICTS', fg='red')} - Contradicting relationship")
+        click.echo(f"  {click.style('RELATED_TO', fg='cyan')} - General relationship")
+        click.echo(f"  {click.style('DEPENDS_ON', fg='yellow')} - Dependency relationship")
+        click.echo(f"  {click.style('POSTED', fg='blue')} - Posted relationship")
+        click.echo(f"  {click.style('DISCUSSED', fg='magenta')} - Discussion relationship")
+        click.echo()
+
+    except Exception as e:
+        click.echo(click.style(f"Error: Failed to display graph: {e}", fg="red"))
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@cli.command()
 @click.pass_context
 def audit(ctx) -> None:
     """Run security audit.
