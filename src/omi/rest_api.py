@@ -216,9 +216,50 @@ def get_belief_tools() -> BeliefTools:
 
 # Create FastAPI app
 app = FastAPI(
-    title="OMI Event Streaming API",
-    description="Server-Sent Events (SSE) API for real-time memory operation events",
-    version="1.0.0"
+    title="OMI REST API",
+    description="""
+OMI (Open Memory Interface) REST API provides comprehensive memory operations,
+belief management, session lifecycle, and real-time event streaming.
+
+## Features
+
+* **Memory Operations**: Store and recall memories with semantic search
+* **Belief Management**: Create and update beliefs with evidence-based confidence
+* **Session Lifecycle**: Track sessions with start/end events
+* **Real-time Events**: Server-Sent Events (SSE) for live operation streaming
+* **Authentication**: API key authentication via X-API-Key header
+* **CORS Support**: Configurable cross-origin resource sharing
+
+## Authentication
+
+Protected endpoints require an `X-API-Key` header. Set the `OMI_API_KEY`
+environment variable to enable authentication.
+""",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {
+            "name": "General",
+            "description": "Root and health check endpoints"
+        },
+        {
+            "name": "Memory Operations",
+            "description": "Store and recall memories with semantic search and recency weighting"
+        },
+        {
+            "name": "Belief Management",
+            "description": "Create and update beliefs with evidence-based confidence tracking"
+        },
+        {
+            "name": "Session Lifecycle",
+            "description": "Manage session start and end with event tracking"
+        },
+        {
+            "name": "Events",
+            "description": "Server-Sent Events (SSE) for real-time operation streaming"
+        }
+    ]
 )
 
 
@@ -243,9 +284,9 @@ app.add_middleware(
 logger.info(f"CORS enabled with origins: {cors_origins}")
 
 
-@app.get("/")
+@app.get("/", tags=["General"], summary="API root endpoint")
 async def root():
-    """API root endpoint with service information."""
+    """API root endpoint with service information and available endpoints."""
     return {
         "service": "OMI Event Streaming API",
         "version": "1.0.0",
@@ -262,7 +303,7 @@ async def root():
     }
 
 
-@app.get("/health")
+@app.get("/health", tags=["General"], summary="Health check endpoint")
 async def health():
     """Health check endpoint with version and detailed status."""
     return {
@@ -272,7 +313,7 @@ async def health():
     }
 
 
-@app.post("/api/v1/store", response_model=StoreMemoryResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/api/v1/store", response_model=StoreMemoryResponse, status_code=status.HTTP_201_CREATED, tags=["Memory Operations"], summary="Store a new memory")
 async def store_memory(request: StoreMemoryRequest, api_key: str = Depends(verify_api_key)):
     """
     Store a new memory with semantic embedding.
@@ -307,7 +348,7 @@ async def store_memory(request: StoreMemoryRequest, api_key: str = Depends(verif
         )
 
 
-@app.get("/api/v1/recall", response_model=RecallMemoryResponse)
+@app.get("/api/v1/recall", response_model=RecallMemoryResponse, tags=["Memory Operations"], summary="Recall memories by semantic search")
 async def recall_memory(
     query: str = Query(..., description="Natural language search query"),
     limit: int = Query(10, ge=1, le=100, description="Maximum number of results"),
@@ -349,7 +390,7 @@ async def recall_memory(
         )
 
 
-@app.post("/api/v1/beliefs", response_model=CreateBeliefResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/api/v1/beliefs", response_model=CreateBeliefResponse, status_code=status.HTTP_201_CREATED, tags=["Belief Management"], summary="Create a new belief")
 async def create_belief(request: CreateBeliefRequest, api_key: str = Depends(verify_api_key)):
     """
     Create a new belief with initial confidence.
@@ -382,7 +423,7 @@ async def create_belief(request: CreateBeliefRequest, api_key: str = Depends(ver
         )
 
 
-@app.put("/api/v1/beliefs/{id}", response_model=UpdateBeliefResponse)
+@app.put("/api/v1/beliefs/{id}", response_model=UpdateBeliefResponse, tags=["Belief Management"], summary="Update belief with evidence")
 async def update_belief(id: str, request: UpdateBeliefRequest, api_key: str = Depends(verify_api_key)):
     """
     Update a belief with new evidence.
@@ -422,7 +463,7 @@ async def update_belief(id: str, request: UpdateBeliefRequest, api_key: str = De
         )
 
 
-@app.post("/api/v1/sessions/start", response_model=StartSessionResponse, status_code=status.HTTP_200_OK)
+@app.post("/api/v1/sessions/start", response_model=StartSessionResponse, status_code=status.HTTP_200_OK, tags=["Session Lifecycle"], summary="Start a new session")
 async def start_session(request: StartSessionRequest, api_key: str = Depends(verify_api_key)):
     """
     Start a new session.
@@ -462,7 +503,7 @@ async def start_session(request: StartSessionRequest, api_key: str = Depends(ver
         )
 
 
-@app.post("/api/v1/sessions/end", response_model=EndSessionResponse, status_code=status.HTTP_200_OK)
+@app.post("/api/v1/sessions/end", response_model=EndSessionResponse, status_code=status.HTTP_200_OK, tags=["Session Lifecycle"], summary="End a session")
 async def end_session(request: EndSessionRequest, api_key: str = Depends(verify_api_key)):
     """
     End an existing session.
@@ -562,7 +603,7 @@ async def event_stream(event_type_filter: Optional[str] = None) -> AsyncGenerato
         logger.info(f"Client disconnected from SSE stream (filter: {subscription_type})")
 
 
-@app.get("/api/v1/events")
+@app.get("/api/v1/events", tags=["Events"], summary="Real-time event stream (SSE)")
 async def events_sse(
     event_type: Optional[str] = Query(
         None,
