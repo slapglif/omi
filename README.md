@@ -59,6 +59,23 @@ cd omi
 pip install -e ".[nim]"
 ```
 
+### Shell Completion
+
+Enable tab-completion for OMI commands in your shell:
+
+```bash
+# Bash - add to ~/.bashrc
+eval "$(omi completion bash)"
+
+# Zsh - add to ~/.zshrc
+eval "$(omi completion zsh)"
+```
+
+After sourcing, you'll get tab-completion for:
+- All OMI commands (`omi <TAB>`)
+- Subcommands (`omi config <TAB>`)
+- Command options and flags
+
 ### Initialize
 
 ```bash
