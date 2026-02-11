@@ -204,6 +204,120 @@ class NIMEmbedder(EmbeddingProvider):
         return dot / (norm1 * norm2)
 
 
+@dataclass
+class OpenAIConfig:
+    """OpenAI embeddings configuration"""
+    api_key: str
+    base_url: str = "https://api.openai.com/v1"
+    model: str = "text-embedding-3-small"
+    embedding_dim: int = 1536
+    timeout: int = 30
+    max_tokens: int = 8191
+
+
+class OpenAIEmbedder(EmbeddingProvider):
+    """
+    OpenAI embeddings (text-embedding-3-small, text-embedding-3-large)
+
+    Models:
+    - text-embedding-3-small: 1536 dimensions (cost-efficient)
+    - text-embedding-3-large: 3072 dimensions (highest quality)
+
+    Proven quality for semantic search and RAG applications
+    """
+
+    DEFAULT_MODEL = "text-embedding-3-small"
+    DEFAULT_DIM = 1536
+
+    MODEL_DIMENSIONS = {
+        "text-embedding-3-small": 1536,
+        "text-embedding-3-large": 3072
+    }
+
+    def __init__(self,
+                 api_key: Optional[str] = None,
+                 base_url: str = "https://api.openai.com/v1",
+                 model: str = DEFAULT_MODEL):
+        """
+        Args:
+            api_key: OpenAI API key (or OPENAI_API_KEY env var)
+            base_url: OpenAI API endpoint
+            model: text-embedding-3-small (default) or text-embedding-3-large
+        """
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+
+        if not self.api_key:
+            raise ValueError("OPENAI_API_KEY required or set OPENAI_API_KEY env var")
+
+        # Initialize HTTP session
+        import requests
+        self._session = requests.Session()
+        self._session.headers.update({
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        })
+        self._test_connection()
+
+    def _test_connection(self) -> None:
+        """Test OpenAI API connection"""
+        test_response = self._session.post(
+            f"{self.base_url}/embeddings",
+            json={"model": self.model, "input": "test"},
+            timeout=10
+        )
+        test_response.raise_for_status()
+
+    def embed(self, text: str) -> List[float]:
+        """Generate embedding via OpenAI API"""
+        response = self._session.post(
+            f"{self.base_url}/embeddings",
+            json={
+                "model": self.model,
+                "input": text,
+                "encoding_format": "float"
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        return data["data"][0]["embedding"]
+
+    @property
+    def dimensions(self) -> int:
+        """Return embedding dimensionality based on model"""
+        return self.MODEL_DIMENSIONS.get(self.model, self.DEFAULT_DIM)
+
+    def embed_batch(self, texts: List[str], batch_size: int = 100) -> List[List[float]]:
+        """
+        Generate embeddings for multiple texts
+
+        OpenAI supports up to 2048 inputs per batch, but we use 100 as default
+        for better reliability and rate limit management
+        """
+        results = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            response = self._session.post(
+                f"{self.base_url}/embeddings",
+                json={
+                    "model": self.model,
+                    "input": batch,
+                    "encoding_format": "float"
+                },
+                timeout=60
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            batch_results = [item["embedding"] for item in data["data"]]
+            results.extend(batch_results)
+
+        return results
+
+
 class OllamaEmbedder(EmbeddingProvider):
     """
     Local Ollama fallback embeddings
@@ -260,8 +374,8 @@ class OllamaEmbedder(EmbeddingProvider):
 
 class EmbeddingCache:
     """Disk cache for embeddings"""
-    
-    def __init__(self, cache_dir: Path, embedder: Union[NIMEmbedder, OllamaEmbedder]):
+
+    def __init__(self, cache_dir: Path, embedder: Union[NIMEmbedder, OpenAIEmbedder, OllamaEmbedder]):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.embedder = embedder
