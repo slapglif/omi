@@ -14,6 +14,7 @@ import json
 import hashlib
 import uuid
 import math
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, Tuple
@@ -123,7 +124,16 @@ class GraphPalace:
         self._enable_wal = enable_wal
 
         # Create persistent connection
-        self._conn = sqlite3.connect(self.db_path)
+        # check_same_thread=False allows multi-threaded access (safe with WAL mode)
+        # isolation_level=None enables autocommit mode for better concurrency
+        self._conn = sqlite3.connect(
+            self.db_path,
+            check_same_thread=False,
+            isolation_level=None,
+            timeout=30.0
+        )
+        # Thread lock for serializing database operations
+        self._db_lock = threading.Lock()
         self._init_db()
 
         # In-memory embedding cache for fast access
@@ -259,28 +269,30 @@ class GraphPalace:
         # Convert embedding to blob
         embedding_blob = self._embed_to_blob(embedding) if embedding else None
 
-        self._conn.execute("""
-            INSERT INTO memories
-            (id, content, embedding, memory_type, confidence, created_at,
-             last_accessed, access_count, instance_ids, content_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            memory_id,
-            content,
-            embedding_blob,
-            memory_type,
-            confidence,
-            now,
-            now,
-            0,
-            json.dumps([]),
-            content_hash
-        ))
-        # Insert into FTS index
-        self._conn.execute("""
-            INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
-        """, (memory_id, content))
-        self._conn.commit()
+        # Use lock for thread-safe database access
+        with self._db_lock:
+            self._conn.execute("""
+                INSERT INTO memories
+                (id, content, embedding, memory_type, confidence, created_at,
+                 last_accessed, access_count, instance_ids, content_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                memory_id,
+                content,
+                embedding_blob,
+                memory_type,
+                confidence,
+                now,
+                now,
+                0,
+                json.dumps([]),
+                content_hash
+            ))
+            # Insert into FTS index
+            self._conn.execute("""
+                INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
+            """, (memory_id, content))
+            self._conn.commit()
 
         # Cache the embedding for fast access
         if embedding:
