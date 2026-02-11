@@ -481,3 +481,264 @@ class S3Backend(StorageBackend):
                 raise StorageError(f"Failed to get metadata for {key}: {e}") from e
         except Exception as e:
             raise StorageError(f"Unexpected error getting metadata for {key}: {e}") from e
+
+
+# Google Cloud Storage imports
+try:
+    from google.cloud import storage
+    from google.cloud.exceptions import NotFound, Forbidden, GoogleCloudError
+    from google.api_core.exceptions import Unauthenticated
+    GCS_AVAILABLE = True
+except ImportError:
+    GCS_AVAILABLE = False
+
+
+class GCSBackend(StorageBackend):
+    """
+    Google Cloud Storage backend
+
+    Supports Google Cloud Storage with automatic authentication via:
+    - Explicit credentials file path (credentials_file)
+    - GOOGLE_APPLICATION_CREDENTIALS environment variable
+    - Default credentials (gcloud CLI, GCE/GKE service account, etc.)
+    """
+
+    def __init__(
+        self,
+        bucket: str,
+        prefix: str = "",
+        credentials_file: Optional[str] = None,
+        project: Optional[str] = None,
+    ):
+        """
+        Initialize GCS backend
+
+        Args:
+            bucket: GCS bucket name
+            prefix: Optional prefix for all keys (e.g., "backups/")
+            credentials_file: Path to service account credentials JSON file
+            project: GCP project ID (optional, can be inferred from credentials)
+        """
+        super().__init__(bucket, prefix)
+
+        if not GCS_AVAILABLE:
+            raise ImportError(
+                "google-cloud-storage package required for GCS backend. "
+                "Install with: pip install google-cloud-storage"
+            )
+
+        self.project = project
+        self.credentials_file = credentials_file or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+        # Initialize GCS client
+        self._client = self._create_client()
+        self._bucket = self._client.bucket(self.bucket)
+
+    def _create_client(self) -> Any:
+        """Create and configure GCS client"""
+        try:
+            client_kwargs = {}
+
+            if self.project:
+                client_kwargs["project"] = self.project
+
+            # Load credentials from file if specified
+            if self.credentials_file:
+                from google.oauth2 import service_account
+                credentials = service_account.Credentials.from_service_account_file(
+                    self.credentials_file
+                )
+                client_kwargs["credentials"] = credentials
+
+            return storage.Client(**client_kwargs)
+
+        except Exception as e:
+            if "could not be automatically determined" in str(e).lower():
+                raise StorageAuthError(
+                    "No GCS credentials found. Set GOOGLE_APPLICATION_CREDENTIALS "
+                    "environment variable or pass credentials_file parameter."
+                ) from e
+            else:
+                raise StorageConnectionError(
+                    f"Failed to create GCS client: {e}"
+                ) from e
+
+    def upload(
+        self,
+        local_path: Path,
+        key: str,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Upload a file to GCS"""
+        if not local_path.exists():
+            raise FileNotFoundError(f"Local file not found: {local_path}")
+
+        full_key = self._make_key(key)
+
+        try:
+            blob = self._bucket.blob(full_key)
+
+            # Add metadata if provided
+            if metadata:
+                blob.metadata = metadata
+
+            blob.upload_from_filename(str(local_path))
+
+            return full_key
+
+        except NotFound as e:
+            raise StorageError(f"Bucket '{self.bucket}' does not exist") from e
+        except (Forbidden, Unauthenticated) as e:
+            raise StorageAuthError(f"Access denied: {e}") from e
+        except GoogleCloudError as e:
+            raise StorageError(f"Failed to upload {key}: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error uploading {key}: {e}") from e
+
+    def download(
+        self,
+        key: str,
+        local_path: Path,
+    ) -> Path:
+        """Download a file from GCS"""
+        full_key = self._make_key(key)
+
+        try:
+            # Ensure parent directory exists
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+
+            blob = self._bucket.blob(full_key)
+
+            # Check if blob exists
+            if not blob.exists():
+                raise KeyError(f"Object not found: {key}")
+
+            blob.download_to_filename(str(local_path))
+
+            return local_path
+
+        except KeyError:
+            raise  # Re-raise KeyError as-is
+        except NotFound as e:
+            raise KeyError(f"Object not found: {key}") from e
+        except (Forbidden, Unauthenticated) as e:
+            raise StorageAuthError(f"Access denied: {e}") from e
+        except GoogleCloudError as e:
+            raise StorageError(f"Failed to download {key}: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error downloading {key}: {e}") from e
+
+    def list(
+        self,
+        prefix: str = "",
+        max_keys: Optional[int] = None,
+    ) -> List[StorageObject]:
+        """List objects in GCS"""
+        full_prefix = self._make_key(prefix)
+
+        try:
+            # Get blobs with prefix
+            blobs = self._client.list_blobs(
+                self.bucket,
+                prefix=full_prefix,
+                max_results=max_keys,
+            )
+
+            objects = []
+            for blob in blobs:
+                # Remove bucket prefix to get relative key
+                key = blob.name
+                if self.prefix and key.startswith(self.prefix):
+                    key = key[len(self.prefix):]
+
+                objects.append(StorageObject(
+                    key=key,
+                    size=blob.size,
+                    last_modified=blob.updated,
+                    etag=blob.etag,
+                    metadata=blob.metadata,
+                ))
+
+            return objects
+
+        except NotFound as e:
+            raise StorageError(f"Bucket '{self.bucket}' does not exist") from e
+        except (Forbidden, Unauthenticated) as e:
+            raise StorageAuthError(f"Access denied: {e}") from e
+        except GoogleCloudError as e:
+            raise StorageError(f"Failed to list objects: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error listing objects: {e}") from e
+
+    def delete(self, key: str) -> bool:
+        """Delete an object from GCS"""
+        full_key = self._make_key(key)
+
+        try:
+            blob = self._bucket.blob(full_key)
+
+            # Check if object exists first
+            if not blob.exists():
+                return False
+
+            blob.delete()
+            return True
+
+        except NotFound:
+            return False
+        except (Forbidden, Unauthenticated) as e:
+            raise StorageAuthError(f"Access denied: {e}") from e
+        except GoogleCloudError as e:
+            raise StorageError(f"Failed to delete {key}: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error deleting {key}: {e}") from e
+
+    def exists(self, key: str) -> bool:
+        """Check if an object exists in GCS"""
+        full_key = self._make_key(key)
+
+        try:
+            blob = self._bucket.blob(full_key)
+            return blob.exists()
+
+        except NotFound:
+            return False
+        except (Forbidden, Unauthenticated) as e:
+            raise StorageAuthError(f"Access denied: {e}") from e
+        except GoogleCloudError as e:
+            raise StorageError(f"Failed to check existence of {key}: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error checking {key}: {e}") from e
+
+    def get_metadata(self, key: str) -> Optional[StorageObject]:
+        """Get metadata for an object without downloading it"""
+        full_key = self._make_key(key)
+
+        try:
+            blob = self._bucket.blob(full_key)
+
+            # Reload to get metadata
+            if not blob.exists():
+                return None
+
+            blob.reload()
+
+            # Remove bucket prefix to get relative key
+            relative_key = key
+
+            return StorageObject(
+                key=relative_key,
+                size=blob.size,
+                last_modified=blob.updated,
+                etag=blob.etag,
+                metadata=blob.metadata,
+            )
+
+        except NotFound:
+            return None
+        except (Forbidden, Unauthenticated) as e:
+            raise StorageAuthError(f"Access denied: {e}") from e
+        except GoogleCloudError as e:
+            raise StorageError(f"Failed to get metadata for {key}: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Unexpected error getting metadata for {key}: {e}") from e
