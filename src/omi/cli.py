@@ -40,6 +40,39 @@ def get_base_path(ctx_data_dir: Optional[Path] = None) -> Path:
     return DEFAULT_BASE_PATH
 
 
+def highlight_terms(text: str, query: str) -> str:
+    """Highlight search terms in text using click styling.
+
+    Args:
+        text: The text to highlight terms in
+        query: The search query containing terms to highlight
+
+    Returns:
+        Text with highlighted terms using ANSI color codes
+    """
+    if not query or not text:
+        return text
+
+    # Split query into individual terms
+    terms = query.lower().split()
+
+    # Build result by finding and highlighting each term
+    result = text
+    for term in terms:
+        if not term:
+            continue
+
+        # Find all occurrences (case-insensitive) and replace with highlighted version
+        import re
+        pattern = re.compile(re.escape(term), re.IGNORECASE)
+        result = pattern.sub(
+            lambda m: click.style(m.group(0), fg='yellow', bold=True),
+            result
+        )
+
+    return result
+
+
 @click.group()
 @click.version_option(version=__version__, prog_name="omi")
 @click.option('--data-dir', type=click.Path(), default=None, envvar='OMI_BASE_PATH',
@@ -434,16 +467,19 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory
                 content = mem.content
                 if len(content) > 80:
                     content = content[:77] + "..."
-                
+
+                # Apply term highlighting to content
+                highlighted_content = highlight_terms(content, query)
+
                 type_color = {
                     'fact': 'blue',
                     'experience': 'green',
                     'belief': 'yellow',
                     'decision': 'magenta'
                 }.get(mem_type, 'white')
-                
+
                 click.echo(f"\n{i}. [{click.style(mem_type.upper(), fg=type_color)}]")
-                click.echo(f"   {content}")
+                click.echo(f"   {highlighted_content}")
                 if mem.created_at:
                     click.echo(f"   {click.style('─', fg='bright_black') * 50}")
             
