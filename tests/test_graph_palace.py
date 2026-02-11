@@ -135,7 +135,7 @@ class TestGraphPalace(unittest.TestCase):
         self.assertTrue(result)
         
         memory = self.palace.get_memory(memory_id)
-        # Check embedding is close enough (without numpy.testing)
+        # Manual allclose check since numpy.testing may not be available
         self.assertTrue(np.allclose(memory.embedding, new_embedding, rtol=1e-5))
 
     def test_delete_memory(self):
