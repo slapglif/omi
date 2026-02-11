@@ -753,6 +753,7 @@ def config_set(ctx, key: str, value: str) -> None:
         omi config set embedding.provider ollama
         omi config set embedding.model nomic-embed-text
         omi config set vault.enabled true
+        omi config set events.webhook https://example.com/hook
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
