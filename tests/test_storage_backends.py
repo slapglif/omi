@@ -90,6 +90,10 @@ class TestStorageBackend:
                 pass
             def get_metadata(self, key):
                 pass
+            async def async_upload(self, local_path, key, metadata=None):
+                pass
+            async def async_download(self, key, local_path):
+                pass
 
         # Test with trailing slash
         backend = TestBackend("test-bucket", "backups/")
@@ -119,6 +123,10 @@ class TestStorageBackend:
             def exists(self, key):
                 pass
             def get_metadata(self, key):
+                pass
+            async def async_upload(self, local_path, key, metadata=None):
+                pass
+            async def async_download(self, key, local_path):
                 pass
 
         backend = TestBackend("test-bucket", "backups")

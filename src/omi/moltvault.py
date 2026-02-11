@@ -252,6 +252,14 @@ class _MockS3BackendWrapper(StorageBackend):
         except:
             return None
 
+    async def async_upload(self, local_path: Path, key: str, metadata: Optional[Dict[str, str]] = None) -> str:
+        """Async upload - delegates to sync implementation for mock"""
+        return self.upload(local_path, key, metadata)
+
+    async def async_download(self, key: str, local_path: Path) -> Path:
+        """Async download - delegates to sync implementation for mock"""
+        return self.download(key, local_path)
+
 
 @dataclass
 class BackupMetadata:
