@@ -837,25 +837,28 @@ def inspect(ctx, json_output: bool, beliefs: bool) -> None:
 
 
 @cli.command()
-@click.option('--limit', default=20, type=int, help='Maximum number of nodes to display')
-@click.option('--type', 'edge_type_filter', default=None, help='Filter by edge type (e.g., SUPPORTS, RELATED_TO)')
+@click.option('--limit', '-l', default=20, type=int, help='Maximum number of nodes to display')
+@click.option('--type', '-t', 'edge_type_filter', default=None, help='Filter by edge type (e.g., SUPPORTS, RELATED_TO)')
+@click.option('--depth', '-d', default=3, type=int, help='Maximum traversal depth (not currently used)')
 @click.pass_context
-def graph(ctx, limit: int, edge_type_filter: Optional[str]) -> None:
+def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
     """Show ASCII graph of memory relationships.
 
     Displays:
-    - Memory nodes with shortened IDs
+    - Memory nodes with shortened IDs (ranked by centrality)
     - Edges connecting memories with relationship types
     - Visual representation of the memory graph
 
     Args:
-        --limit: Maximum number of nodes to display (default: 20)
-        --type: Filter edges by type (e.g., SUPPORTS, CONTRADICTS, RELATED_TO)
+        --limit/-l: Maximum number of nodes to display (default: 20)
+        --type/-t: Filter edges by type (e.g., SUPPORTS, CONTRADICTS, RELATED_TO)
+        --depth/-d: Maximum traversal depth (default: 3, not currently used)
 
     Examples:
         omi graph
-        omi graph --limit 10
-        omi graph --type SUPPORTS
+        omi graph -l 10
+        omi graph -t SUPPORTS
+        omi graph --limit 10 --type SUPPORTS
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
@@ -883,19 +886,7 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str]) -> None:
             click.echo(click.style("Error: Database schema incomplete. Run 'omi init' first.", fg="red"))
             sys.exit(1)
 
-        # Get memories
-        cursor.execute(f"""
-            SELECT id, content, memory_type
-            FROM memories
-            LIMIT ?
-        """, (limit,))
-        memories = {row[0]: {'content': row[1], 'type': row[2]} for row in cursor.fetchall()}
-
-        if not memories:
-            click.echo(click.style("No memories in graph yet.", fg="yellow"))
-            sys.exit(0)
-
-        # Get edges
+        # Get edges first (with optional filtering)
         if edge_type_filter:
             cursor.execute("""
                 SELECT source_id, target_id, edge_type, strength
@@ -909,7 +900,43 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str]) -> None:
             """)
         edges = [(row[0], row[1], row[2], row[3]) for row in cursor.fetchall()]
 
+        # Calculate node centrality (degree = number of connections)
+        node_degrees = {}
+        for source_id, target_id, edge_type, strength in edges:
+            node_degrees[source_id] = node_degrees.get(source_id, 0) + 1
+            node_degrees[target_id] = node_degrees.get(target_id, 0) + 1
+
+        # Get top N nodes by centrality (or all memories if no edges)
+        if node_degrees:
+            # Sort by degree (descending) and take top N
+            top_node_ids = sorted(node_degrees.keys(), key=lambda x: node_degrees[x], reverse=True)[:limit]
+            placeholders = ','.join('?' * len(top_node_ids))
+            cursor.execute(f"""
+                SELECT id, content, memory_type
+                FROM memories
+                WHERE id IN ({placeholders})
+            """, top_node_ids)
+        else:
+            # If no edges, just get first N memories
+            cursor.execute(f"""
+                SELECT id, content, memory_type
+                FROM memories
+                LIMIT ?
+            """, (limit,))
+
+        memories = {row[0]: {'content': row[1], 'type': row[2]} for row in cursor.fetchall()}
+
+        # Get total counts for summary (before closing connection)
+        cursor.execute("SELECT COUNT(*) FROM memories")
+        total_memories = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM edges")
+        total_edges = cursor.fetchone()[0]
+
         conn.close()
+
+        if not memories:
+            click.echo(click.style("No memories in graph yet.", fg="yellow"))
+            sys.exit(0)
 
         # Display header
         click.echo(click.style("\n╔══════════════════════════════════════════════════╗", fg="cyan"))
@@ -917,10 +944,13 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str]) -> None:
         click.echo(click.style("╚══════════════════════════════════════════════════╝\n", fg="cyan"))
 
         # Display stats
-        click.echo(click.style(f"Nodes: {len(memories)}", fg="cyan"))
-        click.echo(click.style(f"Edges: {len(edges)}", fg="cyan"))
+        if node_degrees:
+            click.echo(click.style(f"Total: {total_memories} nodes, {total_edges} edges (showing top {len(memories)} by centrality)", fg="cyan"))
+        else:
+            click.echo(click.style(f"Total: {total_memories} nodes, {total_edges} edges (showing {len(memories)})", fg="cyan"))
+
         if edge_type_filter:
-            click.echo(click.style(f"Filter: {edge_type_filter}", fg="cyan"))
+            click.echo(click.style(f"Filter: {edge_type_filter} edges only", fg="cyan"))
         click.echo()
 
         # Build adjacency map for displaying connections
