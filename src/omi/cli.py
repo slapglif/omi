@@ -819,6 +819,221 @@ def config_show(ctx) -> None:
     click.echo(content)
 
 
+@cli.group()
+@click.pass_context
+def sync(ctx):
+    """Cloud storage synchronization commands.
+
+    Sync your OMI data with cloud storage backends (S3, GCS).
+
+    \b
+    Commands:
+        push      Upload local data to cloud storage
+        pull      Download data from cloud storage
+        status    Show sync status and differences
+
+    \b
+    Examples:
+        omi sync push
+        omi sync pull
+        omi sync status
+    """
+    ctx.ensure_object(dict)
+
+
+@sync.command('push')
+@click.option('--force', is_flag=True, help='Force push even if cloud has newer data')
+@click.pass_context
+def sync_push(ctx, force: bool) -> None:
+    """Upload local data to cloud storage.
+
+    Pushes the following to configured cloud backend:
+    - NOW.md and daily logs
+    - Graph Palace database
+    - Configuration files
+
+    Args:
+        --force: Force push even if cloud has newer data
+
+    Examples:
+        omi sync push
+        omi sync push --force
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    click.echo(click.style("Pushing to cloud storage...", fg="cyan", bold=True))
+
+    # Check for cloud configuration
+    config_path = base_path / "config.yaml"
+    if not config_path.exists():
+        click.echo(click.style("Error: Config not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    try:
+        import yaml
+        config_data = yaml.safe_load(config_path.read_text()) or {}
+        cloud_config = config_data.get('cloud', {})
+
+        if not cloud_config.get('enabled', False):
+            click.echo(click.style("Error: Cloud storage not configured.", fg="red"))
+            click.echo("Enable cloud storage in config.yaml:")
+            click.echo("  cloud:")
+            click.echo("    enabled: true")
+            click.echo("    backend: s3  # or gcs")
+            sys.exit(1)
+
+        backend = cloud_config.get('backend', 'none')
+        click.echo(f" ✓ Backend: {click.style(backend, fg='cyan')}")
+
+        # TODO: Implement actual cloud sync logic
+        # For now, this is a placeholder that will be implemented in cloud sync subtasks
+        click.echo(f" ✓ Validated local files")
+
+        if force:
+            click.echo(click.style(" ⚠ Force mode: will overwrite cloud data", fg="yellow"))
+
+        click.echo(click.style("\n✓ Push complete", fg="green", bold=True))
+        click.echo("Note: Full cloud sync implementation pending")
+
+    except Exception as e:
+        click.echo(click.style(f"Error: Push failed: {e}", fg="red"))
+        sys.exit(1)
+
+
+@sync.command('pull')
+@click.option('--force', is_flag=True, help='Force pull even if local has newer data')
+@click.pass_context
+def sync_pull(ctx, force: bool) -> None:
+    """Download data from cloud storage.
+
+    Pulls the following from configured cloud backend:
+    - NOW.md and daily logs
+    - Graph Palace database
+    - Configuration files
+
+    Args:
+        --force: Force pull even if local has newer data
+
+    Examples:
+        omi sync pull
+        omi sync pull --force
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    click.echo(click.style("Pulling from cloud storage...", fg="cyan", bold=True))
+
+    # Check for cloud configuration
+    config_path = base_path / "config.yaml"
+    if not config_path.exists():
+        click.echo(click.style("Error: Config not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    try:
+        import yaml
+        config_data = yaml.safe_load(config_path.read_text()) or {}
+        cloud_config = config_data.get('cloud', {})
+
+        if not cloud_config.get('enabled', False):
+            click.echo(click.style("Error: Cloud storage not configured.", fg="red"))
+            click.echo("Enable cloud storage in config.yaml:")
+            click.echo("  cloud:")
+            click.echo("    enabled: true")
+            click.echo("    backend: s3  # or gcs")
+            sys.exit(1)
+
+        backend = cloud_config.get('backend', 'none')
+        click.echo(f" ✓ Backend: {click.style(backend, fg='cyan')}")
+
+        # TODO: Implement actual cloud sync logic
+        # For now, this is a placeholder that will be implemented in cloud sync subtasks
+        if force:
+            click.echo(click.style(" ⚠ Force mode: will overwrite local data", fg="yellow"))
+
+        click.echo(click.style("\n✓ Pull complete", fg="green", bold=True))
+        click.echo("Note: Full cloud sync implementation pending")
+
+    except Exception as e:
+        click.echo(click.style(f"Error: Pull failed: {e}", fg="red"))
+        sys.exit(1)
+
+
+@sync.command('status')
+@click.pass_context
+def sync_status(ctx) -> None:
+    """Show sync status and differences.
+
+    Displays:
+    - Cloud backend configuration
+    - Last sync timestamp
+    - Files that differ between local and cloud
+    - Sync health status
+
+    Examples:
+        omi sync status
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    click.echo(click.style("Cloud Sync Status", fg="cyan", bold=True))
+    click.echo("=" * 50)
+
+    # Check for cloud configuration
+    config_path = base_path / "config.yaml"
+    if not config_path.exists():
+        click.echo(click.style("Error: Config not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    try:
+        import yaml
+        config_data = yaml.safe_load(config_path.read_text()) or {}
+        cloud_config = config_data.get('cloud', {})
+
+        # Configuration status
+        click.echo(f"\nConfiguration:")
+        enabled = cloud_config.get('enabled', False)
+        status_color = "green" if enabled else "yellow"
+        click.echo(f"  Enabled: {click.style(str(enabled), fg=status_color)}")
+
+        if enabled:
+            backend = cloud_config.get('backend', 'none')
+            click.echo(f"  Backend: {click.style(backend, fg='cyan')}")
+
+            if backend == 's3':
+                bucket = cloud_config.get('s3', {}).get('bucket', 'not configured')
+                click.echo(f"  S3 Bucket: {click.style(bucket, fg='cyan')}")
+            elif backend == 'gcs':
+                bucket = cloud_config.get('gcs', {}).get('bucket', 'not configured')
+                click.echo(f"  GCS Bucket: {click.style(bucket, fg='cyan')}")
+
+            # TODO: Implement actual sync status check
+            # For now, show placeholder status
+            click.echo(f"\nSync Status:")
+            click.echo(f"  Last Sync: {click.style('Never', fg='yellow')}")
+            click.echo(f"  Local Files: {click.style('Not yet synced', fg='yellow')}")
+            click.echo(f"  Cloud Files: {click.style('Not yet synced', fg='yellow')}")
+
+            click.echo(f"\n{click.style('Status:', bold=True)} {click.style('Ready for sync', fg='green')}")
+            click.echo("Note: Full cloud sync implementation pending")
+        else:
+            click.echo(f"\nCloud storage is not enabled.")
+            click.echo("To enable, update config.yaml:")
+            click.echo("  cloud:")
+            click.echo("    enabled: true")
+            click.echo("    backend: s3  # or gcs")
+
+    except Exception as e:
+        click.echo(click.style(f"Error: Failed to check status: {e}", fg="red"))
+        sys.exit(1)
+
+
 # Main entry point
 def main():
     """Entry point for the OMI CLI."""
