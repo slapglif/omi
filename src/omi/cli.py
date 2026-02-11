@@ -124,6 +124,12 @@ security:
 session:
   auto_check_interval: 300  # seconds
   max_hot_tokens: 1000
+
+compression:
+  provider: anthropic  # or openai
+  # api_key: ${ANTHROPIC_API_KEY}  # Set via environment variable
+  age_threshold_days: 30  # Compress memories older than N days
+  batch_size: 8  # Number of memories to process at once
 """
     config_path = base_path / "config.yaml"
     if not config_path.exists():
