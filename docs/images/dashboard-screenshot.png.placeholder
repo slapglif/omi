@@ -1,0 +1,14 @@
+# Dashboard Screenshot
+# 
+# To generate this screenshot:
+# 1. Install OMI: pip install -e ".[dev]"
+# 2. Initialize: omi init
+# 3. Start server: omi serve --dashboard
+# 4. Open browser: http://localhost:8420/dashboard
+# 5. Capture screenshot and save as: docs/images/dashboard-screenshot.png
+# 
+# The screenshot should show:
+# - The force-directed graph with memory nodes
+# - The semantic search bar
+# - The belief network panel
+# - Storage statistics widget
