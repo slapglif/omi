@@ -45,7 +45,7 @@ class TestCompressE2E:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO memories (id, content, memory_type, created_at, updated_at, access_count)
+            INSERT INTO memories (id, content, memory_type, created_at, last_accessed, access_count)
             VALUES (?, ?, ?, ?, ?, 0)
         """, (memory_id, content, memory_type, created_at.isoformat(), created_at.isoformat()))
         conn.commit()

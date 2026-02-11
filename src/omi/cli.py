@@ -513,8 +513,6 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
 
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-
     mode_label = "DRY RUN" if dry_run else "LIVE"
     mode_color = "yellow" if dry_run else "cyan"
     click.echo(click.style(f"Memory Compression [{mode_label}]", fg=mode_color, bold=True))
