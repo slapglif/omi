@@ -194,8 +194,12 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
-    return {"status": "healthy", "service": "omi-event-api"}
+    """Health check endpoint with version and detailed status."""
+    return {
+        "status": "healthy",
+        "service": "omi-event-api",
+        "version": "1.0.0"
+    }
 
 
 @app.post("/api/v1/store", response_model=StoreMemoryResponse, status_code=status.HTTP_201_CREATED)
