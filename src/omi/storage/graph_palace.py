@@ -817,6 +817,37 @@ class GraphPalace:
 
         return cursor.rowcount > 0
 
+    def update_memory_content(self, memory_id: str, new_content: str) -> bool:
+        """
+        Update the content of a memory and recalculate hash and timestamp.
+
+        Args:
+            memory_id: Memory ID
+            new_content: New content text
+
+        Returns:
+            True if successful
+        """
+        new_content_hash = hashlib.sha256(new_content.encode()).hexdigest()
+        now = datetime.now().isoformat()
+
+        cursor = self._conn.execute("""
+            UPDATE memories
+            SET content = ?, content_hash = ?, last_accessed = ?
+            WHERE id = ?
+        """, (new_content, new_content_hash, now, memory_id))
+
+        # Update FTS index
+        if cursor.rowcount > 0:
+            self._conn.execute("""
+                UPDATE memories_fts
+                SET content = ?
+                WHERE memory_id = ?
+            """, (new_content, memory_id))
+
+        self._conn.commit()
+        return cursor.rowcount > 0
+
     def delete_memory(self, memory_id: str) -> bool:
         """
         Delete a memory and all its edges.
