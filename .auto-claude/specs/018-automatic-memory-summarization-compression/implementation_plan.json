@@ -1,0 +1,482 @@
+{
+  "feature": "Automatic Memory Summarization & Compression",
+  "workflow_type": "feature",
+  "workflow_rationale": "This is a new multi-component feature adding LLM-powered memory compression. It follows the FEATURE workflow because it requires: (1) new infrastructure (LLM summarizer module), (2) storage layer extensions (compression queries), (3) CLI command addition, and (4) integration with backup system.",
+  "phases": [
+    {
+      "id": "phase-1-llm-summarizer",
+      "name": "LLM Summarizer Module",
+      "type": "implementation",
+      "description": "Create the LLM summarization module with OpenAI/Anthropic API integration for compressing memory content",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Create summarizer.py with LLM API client (OpenAI/Anthropic)",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            "src/omi/summarizer.py"
+          ],
+          "patterns_from": [
+            "src/omi/embeddings.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from omi.summarizer import MemorySummarizer; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed",
+          "notes": "Created summarizer.py with MemorySummarizer class supporting OpenAI, Anthropic, and Ollama providers. Follows pattern from embeddings.py with API key management, session handling, and proper error handling. Verification passes successfully.",
+          "updated_at": "2026-02-11T00:10:52.649710+00:00"
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Add summarize_memory() method with prompt engineering",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/summarizer.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/embeddings.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from omi.summarizer import MemorySummarizer; s = MemorySummarizer(api_key='test'); print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed",
+          "notes": "The summarize_memory() method is fully implemented with comprehensive prompt engineering. Includes: (1) _build_summarization_prompt() method with detailed requirements for preserving key facts, confidence levels, and relationship links, (2) All three provider implementations (OpenAI, Anthropic, Ollama), (3) Helper methods estimate_tokens() and estimate_savings() for token counting. Verification passes successfully.",
+          "updated_at": "2026-02-11T00:13:12.436242+00:00"
+        },
+        {
+          "id": "subtask-1-3",
+          "description": "Add batch_summarize() for efficient bulk processing",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/summarizer.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/embeddings.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from omi.summarizer import MemorySummarizer; s = MemorySummarizer(api_key='test'); assert hasattr(s, 'batch_summarize'); print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "pending",
+          "notes": "Process multiple memories in batch with rate limiting. Follow embed_batch() pattern from NIMEmbedder."
+        }
+      ]
+    },
+    {
+      "id": "phase-2-storage-compression",
+      "name": "Storage Layer Compression",
+      "type": "implementation",
+      "description": "Extend GraphPalace with methods to query old memories, update content, and regenerate embeddings",
+      "depends_on": [
+        "phase-1-llm-summarizer"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Add get_memories_before() to query memories older than threshold",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/storage/graph_palace.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/storage/graph_palace.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from omi.storage.graph_palace import GraphPalace; from pathlib import Path; gp = GraphPalace(Path('/tmp/test.db')); assert hasattr(gp, 'get_memories_before'); print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "pending",
+          "notes": "Query memories WHERE created_at < threshold. Return list of Memory objects with all metadata including edges."
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Add update_memory_content() to replace content and update timestamp",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/storage/graph_palace.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/storage/graph_palace.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from omi.storage.graph_palace import GraphPalace; from pathlib import Path; gp = GraphPalace(Path('/tmp/test.db')); assert hasattr(gp, 'update_memory_content'); print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "pending",
+          "notes": "Update content, recalculate content_hash, preserve all other fields. Also update FTS5 index."
+        },
+        {
+          "id": "subtask-2-3",
+          "description": "Add get_compression_stats() to estimate token savings",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/storage/graph_palace.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/storage/graph_palace.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from omi.storage.graph_palace import GraphPalace; from pathlib import Path; gp = GraphPalace(Path('/tmp/test.db')); assert hasattr(gp, 'get_compression_stats'); print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "pending",
+          "notes": "Return: total_memories, total_chars, estimated_tokens (chars/4), memories_by_type. Used for dry-run reporting."
+        }
+      ]
+    },
+    {
+      "id": "phase-3-cli-command",
+      "name": "CLI Compress Command",
+      "type": "implementation",
+      "description": "Add 'omi compress' CLI command with --dry-run and --before options",
+      "depends_on": [
+        "phase-2-storage-compression"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Add 'omi compress' command with --dry-run flag",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "omi compress --help",
+            "expected": "Usage: omi compress"
+          },
+          "status": "pending",
+          "notes": "Follow pattern from 'omi check' command. Use click.echo() and click.style() for output. Dry-run shows what WOULD be compressed without making changes."
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Add --before date filter option",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "omi compress --before 2024-01-01 --dry-run",
+            "expected": "Would compress"
+          },
+          "status": "pending",
+          "notes": "Parse ISO date format (YYYY-MM-DD). Use click.option with type validation. Filter memories created before this date."
+        },
+        {
+          "id": "subtask-3-3",
+          "description": "Add --age-days option as alternative to --before",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "omi compress --age-days 30 --dry-run",
+            "expected": "Would compress"
+          },
+          "status": "pending",
+          "notes": "More user-friendly than absolute dates. --age-days 30 = compress memories older than 30 days. Convert to datetime internally."
+        },
+        {
+          "id": "subtask-3-4",
+          "description": "Add --llm-provider option to choose OpenAI/Anthropic",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "omi compress --llm-provider openai --dry-run",
+            "expected": "Would compress"
+          },
+          "status": "pending",
+          "notes": "Default to reading from config.yaml. Allow override via CLI flag. Support: 'openai', 'anthropic', 'ollama' (local)."
+        }
+      ]
+    },
+    {
+      "id": "phase-4-integration",
+      "name": "Integration & Backup",
+      "type": "integration",
+      "description": "Wire together: backup to MoltVault, summarize memories, regenerate embeddings, update storage",
+      "depends_on": [
+        "phase-3-cli-command"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-4-1",
+          "description": "Implement full compress workflow with MoltVault backup",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/moltvault.py",
+            "src/omi/cli.py"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Run 'omi compress --age-days 90 --dry-run' and verify: (1) shows memories to compress, (2) estimates token savings, (3) no actual changes made"
+          },
+          "status": "pending",
+          "notes": "Flow: (1) Create MoltVault backup FIRST, (2) Query old memories, (3) Summarize in batches, (4) Regenerate embeddings, (5) Update GraphPalace, (6) Report results."
+        },
+        {
+          "id": "subtask-4-2",
+          "description": "Add embedding regeneration after summarization",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/embeddings.py"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "After compression, verify embeddings are updated by running semantic recall on summarized content"
+          },
+          "status": "pending",
+          "notes": "Use NIMEmbedder to regenerate embeddings for summarized content. Call GraphPalace.update_embedding() for each memory. Maintain semantic search accuracy."
+        },
+        {
+          "id": "subtask-4-3",
+          "description": "Add compression reporting: before/after token counts, savings percentage",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/cli.py"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Run compress and verify output shows: memories compressed, original tokens, compressed tokens, savings %"
+          },
+          "status": "pending",
+          "notes": "Calculate: original_tokens = sum(len(content)/4), compressed_tokens = sum(len(summary)/4), savings = (1 - compressed/original) * 100%."
+        },
+        {
+          "id": "subtask-4-4",
+          "description": "End-to-end test of compress command",
+          "all_services": false,
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            "tests/test_compress_e2e.py"
+          ],
+          "patterns_from": [
+            "tests/test_cli.py",
+            "tests/test_graph_palace.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "pytest tests/test_compress_e2e.py -v",
+            "expected": "All tests pass"
+          },
+          "status": "pending",
+          "notes": "Test: (1) dry-run shows correct memories, (2) actual compress updates storage, (3) embeddings regenerated, (4) backup created, (5) semantic search still works on summarized memories."
+        }
+      ]
+    },
+    {
+      "id": "phase-5-configuration",
+      "name": "Configuration & Docs",
+      "type": "implementation",
+      "description": "Add compression settings to config.yaml and update documentation",
+      "depends_on": [
+        "phase-4-integration"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-5-1",
+          "description": "Add compression section to config.yaml template",
+          "service": "backend",
+          "files_to_modify": [
+            "src/omi/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "src/omi/cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "omi init && grep -q compression ~/.openclaw/omi/config.yaml && echo 'OK'",
+            "expected": "OK"
+          },
+          "status": "pending",
+          "notes": "Add to config template in init() command: compression section with llm_provider, default_age_days, auto_compress_enabled, backup_before_compress."
+        },
+        {
+          "id": "subtask-5-2",
+          "description": "Update README with compress command examples",
+          "service": "backend",
+          "files_to_modify": [
+            "README.md"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "README.md"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Verify README includes compress command usage and examples"
+          },
+          "status": "pending",
+          "notes": "Document: (1) basic usage, (2) dry-run, (3) date filtering, (4) token savings, (5) backup/restore if needed."
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 5,
+    "total_subtasks": 16,
+    "services_involved": [
+      "backend"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 2,
+      "parallel_groups": [
+        {
+          "phases": [
+            "phase-1-llm-summarizer",
+            "phase-5-configuration"
+          ],
+          "reason": "Phase 1 has no dependencies and phase 5 only modifies docs/config"
+        }
+      ],
+      "recommended_workers": 1,
+      "speedup_estimate": "Sequential recommended due to tight dependencies between phases"
+    },
+    "startup_command": "source auto-claude/.venv/bin/activate && python auto-claude/run.py --spec 018"
+  },
+  "verification_strategy": {
+    "risk_level": "medium",
+    "skip_validation": false,
+    "test_creation_phase": "post_implementation",
+    "test_types_required": [
+      "unit",
+      "integration"
+    ],
+    "security_scanning_required": false,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "All existing tests pass",
+      "New compress command works with --dry-run",
+      "Memories are successfully compressed with token savings",
+      "Originals backed up to MoltVault before compression",
+      "Embeddings regenerated maintain semantic search accuracy",
+      "Compression stats accurately report token savings"
+    ],
+    "verification_steps": [
+      {
+        "name": "Unit Tests",
+        "command": "pytest tests/ -v --cov=omi",
+        "expected_outcome": "All tests pass, coverage >60%",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Integration Test - Dry Run",
+        "command": "omi compress --age-days 30 --dry-run",
+        "expected_outcome": "Shows memories to compress without making changes",
+        "type": "integration",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Integration Test - Actual Compress",
+        "command": "omi compress --age-days 90",
+        "expected_outcome": "Compresses memories, reports token savings, creates backup",
+        "type": "integration",
+        "required": true,
+        "blocking": true
+      }
+    ],
+    "reasoning": "Medium risk: adds new feature without modifying existing core functionality. Requires integration testing to verify backup+compress+embed regeneration workflow."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/test_summarizer.py",
+        "pytest tests/test_compress_e2e.py"
+      ],
+      "minimum_coverage": 60
+    },
+    "integration_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/test_compress_e2e.py",
+        "omi compress --dry-run",
+        "omi compress --age-days 90"
+      ],
+      "services_to_test": [
+        "backend"
+      ]
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": false,
+      "pages": []
+    },
+    "database_verification": {
+      "required": true,
+      "checks": [
+        "Verify memory content updated after compression",
+        "Verify embeddings regenerated",
+        "Verify FTS5 index updated",
+        "Verify MoltVault backup created"
+      ]
+    }
+  },
+  "qa_signoff": null,
+  "status": "in_progress",
+  "planStatus": "in_progress",
+  "updated_at": "2026-02-11T00:11:27.514Z",
+  "last_updated": "2026-02-11T00:13:12.436259+00:00"
+}
