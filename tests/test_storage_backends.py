@@ -622,3 +622,387 @@ class TestGCSBackend:
             # Should return None for non-existent object
             assert result is None
             mock_blob.reload.assert_not_called()
+
+
+class TestAzureBackend:
+    """Test Azure Blob Storage Backend functionality."""
+
+    @pytest.fixture
+    def mock_azure_available(self, monkeypatch):
+        """Mock Azure availability."""
+        monkeypatch.setattr("omi.storage_backends.AZURE_AVAILABLE", True, raising=False)
+
+    def test_azure_import_error(self, monkeypatch):
+        """Test AzureBackend raises error when azure-storage-blob not available."""
+        from omi.storage_backends import AzureBackend
+
+        monkeypatch.setattr("omi.storage_backends.AZURE_AVAILABLE", False, raising=False)
+
+        with pytest.raises(ImportError, match="azure-storage-blob package required"):
+            AzureBackend("test-container")
+
+    def test_azure_initialization_connection_string(self, mock_azure_available):
+        """Test AzureBackend initialization with connection string."""
+        from omi.storage_backends import AzureBackend
+
+        mock_client = MagicMock()
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend(
+                bucket="test-container",
+                prefix="backups",
+                connection_string="DefaultEndpointsProtocol=https;AccountName=test;AccountKey=key123;EndpointSuffix=core.windows.net",
+            )
+
+            assert backend.bucket == "test-container"
+            assert backend.prefix == "backups/"
+            assert backend._client == mock_client
+
+    def test_azure_initialization_account_key(self, mock_azure_available):
+        """Test AzureBackend initialization with account name and key."""
+        from omi.storage_backends import AzureBackend
+
+        mock_client = MagicMock()
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend(
+                bucket="test-container",
+                account_name="testaccount",
+                account_key="testkey123",
+            )
+
+            assert backend.bucket == "test-container"
+            assert backend.account_name == "testaccount"
+            assert backend.account_key == "testkey123"
+
+    def test_azure_initialization_sas_token(self, mock_azure_available):
+        """Test AzureBackend initialization with SAS token."""
+        from omi.storage_backends import AzureBackend
+
+        mock_client = MagicMock()
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend(
+                bucket="test-container",
+                account_name="testaccount",
+                sas_token="?sv=2021-06-08&ss=b&srt=sco&sp=rwdlacitfx&se=2025-01-01T00:00:00Z&st=2024-01-01T00:00:00Z&spr=https&sig=test",
+            )
+
+            assert backend.bucket == "test-container"
+            assert backend.account_name == "testaccount"
+            assert backend.sas_token.startswith("?sv=")
+
+    def test_azure_initialization_with_env_connection_string(self, mock_azure_available):
+        """Test AzureBackend initialization with AZURE_STORAGE_CONNECTION_STRING env var."""
+        from omi.storage_backends import AzureBackend
+
+        with patch.dict(os.environ, {"AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountName=envtest;AccountKey=envkey;EndpointSuffix=core.windows.net"}):
+            mock_client = MagicMock()
+            with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+                backend = AzureBackend(bucket="test-container")
+
+                # Verify connection string was picked up from env
+                assert backend.connection_string.startswith("DefaultEndpointsProtocol=https")
+
+    def test_azure_upload_success(self, mock_azure_available, tmp_path):
+        """Test successful file upload to Azure."""
+        from omi.storage_backends import AzureBackend
+
+        # Create test file
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("test content")
+
+        mock_client = MagicMock()
+        mock_blob_client = MagicMock()
+        mock_client.get_blob_client.return_value = mock_blob_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+            result = backend.upload(
+                test_file,
+                "test.txt",
+                metadata={"backup_id": "test_1"},
+            )
+
+            # Verify blob client was created and uploaded
+            mock_client.get_blob_client.assert_called_once_with(
+                container="test-container",
+                blob="test.txt",
+            )
+            mock_blob_client.upload_blob.assert_called_once()
+            assert result == "test.txt"
+
+    def test_azure_upload_with_prefix(self, mock_azure_available, tmp_path):
+        """Test upload with prefix."""
+        from omi.storage_backends import AzureBackend
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("test content")
+
+        mock_client = MagicMock()
+        mock_blob_client = MagicMock()
+        mock_client.get_blob_client.return_value = mock_blob_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container", prefix="backups")
+            result = backend.upload(test_file, "test.txt")
+
+            # Verify full key with prefix was used
+            mock_client.get_blob_client.assert_called_once_with(
+                container="test-container",
+                blob="backups/test.txt",
+            )
+            assert result == "backups/test.txt"
+
+    def test_azure_upload_file_not_found(self, mock_azure_available):
+        """Test upload with non-existent file."""
+        from omi.storage_backends import AzureBackend
+
+        mock_client = MagicMock()
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+
+            with pytest.raises(FileNotFoundError, match="Local file not found"):
+                backend.upload(Path("/nonexistent/file.txt"), "test.txt")
+
+    def test_azure_download_success(self, mock_azure_available, tmp_path):
+        """Test successful file download from Azure."""
+        from omi.storage_backends import AzureBackend
+
+        download_path = tmp_path / "downloads" / "test.txt"
+
+        mock_client = MagicMock()
+        mock_blob_client = MagicMock()
+        mock_download_stream = MagicMock()
+        mock_download_stream.readall.return_value = b"test content"
+        mock_blob_client.download_blob.return_value = mock_download_stream
+        mock_client.get_blob_client.return_value = mock_blob_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+            result = backend.download("test.txt", download_path)
+
+            # Verify blob was fetched and downloaded
+            mock_client.get_blob_client.assert_called_once_with(
+                container="test-container",
+                blob="test.txt",
+            )
+            mock_blob_client.download_blob.assert_called_once()
+            assert result == download_path
+            assert download_path.exists()
+
+    def test_azure_list_objects(self, mock_azure_available):
+        """Test listing objects in Azure."""
+        from omi.storage_backends import AzureBackend
+
+        # Create mock blobs
+        mock_blob1 = MagicMock()
+        mock_blob1.name = "test1.txt"
+        mock_blob1.size = 100
+        mock_blob1.last_modified = datetime(2025, 1, 1, 12, 0, 0)
+        mock_blob1.etag = '"abc123"'
+        mock_blob1.metadata = {"key": "value1"}
+
+        mock_blob2 = MagicMock()
+        mock_blob2.name = "test2.txt"
+        mock_blob2.size = 200
+        mock_blob2.last_modified = datetime(2025, 1, 2, 12, 0, 0)
+        mock_blob2.etag = '"def456"'
+        mock_blob2.metadata = None
+
+        mock_client = MagicMock()
+        mock_container_client = MagicMock()
+        mock_container_client.list_blobs.return_value = [mock_blob1, mock_blob2]
+        mock_client.get_container_client.return_value = mock_container_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+            objects = backend.list()
+
+            assert len(objects) == 2
+            assert objects[0].key == "test1.txt"
+            assert objects[0].size == 100
+            assert objects[0].etag == "abc123"
+            assert objects[0].metadata == {"key": "value1"}
+            assert objects[1].key == "test2.txt"
+            assert objects[1].size == 200
+
+    def test_azure_list_with_prefix(self, mock_azure_available):
+        """Test listing objects with prefix."""
+        from omi.storage_backends import AzureBackend
+
+        mock_blob = MagicMock()
+        mock_blob.name = "backups/2025/test.txt"
+        mock_blob.size = 100
+        mock_blob.last_modified = datetime(2025, 1, 1, 12, 0, 0)
+        mock_blob.etag = '"abc123"'
+        mock_blob.metadata = None
+
+        mock_client = MagicMock()
+        mock_container_client = MagicMock()
+        mock_container_client.list_blobs.return_value = [mock_blob]
+        mock_client.get_container_client.return_value = mock_container_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container", prefix="backups")
+            objects = backend.list(prefix="2025")
+
+            # Verify list was called with combined prefix
+            mock_container_client.list_blobs.assert_called_once_with(
+                name_starts_with="backups/2025",
+            )
+
+            # Verify prefix was stripped from returned key
+            assert len(objects) == 1
+            assert objects[0].key == "2025/test.txt"
+
+    def test_azure_list_with_max_keys(self, mock_azure_available):
+        """Test listing objects with max_keys limit."""
+        from omi.storage_backends import AzureBackend
+
+        # Create 5 mock blobs
+        mock_blobs = []
+        for i in range(5):
+            mock_blob = MagicMock()
+            mock_blob.name = f"test{i}.txt"
+            mock_blob.size = 100 * (i + 1)
+            mock_blob.last_modified = datetime(2025, 1, 1, 12, 0, 0)
+            mock_blob.etag = f'"hash{i}"'
+            mock_blob.metadata = None
+            mock_blobs.append(mock_blob)
+
+        mock_client = MagicMock()
+        mock_container_client = MagicMock()
+        mock_container_client.list_blobs.return_value = mock_blobs
+        mock_client.get_container_client.return_value = mock_container_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+            objects = backend.list(max_keys=3)
+
+            # Should only return 3 objects even though 5 were returned
+            assert len(objects) == 3
+            assert objects[0].key == "test0.txt"
+            assert objects[1].key == "test1.txt"
+            assert objects[2].key == "test2.txt"
+
+    def test_azure_delete_success(self, mock_azure_available):
+        """Test successful object deletion."""
+        from omi.storage_backends import AzureBackend
+
+        mock_client = MagicMock()
+        mock_blob_client = MagicMock()
+        mock_blob_client.exists.return_value = True
+        mock_client.get_blob_client.return_value = mock_blob_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+            result = backend.delete("test.txt")
+
+            # Verify blob was deleted
+            mock_client.get_blob_client.assert_called_once_with(
+                container="test-container",
+                blob="test.txt",
+            )
+            mock_blob_client.exists.assert_called_once()
+            mock_blob_client.delete_blob.assert_called_once()
+            assert result is True
+
+    def test_azure_delete_not_found(self, mock_azure_available):
+        """Test deleting non-existent object."""
+        from omi.storage_backends import AzureBackend
+
+        mock_client = MagicMock()
+        mock_blob_client = MagicMock()
+        mock_blob_client.exists.return_value = False
+        mock_client.get_blob_client.return_value = mock_blob_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+            result = backend.delete("test.txt")
+
+            # Verify delete was not called
+            mock_blob_client.delete_blob.assert_not_called()
+            assert result is False
+
+    def test_azure_exists_true(self, mock_azure_available):
+        """Test exists returns True for existing object."""
+        from omi.storage_backends import AzureBackend
+
+        mock_client = MagicMock()
+        mock_blob_client = MagicMock()
+        mock_blob_client.exists.return_value = True
+        mock_client.get_blob_client.return_value = mock_blob_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+            result = backend.exists("test.txt")
+
+            assert result is True
+            mock_client.get_blob_client.assert_called_once_with(
+                container="test-container",
+                blob="test.txt",
+            )
+            mock_blob_client.exists.assert_called_once()
+
+    def test_azure_exists_false(self, mock_azure_available):
+        """Test exists returns False for non-existent object."""
+        from omi.storage_backends import AzureBackend
+
+        mock_client = MagicMock()
+        mock_blob_client = MagicMock()
+        mock_blob_client.exists.return_value = False
+        mock_client.get_blob_client.return_value = mock_blob_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+            result = backend.exists("test.txt")
+
+            assert result is False
+
+    def test_azure_get_metadata_success(self, mock_azure_available):
+        """Test getting metadata for an object."""
+        from omi.storage_backends import AzureBackend
+
+        mock_client = MagicMock()
+        mock_blob_client = MagicMock()
+        mock_blob_client.exists.return_value = True
+        mock_properties = MagicMock()
+        mock_properties.size = 1024
+        mock_properties.last_modified = datetime(2025, 1, 1, 12, 0, 0)
+        mock_properties.etag = '"abc123"'
+        mock_properties.metadata = {"backup_id": "test_1"}
+        mock_blob_client.get_blob_properties.return_value = mock_properties
+        mock_client.get_blob_client.return_value = mock_blob_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+            result = backend.get_metadata("test.txt")
+
+            # Verify metadata was fetched
+            mock_client.get_blob_client.assert_called_once_with(
+                container="test-container",
+                blob="test.txt",
+            )
+            mock_blob_client.exists.assert_called_once()
+            mock_blob_client.get_blob_properties.assert_called_once()
+
+            assert result is not None
+            assert result.key == "test.txt"
+            assert result.size == 1024
+            assert result.etag == "abc123"
+            assert result.metadata == {"backup_id": "test_1"}
+
+    def test_azure_get_metadata_not_found(self, mock_azure_available):
+        """Test getting metadata for non-existent object."""
+        from omi.storage_backends import AzureBackend
+
+        mock_client = MagicMock()
+        mock_blob_client = MagicMock()
+        mock_blob_client.exists.return_value = False
+        mock_client.get_blob_client.return_value = mock_blob_client
+
+        with patch.object(AzureBackend, "_create_client", return_value=mock_client):
+            backend = AzureBackend("test-container")
+            result = backend.get_metadata("test.txt")
+
+            # Should return None for non-existent object
+            assert result is None
+            mock_blob_client.get_blob_properties.assert_not_called()
