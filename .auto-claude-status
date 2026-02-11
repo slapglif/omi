@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "004-type-safety-py-typed-marker",
+  "spec": "015-web-dashboard-for-memory-exploration",
   "state": "building",
   "subtasks": {
-    "completed": 15,
-    "total": 16,
+    "completed": 1,
+    "total": 24,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Full Package Verification",
+    "current": "Backend Read API Endpoints",
     "id": null,
-    "total": 3
+    "total": 8
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 17,
-    "started_at": "2026-02-11T00:06:21.852224"
+    "number": 3,
+    "started_at": "2026-02-11T02:26:53.709005"
   },
-  "last_update": "2026-02-11T01:00:00.369804"
+  "last_update": "2026-02-11T02:36:33.614816"
 }
