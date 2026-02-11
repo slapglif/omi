@@ -13,7 +13,7 @@ import click
 # OMI imports
 from omi import NOWStore, DailyLogStore, GraphPalace
 from omi.security import PoisonDetector
-from omi.belief import BeliefNetwork, ContradictionDetector
+from omi.belief import BeliefNetwork, ContradictionDetector, Evidence
 from .event_bus import get_event_bus
 from .events import SessionStartedEvent, SessionEndedEvent
 
@@ -1295,6 +1295,120 @@ def belief_evidence(ctx, belief_id: str, json_output: bool) -> None:
                         click.echo()
 
         palace.close()
+
+    except Exception as e:
+        click.echo(click.style(f"Error: {str(e)}", fg="red"))
+        sys.exit(1)
+
+
+@belief.command('update')
+@click.argument('belief_id')
+@click.option('--evidence', required=True, help='Memory ID to use as evidence')
+@click.option('--supports', 'evidence_type', flag_value='supports', default=True,
+              help='Evidence supports the belief (default)')
+@click.option('--contradicts', 'evidence_type', flag_value='contradicts',
+              help='Evidence contradicts the belief')
+@click.option('--strength', type=float, default=0.8,
+              help='Evidence strength (0.0-1.0, default: 0.8)')
+@click.pass_context
+def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, strength: float) -> None:
+    """Update a belief with new evidence.
+
+    Adds supporting or contradicting evidence to a belief and updates
+    its confidence using Exponential Moving Average (EMA):
+    - Supporting evidence: λ=0.15
+    - Contradicting evidence: λ=0.30
+
+    Args:
+        belief_id: ID of the belief to update
+        --evidence: Memory ID to use as evidence
+        --supports: Mark evidence as supporting (default)
+        --contradicts: Mark evidence as contradicting
+        --strength: Evidence strength (0.0-1.0, default: 0.8)
+
+    Examples:
+        omi belief update abc123 --evidence mem456 --supports --strength 0.8
+        omi belief update abc123 --evidence mem789 --contradicts --strength 0.6
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    db_path = base_path / "palace.sqlite"
+    if not db_path.exists():
+        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    # Validate strength
+    if not 0.0 <= strength <= 1.0:
+        click.echo(click.style(f"Error: Strength must be between 0.0 and 1.0, got {strength}", fg="red"))
+        sys.exit(1)
+
+    try:
+        palace = GraphPalace(db_path)
+        belief_network = BeliefNetwork(palace)
+
+        # Get the belief to verify it exists and get old confidence
+        belief = palace.get_belief(belief_id)
+        if not belief:
+            click.echo(click.style(f"Error: Belief '{belief_id}' not found.", fg="red"))
+            palace.close()
+            sys.exit(1)
+
+        old_confidence = belief.get('confidence', 0.5)
+
+        # Verify evidence memory exists
+        memory = palace.get_memory(evidence)
+        if not memory:
+            click.echo(click.style(f"Error: Evidence memory '{evidence}' not found.", fg="red"))
+            palace.close()
+            sys.exit(1)
+
+        # Create Evidence object
+        supports = (evidence_type == 'supports')
+        evidence_obj = Evidence(
+            memory_id=evidence,
+            supports=supports,
+            strength=strength,
+            timestamp=datetime.now()
+        )
+
+        # Update belief with evidence
+        new_confidence = belief_network.update_with_evidence(belief_id, evidence_obj)
+
+        # Display results
+        belief_content = belief.get('content', 'Unknown')
+        click.echo(click.style(f"Belief: {belief_content}", fg="cyan", bold=True))
+        click.echo("=" * 60)
+        click.echo()
+
+        # Show evidence type
+        if supports:
+            evidence_label = click.style("SUPPORTING", fg="green", bold=True)
+        else:
+            evidence_label = click.style("CONTRADICTING", fg="red", bold=True)
+
+        click.echo(f"Evidence Type: {evidence_label}")
+        click.echo(f"Evidence ID:   {click.style(evidence, fg='cyan')}")
+        click.echo(f"Strength:      {strength:.2f}")
+        click.echo()
+
+        # Show confidence change
+        click.echo("Confidence Update:")
+        click.echo(f"  Old: {click.style(f'{old_confidence:.4f}', fg='yellow')}")
+        click.echo(f"  New: {click.style(f'{new_confidence:.4f}', fg='green' if new_confidence > old_confidence else 'red')}")
+
+        # Show delta
+        delta = new_confidence - old_confidence
+        delta_symbol = "↑" if delta > 0 else "↓" if delta < 0 else "="
+        delta_color = "green" if delta > 0 else "red" if delta < 0 else "yellow"
+        click.echo(f"  Change: {click.style(f'{delta_symbol} {abs(delta):.4f}', fg=delta_color)}")
+
+        palace.close()
+
+        click.echo()
+        click.echo(click.style("✓ Belief updated successfully", fg="green"))
 
     except Exception as e:
         click.echo(click.style(f"Error: {str(e)}", fg="red"))
