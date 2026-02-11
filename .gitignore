@@ -12,5 +12,14 @@ build/
 .mypy_cache/
 .pytest_cache/
 
-# Auto Claude data directory
+# Auto Claude agent scaffolding
 .auto-claude/
+.auto-claude-status
+.auto-claude-security.json
+.claude_settings.json
+
+# Claude Code local config
+.claude/
+
+# Letta agent config
+.letta/
