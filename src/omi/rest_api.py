@@ -17,11 +17,13 @@ Usage:
 """
 
 from fastapi import FastAPI, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from typing import Optional, AsyncGenerator, Dict, Any
 import json
 import asyncio
 import logging
+from pathlib import Path
 
 from .event_bus import get_event_bus
 from .events import (
@@ -46,6 +48,20 @@ app = FastAPI(
 # Mount dashboard router
 app.include_router(dashboard_router)
 
+# Configure static file serving for dashboard
+dashboard_dist = Path(__file__).parent / "dashboard" / "dist"
+if dashboard_dist.exists():
+    # Mount static files at /dashboard
+    app.mount(
+        "/dashboard",
+        StaticFiles(directory=str(dashboard_dist), html=True),
+        name="dashboard"
+    )
+    logger.info(f"Dashboard static files mounted from {dashboard_dist}")
+else:
+    logger.warning(f"Dashboard dist directory not found at {dashboard_dist}")
+    logger.warning("Run 'cd src/omi/dashboard && npm run build' to build the dashboard")
+
 
 @app.get("/")
 async def root() -> Dict[str, Any]:
@@ -54,6 +70,7 @@ async def root() -> Dict[str, Any]:
         "service": "OMI REST API",
         "version": "1.0.0",
         "endpoints": {
+            "/dashboard": "Web dashboard for memory exploration (if built)",
             "/api/v1/events": "SSE endpoint for real-time event streaming",
             "/api/v1/dashboard/memories": "Retrieve memories with filters and pagination",
             "/api/v1/dashboard/edges": "Retrieve relationship edges",
@@ -181,6 +198,8 @@ async def startup_event() -> None:
     logger.info("OMI REST API started")
     logger.info("SSE endpoint available at /api/v1/events")
     logger.info("Dashboard API endpoints available at /api/v1/dashboard/*")
+    if dashboard_dist.exists():
+        logger.info("Dashboard UI available at /dashboard")
 
 
 @app.on_event("shutdown")
