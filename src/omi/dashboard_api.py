@@ -14,12 +14,13 @@ Usage:
 """
 
 from fastapi import APIRouter, Query, HTTPException
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 import os
 import logging
 
-from .storage.graph_palace import GraphPalace
+from .storage.graph_palace import GraphPalace, Memory
+from .embeddings import OllamaEmbedder, EmbeddingCache
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,54 @@ def get_palace_instance() -> GraphPalace:
         raise HTTPException(
             status_code=503,
             detail=f"Failed to connect to database: {str(e)}"
+        )
+
+
+# Global cache for embedder to avoid reinitializing
+_embedder_cache: Optional[Tuple[OllamaEmbedder, EmbeddingCache]] = None
+
+
+def get_embedder_and_cache() -> Tuple[OllamaEmbedder, EmbeddingCache]:
+    """
+    Get or create embedder and embedding cache instances.
+
+    Uses lazy initialization - creates instances on first call and reuses them.
+
+    Returns:
+        Tuple of (OllamaEmbedder, EmbeddingCache)
+
+    Raises:
+        HTTPException: If embedder initialization fails
+    """
+    global _embedder_cache
+
+    if _embedder_cache is not None:
+        return _embedder_cache
+
+    try:
+        # Get base path for cache directory
+        env_path = os.getenv("OMI_BASE_PATH")
+        if env_path:
+            base_path = Path(env_path)
+        else:
+            base_path = Path.home() / ".openclaw" / "omi"
+
+        cache_dir = base_path / "embeddings"
+
+        # Initialize embedder (Ollama as default - no API key needed)
+        embedder = OllamaEmbedder()
+
+        # Initialize cache
+        cache = EmbeddingCache(cache_dir=cache_dir, embedder=embedder)
+
+        _embedder_cache = (embedder, cache)
+        return _embedder_cache
+
+    except Exception as e:
+        logger.error(f"Failed to initialize embedder: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Failed to initialize embedder: {str(e)}. Make sure Ollama is running."
         )
 
 
@@ -584,6 +633,85 @@ async def get_stats() -> Dict[str, Any]:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to retrieve database stats: {str(e)}"
+        )
+
+
+@router.get("/search")
+async def search_memories(
+    q: str = Query(..., description="Search query text", min_length=1),
+    limit: int = Query(default=10, ge=1, le=100, description="Maximum number of results to return"),
+    min_relevance: float = Query(default=0.5, ge=0.0, le=1.0, description="Minimum relevance threshold")
+) -> Dict[str, Any]:
+    """
+    Semantic search for memories using embeddings.
+
+    Performs semantic similarity search using embedding vectors and returns
+    memories ranked by relevance with recency weighting.
+
+    Query Parameters:
+        q: Search query text (required)
+        limit: Maximum number of results to return (1-100, default 10)
+        min_relevance: Minimum similarity threshold (0.0-1.0, default 0.5)
+
+    Returns:
+        Dict containing:
+            - results: List of matching memories with relevance scores
+            - query: The search query that was used
+            - limit: Applied limit
+            - count: Number of results returned
+
+    Raises:
+        HTTPException: If search fails or embedder is unavailable
+    """
+    try:
+        # Get palace instance
+        palace = get_palace_instance()
+
+        # Get embedder and cache
+        embedder, cache = get_embedder_and_cache()
+
+        # Generate embedding for query
+        query_embedding = cache.get_or_compute(q)
+
+        # Perform semantic recall
+        results_tuples: List[Tuple[Memory, float]] = palace.recall(
+            query_embedding=query_embedding,
+            limit=limit,
+            min_relevance=min_relevance
+        )
+
+        # Convert results to dict format
+        results = []
+        for memory, relevance_score in results_tuples:
+            memory_dict = {
+                "id": memory.id,
+                "content": memory.content,
+                "memory_type": memory.memory_type,
+                "confidence": memory.confidence,
+                "created_at": memory.created_at.isoformat() if memory.created_at else None,
+                "last_accessed": memory.last_accessed.isoformat() if memory.last_accessed else None,
+                "access_count": memory.access_count,
+                "instance_ids": memory.instance_ids,
+                "content_hash": memory.content_hash,
+                "relevance_score": relevance_score
+            }
+            results.append(memory_dict)
+
+        return {
+            "results": results,
+            "query": q,
+            "limit": limit,
+            "count": len(results)
+        }
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Search failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Search failed: {str(e)}"
         )
 
 
