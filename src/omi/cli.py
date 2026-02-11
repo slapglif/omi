@@ -839,6 +839,13 @@ def config_show(ctx) -> None:
     click.echo(content)
 
 
+@cli.group()
+@click.pass_context
+def events(ctx):
+    """Event history commands."""
+    ctx.ensure_object(dict)
+
+
 # Main entry point
 def main():
     """Entry point for the OMI CLI."""
