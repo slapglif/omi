@@ -87,55 +87,6 @@ class NOWEntry:
         )
 
 
-class NOWStore:
-    """
-    Tier 1: Hot context storage
-    
-    Pattern: Read FIRST on session start, update after major context shifts
-    Trigger: 70% context threshold, task completion, session end
-    """
-    
-    def __init__(self, base_path: Path):
-        self.now_path = base_path / "NOW.md"
-        self.base_path = base_path
-    
-    def read(self) -> Optional[NOWEntry]:
-        """Load hot context"""
-        if not self.now_path.exists():
-            return None
-        content = self.now_path.read_text()
-        return NOWEntry.from_markdown(content)
-    
-    def write(self, entry: NOWEntry) -> None:
-        """Update hot context"""
-        content = entry.to_markdown()
-        self.now_path.write_text(content)
-        
-        # Also update hash for integrity checking
-        self._update_hash(content)
-    
-    def _update_hash(self, content: str) -> None:
-        """Track hash for tamper detection"""
-        hash_path = self.base_path / ".now.hash"
-        hash_value = hashlib.sha256(content.encode()).hexdigest()
-        hash_path.write_text(hash_value)
-    
-    def check_integrity(self) -> bool:
-        """Verify NOW.md hasn't been tampered"""
-        if not self.now_path.exists():
-            return True  # No file = nothing to tamper
-        
-        content = self.now_path.read_text()
-        current_hash = hashlib.sha256(content.encode()).hexdigest()
-        
-        hash_path = self.base_path / ".now.hash"
-        if not hash_path.exists():
-            return False  # No stored hash = can't verify
-        
-        stored_hash = hash_path.read_text().strip()
-        return current_hash == stored_hash
-
-
 class DailyLogStore:
     """
     Tier 2: Daily logs - raw timeline
