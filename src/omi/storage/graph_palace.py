@@ -752,33 +752,32 @@ class GraphPalace:
     def get_stats(self) -> Dict[str, Any]:
         """
         Get database statistics.
-        
+
         Returns:
             Dict with memory_count, edge_count, type_distribution
         """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("SELECT COUNT(*) FROM memories")
-            memory_count = cursor.fetchone()[0]
-            
-            cursor = conn.execute("SELECT COUNT(*) FROM edges")
-            edge_count = cursor.fetchone()[0]
-            
-            cursor = conn.execute("""
-                SELECT memory_type, COUNT(*) FROM memories GROUP BY memory_type
-            """)
-            type_distribution = {row[0]: row[1] for row in cursor}
-            
-            cursor = conn.execute("""
-                SELECT edge_type, COUNT(*) FROM edges GROUP BY edge_type
-            """)
-            edge_distribution = {row[0]: row[1] for row in cursor}
-            
-            return {
-                "memory_count": memory_count,
-                "edge_count": edge_count,
-                "type_distribution": type_distribution,
-                "edge_distribution": edge_distribution
-            }
+        cursor = self._conn.execute("SELECT COUNT(*) FROM memories")
+        memory_count = cursor.fetchone()[0]
+
+        cursor = self._conn.execute("SELECT COUNT(*) FROM edges")
+        edge_count = cursor.fetchone()[0]
+
+        cursor = self._conn.execute("""
+            SELECT memory_type, COUNT(*) FROM memories GROUP BY memory_type
+        """)
+        type_distribution = {row[0]: row[1] for row in cursor}
+
+        cursor = self._conn.execute("""
+            SELECT edge_type, COUNT(*) FROM edges GROUP BY edge_type
+        """)
+        edge_distribution = {row[0]: row[1] for row in cursor}
+
+        return {
+            "memory_count": memory_count,
+            "edge_count": edge_count,
+            "type_distribution": type_distribution,
+            "edge_distribution": edge_distribution
+        }
 
     def find_contradictions(self, memory_id: str) -> List[Memory]:
         """
@@ -808,8 +807,8 @@ class GraphPalace:
 
     def vacuum(self) -> None:
         """Optimize database ( reclaim space )."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("VACUUM")
+        self._conn.execute("VACUUM")
+        self._conn.commit()
 
     def close(self) -> None:
         """Close connection and cleanup."""
