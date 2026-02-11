@@ -964,6 +964,95 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
         sys.exit(1)
 
 
+@events.command('subscribe')
+@click.option('--type', '-t', 'event_type', default=None, help='Filter by event type (default: all events)')
+@click.pass_context
+def subscribe_events(ctx, event_type: Optional[str]) -> None:
+    """Subscribe to live event stream.
+
+    Connects to the EventBus and prints events in real-time as they occur.
+    Press Ctrl+C to exit.
+
+    Args:
+        --type: Filter by event type (e.g., 'memory.stored', 'session.started')
+                If not specified, subscribes to all events
+
+    Examples:
+        omi events subscribe
+        omi events subscribe --type memory.stored
+        omi events subscribe -t belief.contradiction_detected
+    """
+    from .event_bus import get_event_bus
+    import time
+
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    # Get the global event bus
+    bus = get_event_bus()
+
+    # Determine subscription type
+    subscription_type = event_type if event_type else '*'
+
+    # Display subscription info
+    if event_type:
+        click.echo(click.style(f"Subscribing to events: {event_type}", fg="cyan", bold=True))
+    else:
+        click.echo(click.style("Subscribing to all events", fg="cyan", bold=True))
+    click.echo(click.style("Press Ctrl+C to exit", fg="yellow"))
+    click.echo()
+
+    # Event handler callback
+    def print_event(event):
+        """Print event to stdout when received."""
+        try:
+            # Format timestamp
+            timestamp_str = event.timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(event, 'timestamp') and event.timestamp else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            # Print event header
+            click.echo(click.style(f"[{timestamp_str}] ", fg="blue") +
+                      click.style(event.event_type, fg="green", bold=True))
+
+            # Print event details (convert to dict for pretty printing)
+            if hasattr(event, 'to_dict'):
+                event_dict = event.to_dict()
+                # Remove redundant fields for cleaner output
+                event_dict.pop('event_type', None)
+                event_dict.pop('timestamp', None)
+
+                # Print each field
+                for key, value in event_dict.items():
+                    if value is not None:  # Skip None values
+                        if isinstance(value, (dict, list)):
+                            value_str = json.dumps(value, indent=2)
+                        else:
+                            value_str = str(value)
+                        click.echo(f"  {key}: {value_str}")
+
+            click.echo()  # Blank line between events
+
+        except Exception as e:
+            click.echo(click.style(f"Error formatting event: {e}", fg="red"))
+
+    # Subscribe to event bus
+    bus.subscribe(subscription_type, print_event)
+
+    try:
+        # Keep the process running and listening for events
+        click.echo(click.style("Listening for events...", fg="green"))
+        while True:
+            time.sleep(0.1)  # Sleep briefly to keep CPU usage low
+    except KeyboardInterrupt:
+        # Graceful shutdown on Ctrl+C
+        click.echo()
+        click.echo(click.style("Unsubscribing from events...", fg="yellow"))
+        bus.unsubscribe(subscription_type, print_event)
+        click.echo(click.style("Disconnected.", fg="cyan"))
+        sys.exit(0)
+
+
 # Main entry point
 def main():
     """Entry point for the OMI CLI."""

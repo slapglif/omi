@@ -3,7 +3,7 @@
   "spec": "014-memory-event-streaming-pub-sub",
   "state": "building",
   "subtasks": {
-    "completed": 18,
+    "completed": 20,
     "total": 26,
     "in_progress": 1,
     "failed": 0
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 20,
+    "number": 22,
     "started_at": "2026-02-10T17:04:29.825371"
   },
-  "last_update": "2026-02-10T18:15:19.122849"
+  "last_update": "2026-02-10T18:21:59.599238"
 }
