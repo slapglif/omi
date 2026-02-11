@@ -32,25 +32,35 @@ from .events import (
     SessionStartedEvent,
     SessionEndedEvent
 )
+from .dashboard_api import router as dashboard_router
 
 logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="OMI Event Streaming API",
-    description="Server-Sent Events (SSE) API for real-time memory operation events",
+    title="OMI REST API",
+    description="REST API with real-time event streaming (SSE) and dashboard endpoints for memory exploration",
     version="1.0.0"
 )
+
+# Mount dashboard router
+app.include_router(dashboard_router)
 
 
 @app.get("/")
 async def root() -> Dict[str, Any]:
     """API root endpoint with service information."""
     return {
-        "service": "OMI Event Streaming API",
+        "service": "OMI REST API",
         "version": "1.0.0",
         "endpoints": {
             "/api/v1/events": "SSE endpoint for real-time event streaming",
+            "/api/v1/dashboard/memories": "Retrieve memories with filters and pagination",
+            "/api/v1/dashboard/edges": "Retrieve relationship edges",
+            "/api/v1/dashboard/graph": "Retrieve complete graph data (memories + edges)",
+            "/api/v1/dashboard/beliefs": "Retrieve belief network data",
+            "/api/v1/dashboard/stats": "Get database storage statistics",
+            "/api/v1/dashboard/search": "Semantic search for memories",
             "/health": "Health check endpoint"
         }
     }
@@ -168,14 +178,15 @@ async def events_sse(
 @app.on_event("startup")
 async def startup_event() -> None:
     """Log startup message."""
-    logger.info("OMI Event Streaming API started")
+    logger.info("OMI REST API started")
     logger.info("SSE endpoint available at /api/v1/events")
+    logger.info("Dashboard API endpoints available at /api/v1/dashboard/*")
 
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     """Cleanup on shutdown."""
-    logger.info("OMI Event Streaming API shutting down")
+    logger.info("OMI REST API shutting down")
 
 
 __all__ = ['app']
