@@ -217,6 +217,85 @@ class TestCLIRecall:
             assert result.exit_code == 0
             assert '"content": "Test memory"' in result.output
 
+    def test_recall_filters_by_memory_type(self):
+        """Test that recall --type filters results by memory type."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+            from omi import GraphPalace
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+            # Create mock memories of different types
+            mock_fact = MagicMock()
+            mock_fact.id = "1"
+            mock_fact.content = "Test fact"
+            mock_fact.memory_type = "fact"
+            mock_fact.confidence = None
+            mock_fact.created_at = None
+
+            mock_experience = MagicMock()
+            mock_experience.id = "2"
+            mock_experience.content = "Test experience"
+            mock_experience.memory_type = "experience"
+            mock_experience.confidence = None
+            mock_experience.created_at = None
+
+            mock_belief = MagicMock()
+            mock_belief.id = "3"
+            mock_belief.content = "Test belief"
+            mock_belief.memory_type = "belief"
+            mock_belief.confidence = 0.8
+            mock_belief.created_at = None
+
+            all_results = [mock_fact, mock_experience, mock_belief]
+
+            # Test filtering by fact
+            with patch.object(GraphPalace, 'full_text_search', return_value=all_results):
+                with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                    result = runner.invoke(cli, ["recall", "test", "--type", "fact", "--json-output"])
+
+            assert result.exit_code == 0
+            import json
+            output = json.loads(result.output)
+            assert len(output) == 1
+            assert output[0]['memory_type'] == "fact"
+            assert output[0]['content'] == "Test fact"
+
+            # Test filtering by experience
+            with patch.object(GraphPalace, 'full_text_search', return_value=all_results):
+                with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                    result = runner.invoke(cli, ["recall", "test", "--type", "experience", "--json-output"])
+
+            assert result.exit_code == 0
+            output = json.loads(result.output)
+            assert len(output) == 1
+            assert output[0]['memory_type'] == "experience"
+
+            # Test no filter returns all
+            with patch.object(GraphPalace, 'full_text_search', return_value=all_results):
+                with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                    result = runner.invoke(cli, ["recall", "test", "--json-output"])
+
+            assert result.exit_code == 0
+            output = json.loads(result.output)
+            assert len(output) == 3
+
+            # Test filtering with no matches returns empty
+            with patch.object(GraphPalace, 'full_text_search', return_value=[mock_fact]):
+                with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                    result = runner.invoke(cli, ["recall", "test", "--type", "decision", "--json-output"])
+
+            assert result.exit_code == 0
+            output = json.loads(result.output)
+            assert len(output) == 0
+
 
 class TestCLIProgressIndicators:
     """Tests for progress indicators in CLI commands."""

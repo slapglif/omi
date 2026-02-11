@@ -374,19 +374,24 @@ def store(ctx: click.Context, content: str, memory_type: str, confidence: Option
 @click.argument('query')
 @click.option('--limit', '-l', default=10, help='Maximum number of results')
 @click.option('--json-output', is_flag=True, help='Output as JSON')
+@click.option('--type', 'memory_type', default=None,
+              type=click.Choice(['fact', 'experience', 'belief', 'decision']),
+              help='Filter by memory type')
 @click.pass_context
-def recall(ctx: click.Context, query: str, limit: int, json_output: bool) -> None:
+def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory_type: Optional[str]) -> None:
     """Search memories using semantic recall.
 
     Args:
         query: Search query text
         --limit: Maximum number of results (default: 10)
+        --type: Filter by memory type (fact|experience|belief|decision)
         --json: Output as JSON (for scripts)
 
     Examples:
         omi recall "session checkpoint"
         omi recall "auth bug fix" --limit 5
         omi recall "recent decisions" --json
+        omi recall "bugs" --type experience
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
@@ -402,7 +407,11 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool) -> Non
         palace = GraphPalace(db_path)
         # Use full_text_search for query strings
         results = palace.full_text_search(query, limit=limit)
-        
+
+        # Filter by type if specified
+        if memory_type:
+            results = [r for r in results if r.memory_type == memory_type]
+
         if json_output:
             output = []
             for mem in results:
