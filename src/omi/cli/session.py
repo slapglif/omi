@@ -14,7 +14,14 @@ from ..event_bus import get_event_bus
 from ..events import SessionStartedEvent, SessionEndedEvent
 
 # Local CLI imports
-from .common import get_base_path
+from .common import (
+    get_base_path,
+    VERBOSITY_NORMAL,
+    VERBOSITY_VERBOSE,
+    echo_verbose,
+    echo_normal,
+    echo_quiet,
+)
 
 
 @click.group()
@@ -35,14 +42,15 @@ def init(ctx) -> None:
     - NOW.md template
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
 
-    click.echo(click.style("Initializing OMI Memory Infrastructure...", fg="cyan", bold=True))
+    echo_normal(click.style("Initializing OMI Memory Infrastructure...", fg="cyan", bold=True), verbosity)
 
     # 1. Create directory structure
     base_path.mkdir(parents=True, exist_ok=True)
     memory_path = base_path / "memory"
     memory_path.mkdir(exist_ok=True)
-    click.echo(f" ✓ Created directory: {base_path}")
+    echo_verbose(f" ✓ Created directory: {base_path}", verbosity)
 
     # 2. Create config.yaml
     config_template = """# OMI Configuration File
@@ -84,9 +92,9 @@ events:
     config_path = base_path / "config.yaml"
     if not config_path.exists():
         config_path.write_text(config_template)
-        click.echo(f" ✓ Created config: {config_path}")
+        echo_verbose(f" ✓ Created config: {config_path}", verbosity)
     else:
-        click.echo(f" ⚠ Config exists: {config_path}")
+        echo_verbose(f" ⚠ Config exists: {config_path}", verbosity)
 
     # 3. Initialize SQLite database using GraphPalace
     db_path = base_path / "palace.sqlite"
@@ -94,7 +102,7 @@ events:
         try:
             palace = GraphPalace(db_path)
             palace.close()
-            click.echo(f" ✓ Initialized database: {db_path}")
+            echo_verbose(f" ✓ Initialized database: {db_path}", verbosity)
         except Exception as e:
             # Fallback: create minimal schema if storage deps not available
             import sqlite3
@@ -125,9 +133,9 @@ events:
             """)
             conn.commit()
             conn.close()
-            click.echo(f" ✓ Initialized database (minimal): {db_path}")
+            echo_verbose(f" ✓ Initialized database (minimal): {db_path}", verbosity)
     else:
-        click.echo(f" ⚠ Database exists: {db_path}")
+        echo_verbose(f" ⚠ Database exists: {db_path}", verbosity)
 
     # 4. Create NOW.md template
     now_path = base_path / "NOW.md"
@@ -154,14 +162,14 @@ Initializing OMI memory infrastructure.
 - `~/.openclaw/omi/NOW.md`
 """
         now_path.write_text(now_template)
-        click.echo(f" ✓ Created NOW.md: {now_path}")
+        echo_verbose(f" ✓ Created NOW.md: {now_path}", verbosity)
     else:
-        click.echo(f" ⚠ NOW.md exists: {now_path}")
+        echo_verbose(f" ⚠ NOW.md exists: {now_path}", verbosity)
 
-    click.echo(click.style("\n✓ Initialization complete!", fg="green", bold=True))
-    click.echo(f"\nNext steps:")
-    click.echo(f"  1. Edit {config_path} to configure your embedding provider")
-    click.echo(f"  2. Run: omi session-start")
+    echo_normal(click.style("\n✓ Initialization complete!", fg="green", bold=True), verbosity)
+    echo_normal(f"\nNext steps:", verbosity)
+    echo_normal(f"  1. Edit {config_path} to configure your embedding provider", verbosity)
+    echo_normal(f"  2. Run: omi session-start", verbosity)
 
 
 @session_group.command("session-start")
@@ -176,11 +184,13 @@ def session_start(ctx, show_now: bool) -> None:
     - Prints session summary
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
+
     if not base_path.exists():
-        click.echo(click.style(f"Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style(f"Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
-    click.echo(click.style("Starting OMI session...", fg="cyan", bold=True))
+    echo_normal(click.style("Starting OMI session...", fg="cyan", bold=True), verbosity)
 
     # 1. Load NOW.md
     now_storage = NOWStore(base_path)
@@ -188,7 +198,7 @@ def session_start(ctx, show_now: bool) -> None:
 
     # Check if NOW.md exists and has content
     if not content or content == now_storage._default_content():
-        click.echo(click.style(" ⚠ NOW.md not found, creating default", fg="yellow"))
+        echo_normal(click.style(" ⚠ NOW.md not found, creating default", fg="yellow"), verbosity)
         now_storage.update(
             current_task="",
             recent_completions=[],
@@ -218,8 +228,8 @@ def session_start(ctx, show_now: bool) -> None:
         mem_count = result[0] if result else 0
         conn.close()
 
-    click.echo(f" ✓ Loaded context: {len(now_entry.recent_completions)} recent completions")
-    click.echo(f" ✓ Database: {mem_count} memories stored")
+    echo_verbose(f" ✓ Loaded context: {len(now_entry.recent_completions)} recent completions", verbosity)
+    echo_verbose(f" ✓ Database: {mem_count} memories stored", verbosity)
 
     # 3. Semantic recall for current task
     if now_entry.current_task and mem_count > 0:
@@ -227,30 +237,30 @@ def session_start(ctx, show_now: bool) -> None:
             palace = GraphPalace(db_path)
             results = palace.full_text_search(now_entry.current_task, limit=5)
             if results:
-                click.echo(f"\n ✓ {len(results)} relevant memories found")
+                echo_verbose(f"\n ✓ {len(results)} relevant memories found", verbosity)
         except Exception as e:
-            click.echo(click.style(f" ⚠ Recall error: {e}", fg="yellow"))
+            echo_normal(click.style(f" ⚠ Recall error: {e}", fg="yellow"), verbosity)
 
     # 4. Session status
     from ..security import IntegrityChecker
     integrity_checker = IntegrityChecker(base_path.parent if base_path.name == "omi" else base_path)
     now_integrity = integrity_checker.check_now_md()
 
-    click.echo(f"\n" + click.style("Session Status:", bold=True))
+    echo_normal(f"\n" + click.style("Session Status:", bold=True), verbosity)
     if show_now and now_entry.current_task:
-        click.echo(f"\n{click.style('Current Task:', fg='cyan')}")
-        click.echo(f"  {now_entry.current_task}")
+        echo_normal(f"\n{click.style('Current Task:', fg='cyan')}", verbosity)
+        echo_normal(f"  {now_entry.current_task}", verbosity)
     if now_entry.pending_decisions:
-        click.echo(f"\n{click.style('Pending Decisions:', fg='yellow')}")
+        echo_normal(f"\n{click.style('Pending Decisions:', fg='yellow')}", verbosity)
         for item in now_entry.pending_decisions:
-            click.echo(f"  - [ ] {item}")
+            echo_normal(f"  - [ ] {item}", verbosity)
 
     status_color = "green" if now_integrity else "red"
-    click.echo(f"\n NOW.md integrity: {click.style('✓' if now_integrity else '✗', fg=status_color)}")
+    echo_verbose(f"\n NOW.md integrity: {click.style('✓' if now_integrity else '✗', fg=status_color)}", verbosity)
 
     session_timestamp = datetime.now()
-    click.echo(f" Session started: {click.style(session_timestamp.isoformat(), fg='cyan')}")
-    click.echo(click.style("\n✓ Session ready!", fg="green", bold=True))
+    echo_verbose(f" Session started: {click.style(session_timestamp.isoformat(), fg='cyan')}", verbosity)
+    echo_normal(click.style("\n✓ Session ready!", fg="green", bold=True), verbosity)
 
     # Emit session started event
     event = SessionStartedEvent(
@@ -276,11 +286,13 @@ def session_end(ctx, no_backup: bool) -> None:
     - Triggers vault backup (if enabled and configured)
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
+
     if not base_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
-    click.echo(click.style("Ending OMI session...", fg="cyan", bold=True))
+    echo_normal(click.style("Ending OMI session...", fg="cyan", bold=True), verbosity)
 
     # Update NOW.md timestamp and get current task for log
     now_storage = NOWStore(base_path)
@@ -297,7 +309,7 @@ def session_end(ctx, no_backup: bool) -> None:
                 pending_decisions=now_entry.pending_decisions,
                 key_files=now_entry.key_files
             )
-            click.echo(f" ✓ Updated NOW.md")
+            echo_verbose(f" ✓ Updated NOW.md", verbosity)
 
     # Append to daily log
     daily_store = DailyLogStore(base_path)
@@ -305,7 +317,7 @@ def session_end(ctx, no_backup: bool) -> None:
     if now_entry and now_entry.current_task:
         entry_content += f"\nLast task: {now_entry.current_task}"
     log_path = daily_store.append(entry_content)
-    click.echo(f" ✓ Appended to daily log: {log_path.name}")
+    echo_verbose(f" ✓ Appended to daily log: {log_path.name}", verbosity)
 
     # Vault backup
     if not no_backup:
@@ -319,12 +331,12 @@ def session_end(ctx, no_backup: bool) -> None:
             except Exception:
                 pass
         if vault_enabled:
-            click.echo(click.style(" ✓ Vault backup triggered", fg="cyan"))
+            echo_verbose(click.style(" ✓ Vault backup triggered", fg="cyan"), verbosity)
         else:
-            click.echo(click.style(" ⚠ Vault backup disabled (see config.yaml)", fg="yellow"))
+            echo_verbose(click.style(" ⚠ Vault backup disabled (see config.yaml)", fg="yellow"), verbosity)
 
-    click.echo(click.style("\n✓ Session ended", fg="green", bold=True))
-    click.echo("Remember: The seeking is the continuity.")
+    echo_normal(click.style("\n✓ Session ended", fg="green", bold=True), verbosity)
+    echo_normal("Remember: The seeking is the continuity.", verbosity)
 
     # Emit session ended event
     session_timestamp = datetime.now()

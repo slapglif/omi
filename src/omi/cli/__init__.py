@@ -32,8 +32,12 @@ __version__ = "0.1.0"
 @click.version_option(version=__version__, prog_name="omi")
 @click.option('--data-dir', type=click.Path(), default=None, envvar='OMI_BASE_PATH',
               help='Base directory for OMI data (default: ~/.openclaw/omi)')
+@click.option('--verbose', '-v', is_flag=True, default=False,
+              help='Enable verbose output')
+@click.option('--quiet', '-q', is_flag=True, default=False,
+              help='Suppress non-essential output')
 @click.pass_context
-def cli(ctx, data_dir):
+def cli(ctx, data_dir, verbose, quiet):
     """OMI - OpenClaw Memory Infrastructure
 
     A unified memory system for AI agents.
@@ -59,7 +63,22 @@ def cli(ctx, data_dir):
         omi check
         omi session-end
     """
+    from .common import VERBOSITY_QUIET, VERBOSITY_NORMAL, VERBOSITY_VERBOSE
+
     ctx.ensure_object(dict)
+
+    # Validate mutually exclusive flags
+    if verbose and quiet:
+        raise click.UsageError("--verbose and --quiet are mutually exclusive")
+
+    # Set verbosity level
+    if quiet:
+        ctx.obj['verbosity'] = VERBOSITY_QUIET
+    elif verbose:
+        ctx.obj['verbosity'] = VERBOSITY_VERBOSE
+    else:
+        ctx.obj['verbosity'] = VERBOSITY_NORMAL
+
     if data_dir:
         ctx.obj['data_dir'] = Path(data_dir)
     else:

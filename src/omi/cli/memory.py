@@ -11,7 +11,13 @@ import click
 from omi import NOWStore, GraphPalace
 
 # Local CLI imports
-from .common import get_base_path
+from .common import (
+    get_base_path,
+    echo_verbose,
+    echo_normal,
+    echo_quiet,
+    VERBOSITY_NORMAL
+)
 
 
 @click.group()
@@ -41,20 +47,21 @@ def store(ctx, content: str, memory_type: str, confidence: Optional[float]) -> N
         omi store "Python has GIL limitations" --type fact
         omi store "This approach works better" --type belief --confidence 0.85
     """
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
     db_path = base_path / "palace.sqlite"
     if not db_path.exists():
-        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
     # Validate confidence for beliefs
     if confidence is not None:
         if memory_type != 'belief':
-            click.echo(click.style("Warning: --confidence is typically used with --type belief", fg="yellow"))
+            echo_normal(click.style("Warning: --confidence is typically used with --type belief", fg="yellow"), verbosity)
         confidence = max(0.0, min(1.0, confidence))
 
     try:
@@ -64,14 +71,14 @@ def store(ctx, content: str, memory_type: str, confidence: Optional[float]) -> N
             memory_type=memory_type,
             confidence=confidence
         )
-        click.echo(click.style("✓ Memory stored", fg="green", bold=True))
-        click.echo(f"  ID: {click.style(memory_id[:16] + '...', fg='cyan')}")
-        click.echo(f"  Type: {click.style(memory_type, fg='cyan')}")
+        echo_normal(click.style("✓ Memory stored", fg="green", bold=True), verbosity)
+        echo_normal(f"  ID: {click.style(memory_id[:16] + '...', fg='cyan')}", verbosity)
+        echo_normal(f"  Type: {click.style(memory_type, fg='cyan')}", verbosity)
         if confidence is not None:
             conf_color = "green" if confidence > 0.7 else "yellow" if confidence > 0.4 else "red"
-            click.echo(f"  Confidence: {click.style(f'{confidence:.2f}', fg=conf_color)}")
+            echo_normal(f"  Confidence: {click.style(f'{confidence:.2f}', fg=conf_color)}", verbosity)
     except Exception as e:
-        click.echo(click.style(f"Error: Failed to store memory: {e}", fg="red"))
+        echo_quiet(click.style(f"Error: Failed to store memory: {e}", fg="red"), verbosity)
         sys.exit(1)
 
 
@@ -93,14 +100,15 @@ def recall(ctx, query: str, limit: int, json_output: bool) -> None:
         omi recall "auth bug fix" --limit 5
         omi recall "recent decisions" --json
     """
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
     db_path = base_path / "palace.sqlite"
     if not db_path.exists():
-        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
     try:
@@ -118,10 +126,11 @@ def recall(ctx, query: str, limit: int, json_output: bool) -> None:
                     'confidence': mem.confidence,
                     'created_at': mem.created_at.isoformat() if mem.created_at else None
                 })
+            # JSON output always printed regardless of verbosity
             click.echo(json.dumps(output, indent=2, default=str))
         else:
-            click.echo(click.style(f"Search Results ({len(results)} found)", fg="cyan", bold=True))
-            click.echo("=" * 60)
+            echo_normal(click.style(f"Search Results ({len(results)} found)", fg="cyan", bold=True), verbosity)
+            echo_normal("=" * 60, verbosity)
 
             for i, mem in enumerate(results, 1):
                 mem_type = mem.memory_type
@@ -136,15 +145,15 @@ def recall(ctx, query: str, limit: int, json_output: bool) -> None:
                     'decision': 'magenta'
                 }.get(mem_type, 'white')
 
-                click.echo(f"\n{i}. [{click.style(mem_type.upper(), fg=type_color)}]")
-                click.echo(f"   {content}")
+                echo_normal(f"\n{i}. [{click.style(mem_type.upper(), fg=type_color)}]", verbosity)
+                echo_normal(f"   {content}", verbosity)
                 if mem.created_at:
-                    click.echo(f"   {click.style('─', fg='bright_black') * 50}")
+                    echo_normal(f"   {click.style('─', fg='bright_black') * 50}", verbosity)
 
             if not results:
-                click.echo(click.style("No memories found. Try a different query.", fg="yellow"))
+                echo_normal(click.style("No memories found. Try a different query.", fg="yellow"), verbosity)
     except Exception as e:
-        click.echo(click.style(f"Error: Failed to search memories: {e}", fg="red"))
+        echo_quiet(click.style(f"Error: Failed to search memories: {e}", fg="red"), verbosity)
         sys.exit(1)
 
 
@@ -158,12 +167,13 @@ def check(ctx) -> None:
     - Creates state capsule
     - Reports memory system status
     """
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
-    click.echo(click.style("Creating checkpoint...", fg="cyan", bold=True))
+    echo_normal(click.style("Creating checkpoint...", fg="cyan", bold=True), verbosity)
 
     # CLI version - needed for capsule
     __version__ = "0.1.0"
@@ -182,7 +192,7 @@ def check(ctx) -> None:
                 pending_decisions=now_entry.pending_decisions,
                 key_files=now_entry.key_files
             )
-            click.echo(f" ✓ Updated NOW.md")
+            echo_verbose(f" ✓ Updated NOW.md", verbosity)
 
     # Create state capsule
     capsule = {
@@ -206,15 +216,15 @@ def check(ctx) -> None:
         for row in cursor.fetchall():
             capsule["memory_summary"]["types"][row[0]] = row[1]
         conn.close()
-        click.echo(f" ✓ Memory capsule created")
+        echo_verbose(f" ✓ Memory capsule created", verbosity)
 
     # Report status
-    click.echo(f"\n" + click.style("Checkpoint Status:", bold=True))
-    click.echo(f"  Timestamp: {click.style(capsule['timestamp'], fg='cyan')}")
-    click.echo(f"  Memories: {click.style(str(capsule['memory_summary']['total_memories']), fg='cyan')}")
+    echo_normal(f"\n" + click.style("Checkpoint Status:", bold=True), verbosity)
+    echo_normal(f"  Timestamp: {click.style(capsule['timestamp'], fg='cyan')}", verbosity)
+    echo_normal(f"  Memories: {click.style(str(capsule['memory_summary']['total_memories']), fg='cyan')}", verbosity)
     if capsule["memory_summary"]["types"]:
-        click.echo(f"\n  Memory types:")
+        echo_normal(f"\n  Memory types:", verbosity)
         for mem_type, count in capsule["memory_summary"]["types"].items():
-            click.echo(f"    {mem_type}: {count}")
+            echo_normal(f"    {mem_type}: {count}", verbosity)
 
-    click.echo(click.style("\n✓ Checkpoint complete", fg="green", bold=True))
+    echo_normal(click.style("\n✓ Checkpoint complete", fg="green", bold=True), verbosity)
