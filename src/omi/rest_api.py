@@ -88,6 +88,31 @@ class UpdateBeliefResponse(BaseModel):
     message: str = Field(default="Belief updated successfully")
 
 
+class StartSessionRequest(BaseModel):
+    """Request body for starting a session."""
+    session_id: Optional[str] = Field(default=None, description="Optional session ID (auto-generated if not provided)")
+    metadata: Optional[dict] = Field(default=None, description="Optional metadata for the session")
+
+
+class StartSessionResponse(BaseModel):
+    """Response after starting a session."""
+    session_id: str = Field(..., description="Session ID")
+    message: str = Field(default="Session started successfully")
+
+
+class EndSessionRequest(BaseModel):
+    """Request body for ending a session."""
+    session_id: str = Field(..., description="Session ID to end")
+    duration_seconds: Optional[float] = Field(default=None, description="Optional session duration in seconds")
+    metadata: Optional[dict] = Field(default=None, description="Optional metadata for session end")
+
+
+class EndSessionResponse(BaseModel):
+    """Response after ending a session."""
+    session_id: str = Field(..., description="Ended session ID")
+    message: str = Field(default="Session ended successfully")
+
+
 # Initialize components
 _memory_tools_instance = None
 _belief_tools_instance = None
@@ -159,6 +184,8 @@ async def root():
             "/api/v1/recall": "GET - Recall memories by semantic search",
             "/api/v1/beliefs": "POST - Create a new belief",
             "/api/v1/beliefs/{id}": "PUT - Update a belief with evidence",
+            "/api/v1/sessions/start": "POST - Start a new session",
+            "/api/v1/sessions/end": "POST - End a session",
             "/api/v1/events": "SSE endpoint for real-time event streaming",
             "/health": "Health check endpoint"
         }
@@ -309,6 +336,78 @@ async def update_belief(id: str, request: UpdateBeliefRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update belief: {str(e)}"
+        )
+
+
+@app.post("/api/v1/sessions/start", response_model=StartSessionResponse, status_code=status.HTTP_200_OK)
+async def start_session(request: StartSessionRequest):
+    """
+    Start a new session.
+
+    Args:
+        request: Session details (optional session_id and metadata)
+
+    Returns:
+        StartSessionResponse with session_id
+
+    Example:
+        curl -X POST http://localhost:8420/api/v1/sessions/start \\
+            -H "Content-Type: application/json" \\
+            -d '{"metadata": {"user": "test_user"}}'
+    """
+    try:
+        import uuid
+
+        # Generate session_id if not provided
+        session_id = request.session_id or str(uuid.uuid4())
+
+        # Emit SessionStartedEvent
+        event = SessionStartedEvent(
+            session_id=session_id,
+            metadata=request.metadata
+        )
+        get_event_bus().publish(event)
+
+        return StartSessionResponse(session_id=session_id)
+    except Exception as e:
+        logger.error(f"Error starting session: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start session: {str(e)}"
+        )
+
+
+@app.post("/api/v1/sessions/end", response_model=EndSessionResponse, status_code=status.HTTP_200_OK)
+async def end_session(request: EndSessionRequest):
+    """
+    End an existing session.
+
+    Args:
+        request: Session end details (session_id, optional duration_seconds and metadata)
+
+    Returns:
+        EndSessionResponse with session_id
+
+    Example:
+        curl -X POST http://localhost:8420/api/v1/sessions/end \\
+            -H "Content-Type: application/json" \\
+            -d '{"session_id": "abc-123", "duration_seconds": 120.5}'
+    """
+    try:
+        # Emit SessionEndedEvent
+        event = SessionEndedEvent(
+            session_id=request.session_id,
+            duration_seconds=request.duration_seconds,
+            metadata=request.metadata
+        )
+        get_event_bus().publish(event)
+
+        return EndSessionResponse(session_id=request.session_id)
+    except Exception as e:
+        logger.error(f"Error ending session: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to end session: {str(e)}"
         )
 
 
