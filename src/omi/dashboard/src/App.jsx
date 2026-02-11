@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import GraphVisualization from './components/GraphVisualization';
 
 function App() {
   const [activeTab, setActiveTab] = useState('graph');
@@ -16,7 +17,7 @@ function App() {
         return (
           <div className="tab-content">
             <h2>Memory Graph</h2>
-            <p>Graph visualization will be implemented here.</p>
+            <GraphVisualization />
           </div>
         );
       case 'beliefs':
