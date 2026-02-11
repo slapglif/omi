@@ -22,6 +22,9 @@ from .embeddings import OllamaEmbedder, EmbeddingCache
 from .security import IntegrityChecker, ConsensusManager
 from .api import MemoryTools, BeliefTools, CheckpointTools
 
+# Backward compatibility aliases (deprecated, will be removed in v0.2.0)
+NOWStore = NowStorage  # Use NowStorage instead
+
 __all__ = [
     "NowStorage",
     "DailyLogStore",
@@ -35,4 +38,6 @@ __all__ = [
     "MemoryTools",
     "BeliefTools",
     "CheckpointTools",
+    # Backward compatibility (deprecated)
+    "NOWStore",
 ]
