@@ -485,8 +485,9 @@ def check(ctx) -> None:
 @cli.command()
 @click.option('--dry-run', is_flag=True, help='Preview compression without executing')
 @click.option('--before', type=str, default=None, help='Only compress memories before this date (YYYY-MM-DD)')
+@click.option('--age-days', type=int, default=None, help='Only compress memories older than N days')
 @click.pass_context
-def compress(ctx, dry_run: bool, before: Optional[str]) -> None:
+def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int]) -> None:
     """Compress and summarize memory data.
 
     Performs:
@@ -497,6 +498,7 @@ def compress(ctx, dry_run: bool, before: Optional[str]) -> None:
 
     Use --dry-run to preview what would be compressed without making changes.
     Use --before to specify a date cutoff for compression (e.g., --before 2024-01-01).
+    Use --age-days to specify memories older than N days (e.g., --age-days 30).
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
@@ -550,6 +552,10 @@ def compress(ctx, dry_run: bool, before: Optional[str]) -> None:
 
         # Validate and parse the before date if provided
         date_filter = None
+        if before and age_days:
+            click.echo(click.style(f"Error: Cannot use both --before and --age-days. Choose one.", fg="red"))
+            sys.exit(1)
+
         if before:
             try:
                 # Validate date format
@@ -559,6 +565,15 @@ def compress(ctx, dry_run: bool, before: Optional[str]) -> None:
             except ValueError:
                 click.echo(click.style(f"Error: Invalid date format. Use YYYY-MM-DD (e.g., 2024-01-01)", fg="red"))
                 sys.exit(1)
+        elif age_days:
+            if age_days < 1:
+                click.echo(click.style(f"Error: --age-days must be a positive integer", fg="red"))
+                sys.exit(1)
+            # Calculate the date from age_days
+            from datetime import timedelta
+            cutoff_date = datetime.now() - timedelta(days=age_days)
+            date_filter = cutoff_date.strftime('%Y-%m-%d')
+            click.echo(f"  Using date filter: older than {click.style(str(age_days) + ' days', fg='cyan')} (before {click.style(date_filter, fg='cyan')})")
 
         # Example analysis (this would be replaced with actual compression logic)
         if date_filter:
