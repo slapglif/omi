@@ -1191,6 +1191,13 @@ def subscribe_events(ctx: click.Context, event_type: Optional[str]) -> None:
         sys.exit(0)
 
 
+@cli.group()
+@click.pass_context
+def belief(ctx):
+    """Belief management commands."""
+    ctx.ensure_object(dict)
+
+
 # Main entry point
 def main() -> None:
     """Entry point for the OMI CLI."""
