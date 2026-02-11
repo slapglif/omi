@@ -372,10 +372,84 @@ class OllamaEmbedder(EmbeddingProvider):
         return self.MODEL_DIMENSIONS.get(self.model, self.DEFAULT_DIM)
 
 
+class SentenceTransformerEmbedder(EmbeddingProvider):
+    """
+    Local Sentence Transformers embeddings
+
+    Models:
+    - all-MiniLM-L6-v2 (384 dim, fast, default)
+    - all-mpnet-base-v2 (768 dim, quality)
+    - paraphrase-multilingual-MiniLM-L12-v2 (384 dim, multilingual)
+
+    Fully offline, no API keys required
+    """
+
+    DEFAULT_MODEL = "all-MiniLM-L6-v2"
+    DEFAULT_DIM = 384
+
+    MODEL_DIMENSIONS = {
+        "all-MiniLM-L6-v2": 384,
+        "all-mpnet-base-v2": 768,
+        "paraphrase-multilingual-MiniLM-L12-v2": 384,
+        "all-MiniLM-L12-v2": 384
+    }
+
+    def __init__(self, model: str = DEFAULT_MODEL):
+        """
+        Args:
+            model: Model name (default: all-MiniLM-L6-v2)
+        """
+        self.model = model
+        self._model_instance = None
+        self._load_model()
+
+    def _load_model(self) -> None:
+        """Load sentence-transformers model"""
+        try:
+            from sentence_transformers import SentenceTransformer
+            self._model_instance = SentenceTransformer(self.model)
+        except ImportError:
+            raise RuntimeError(
+                "sentence-transformers not installed. "
+                "Install with: pip install sentence-transformers"
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to load model {self.model}: {e}")
+
+    def embed(self, text: str) -> List[float]:
+        """Generate embedding via sentence-transformers"""
+        if self._model_instance is None:
+            self._load_model()
+
+        embedding = self._model_instance.encode(text, convert_to_numpy=True)
+        return embedding.tolist()
+
+    @property
+    def dimensions(self) -> int:
+        """Return embedding dimensionality based on model"""
+        return self.MODEL_DIMENSIONS.get(self.model, self.DEFAULT_DIM)
+
+    def embed_batch(self, texts: List[str], batch_size: int = 32) -> List[List[float]]:
+        """
+        Generate embeddings for multiple texts
+
+        sentence-transformers handles batching efficiently internally
+        """
+        if self._model_instance is None:
+            self._load_model()
+
+        embeddings = self._model_instance.encode(
+            texts,
+            batch_size=batch_size,
+            convert_to_numpy=True
+        )
+        return [emb.tolist() for emb in embeddings]
+
+
 class EmbeddingCache:
     """Disk cache for embeddings"""
 
-    def __init__(self, cache_dir: Path, embedder: Union[NIMEmbedder, OpenAIEmbedder, OllamaEmbedder]):
+    def __init__(self, cache_dir: Path, embedder: Union[NIMEmbedder, OpenAIEmbedder, OllamaEmbedder, SentenceTransformerEmbedder]):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.embedder = embedder
