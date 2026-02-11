@@ -760,7 +760,10 @@ class AzureBackend(StorageBackend):
     Supports Azure Blob Storage with authentication via:
     - Connection string (connection_string)
     - Account name + account key (account_name, account_key)
+    - Account name + SAS token (account_name, sas_token)
     - AZURE_STORAGE_CONNECTION_STRING environment variable
+    - AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY environment variables
+    - AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_SAS_TOKEN environment variables
     """
 
     def __init__(
@@ -770,6 +773,7 @@ class AzureBackend(StorageBackend):
         connection_string: Optional[str] = None,
         account_name: Optional[str] = None,
         account_key: Optional[str] = None,
+        sas_token: Optional[str] = None,
     ):
         """
         Initialize Azure Blob Storage backend
@@ -780,6 +784,7 @@ class AzureBackend(StorageBackend):
             connection_string: Azure storage connection string
             account_name: Azure storage account name
             account_key: Azure storage account key
+            sas_token: Azure Shared Access Signature (SAS) token
         """
         super().__init__(bucket, prefix)
 
@@ -792,6 +797,7 @@ class AzureBackend(StorageBackend):
         self.connection_string = connection_string or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
         self.account_name = account_name or os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
         self.account_key = account_key or os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
+        self.sas_token = sas_token or os.getenv("AZURE_STORAGE_SAS_TOKEN")
 
         # Initialize Azure Blob Storage client
         self._client = self._create_client()
@@ -808,11 +814,19 @@ class AzureBackend(StorageBackend):
                     account_url=account_url,
                     credential=self.account_key,
                 )
+            elif self.account_name and self.sas_token:
+                # SAS token should not start with '?'
+                sas_token = self.sas_token.lstrip('?')
+                account_url = f"https://{self.account_name}.blob.core.windows.net"
+                return BlobServiceClient(
+                    account_url=account_url,
+                    credential=sas_token,
+                )
             else:
                 raise StorageAuthError(
                     "No Azure credentials found. Set AZURE_STORAGE_CONNECTION_STRING "
                     "environment variable or pass connection_string parameter, or provide "
-                    "account_name and account_key parameters."
+                    "account_name with either account_key or sas_token."
                 )
 
         except Exception as e:
