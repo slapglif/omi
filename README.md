@@ -99,7 +99,7 @@ omi session-end
 # Memory compression (reduce token costs)
 omi compress --dry-run                   # Preview what would be compressed
 omi compress --before 2024-06-01         # Compress memories older than date
-omi compress --threshold 30              # Compress memories older than 30 days
+omi compress --age-days 30               # Compress memories older than 30 days
 
 # Verify integrity
 omi audit
@@ -124,8 +124,7 @@ omi compress --dry-run                   # Shows what would be compressed + toke
 
 # Manual compression
 omi compress --before 2024-06-01         # Compress memories before specific date
-omi compress --threshold 30              # Compress memories older than 30 days
-omi compress --force                     # Compress all eligible memories now
+omi compress --age-days 30               # Compress memories older than 30 days
 
 # Configuration
 omi config --set compression.auto=true   # Enable automatic compression
