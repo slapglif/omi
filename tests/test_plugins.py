@@ -399,3 +399,30 @@ def test_plugin_validation():
 
     # Should not raise any exceptions
     validate_plugin(ValidTestPlugin, expected_base_class=EmbeddingProvider)
+
+
+def test_cli_plugins_list():
+    """
+    Module-level test: Can we run 'omi plugins list' and get expected output?
+
+    Tests the CLI integration for the plugins list command:
+    - Command runs without errors (exit code 0)
+    - All plugin type headers are displayed (Embedding Providers, Storage Backends, Event Handlers)
+    - Output format is correct
+    """
+    from click.testing import CliRunner
+    from omi.cli import cli
+
+    # Create CLI runner
+    runner = CliRunner()
+
+    # Run 'omi plugins list' command
+    result = runner.invoke(cli, ['plugins', 'list'])
+
+    # Verify command succeeded
+    assert result.exit_code == 0, f"Command failed with exit code {result.exit_code}: {result.output}"
+
+    # Verify all plugin type headers are present in output
+    assert 'Embedding Providers:' in result.output, "Expected 'Embedding Providers:' header not found in output"
+    assert 'Storage Backends:' in result.output, "Expected 'Storage Backends:' header not found in output"
+    assert 'Event Handlers:' in result.output, "Expected 'Event Handlers:' header not found in output"
