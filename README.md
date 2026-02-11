@@ -50,7 +50,7 @@ ollama pull nomic-embed-text
 ### Install
 
 ```bash
-# From PyPI (when published)
+# From PyPI
 pip install omi-openclaw[nim]
 
 # From source

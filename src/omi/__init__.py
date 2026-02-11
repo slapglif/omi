@@ -7,7 +7,7 @@ A unified memory system for AI agents, synthesized from 1.7M agents' collective 
 
 from typing import Any, Optional
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Hermes"
 __license__ = "MIT"
 

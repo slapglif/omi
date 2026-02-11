@@ -27,7 +27,7 @@ from .plugins import plugins_group
 from .serve import serve_group
 
 # CLI version - matches project version
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 @click.group()
