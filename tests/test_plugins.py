@@ -331,3 +331,71 @@ def test_discover_plugins():
     # Each group should have a list of entry points
     for group, plugins in all_plugins.items():
         assert isinstance(plugins, list)
+
+
+def test_plugin_validation():
+    """
+    Module-level test: Does plugin validation work correctly with error handling?
+
+    This tests the core validation functionality including:
+    - Missing interface_version raises PluginValidationError
+    - Incompatible interface_version raises PluginValidationError
+    - Wrong base class inheritance raises PluginValidationError
+    - Valid plugins pass validation without errors
+    """
+    from omi.plugins import validate_plugin, PluginValidationError
+    from omi.embeddings import EmbeddingProvider
+
+    # Test 1: Missing interface_version should raise error
+    class MissingVersionPlugin:
+        pass
+
+    try:
+        validate_plugin(MissingVersionPlugin)
+        assert False, "Should have raised PluginValidationError for missing interface_version"
+    except PluginValidationError as e:
+        assert 'interface_version' in str(e)
+        assert 'missing' in str(e).lower()
+
+    # Test 2: Incompatible interface_version should raise error
+    class IncompatibleVersionPlugin:
+        interface_version = '99.0'
+
+    try:
+        validate_plugin(IncompatibleVersionPlugin)
+        assert False, "Should have raised PluginValidationError for incompatible version"
+    except PluginValidationError as e:
+        assert 'incompatible' in str(e).lower()
+        assert '99.0' in str(e)
+
+    # Test 3: Wrong base class should raise error
+    class WrongBaseClassPlugin:
+        interface_version = '1.0'
+
+    try:
+        validate_plugin(WrongBaseClassPlugin, expected_base_class=EmbeddingProvider)
+        assert False, "Should have raised PluginValidationError for wrong base class"
+    except PluginValidationError as e:
+        assert 'inherit' in str(e).lower() or 'EmbeddingProvider' in str(e)
+
+    # Test 4: Valid plugin should pass validation
+    class ValidTestPlugin(EmbeddingProvider):
+        interface_version = '1.0'
+
+        def embed(self, text: str) -> List[float]:
+            return [0.0] * 128
+
+        def embed_batch(self, texts: List[str], batch_size: int = 8) -> List[List[float]]:
+            return [[0.0] * 128 for _ in texts]
+
+        def similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
+            return 0.0
+
+        def get_dimension(self) -> int:
+            return 128
+
+        def get_model_name(self) -> str:
+            return 'test-validation-plugin'
+
+    # Should not raise any exceptions
+    validate_plugin(ValidTestPlugin, expected_base_class=EmbeddingProvider)
