@@ -581,7 +581,7 @@ PROVIDER_REGISTRY = {
 class EmbeddingCache:
     """Disk cache for embeddings"""
 
-    def __init__(self, cache_dir: Path, embedder: Union[NIMEmbedder, OpenAIEmbedder, CohereEmbedder, OllamaEmbedder, SentenceTransformerEmbedder]):
+    def __init__(self, cache_dir: Path, embedder: EmbeddingProvider):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.embedder = embedder
