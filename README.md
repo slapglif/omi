@@ -96,72 +96,49 @@ omi check
 # End session
 omi session-end
 
+# Memory compression (reduce token costs)
+omi compress --dry-run                   # Preview what would be compressed
+omi compress --before 2024-06-01         # Compress memories older than date
+omi compress --threshold 30              # Compress memories older than 30 days
+
 # Verify integrity
 omi audit
 ```
 
-## Cloud Storage Backends
+## Memory Compression
 
-OMI supports multiple cloud storage backends for MoltVault backups and distributed agent memory:
+OMI automatically compresses old memories to reduce token costs while preserving originals in cold storage.
 
-| Backend | Provider | Features | Status |
-|---------|----------|----------|--------|
-| **S3** | AWS, Cloudflare R2, MinIO | Full support, encryption, custom endpoints | ✅ Production |
-| **GCS** | Google Cloud Storage | Service account auth, ADC support | ✅ Production |
-| **Azure** | Azure Blob Storage | Connection string, SAS token, account key | ✅ Production |
+### How It Works
 
-### Configuration
+1. **Automatic**: Memories older than configurable threshold are summarized (default: 30 days)
+2. **Preserves**: Original memories backed up to MoltVault before compression
+3. **Smart**: Retains key facts, confidence levels, and relationship links
+4. **Transparent**: Regenerates embeddings for summaries to maintain search accuracy
 
-```bash
-# AWS S3 (or compatible: R2, MinIO)
-omi config --set backup.backend=s3
-omi config --set backup.bucket=my-backup-bucket
-omi config --set backup.region=us-east-1
-# Optional: Custom endpoint for R2/MinIO
-omi config --set backup.endpoint_url=https://account.r2.cloudflarestorage.com
-
-# Google Cloud Storage
-omi config --set backup.backend=gcs
-omi config --set backup.bucket=my-gcs-bucket
-# Optional: Service account credentials
-omi config --set backup.credentials_file=/path/to/service-account.json
-
-# Azure Blob Storage
-omi config --set backup.backend=azure
-omi config --set backup.container=my-container
-omi config --set backup.connection_string="DefaultEndpointsProtocol=https;..."
-# Or use SAS token
-omi config --set backup.account_name=myaccount
-omi config --set backup.sas_token="?sv=2021-06-08&ss=b..."
-```
-
-### Cloud Sync
+### Compression Commands
 
 ```bash
-# Check sync status
-omi sync status
+# Preview compression impact
+omi compress --dry-run                   # Shows what would be compressed + token savings
 
-# Push local memories to cloud
-omi sync push
+# Manual compression
+omi compress --before 2024-06-01         # Compress memories before specific date
+omi compress --threshold 30              # Compress memories older than 30 days
+omi compress --force                     # Compress all eligible memories now
 
-# Pull remote memories from cloud
-omi sync pull
-
-# Conflict resolution (if needed)
-# Strategies: last-write-wins (default), manual, merge
-omi config --set sync.conflict_strategy=last-write-wins
+# Configuration
+omi config --set compression.auto=true   # Enable automatic compression
+omi config --set compression.age_days=30 # Set compression threshold
 ```
 
-**Conflict Resolution Strategies:**
-- `last-write-wins`: Keep the most recently modified version (safest for single user)
-- `manual`: Prompt user to resolve conflicts manually
-- `merge`: Attempt automatic merge for text files (advanced)
+### Token Savings Example
 
-**Use Cases:**
-- **Disaster Recovery**: Automatic backups to S3/GCS/Azure ensure memories survive machine failures
-- **Team Collaboration**: Distributed agents share the same knowledge base across infrastructure
-- **Multi-Machine Access**: Sync memories between development laptop and production servers
-- **Encrypted Cloud Storage**: Memories are protected at rest with configurable encryption keys
+```
+Before:  1,247 memories × 450 tokens avg = 561,150 tokens
+After:   1,247 memories × 120 tokens avg = 149,640 tokens
+Savings: 411,510 tokens (73% reduction)
+```
 
 ## Embeddings: NIM vs Ollama
 
@@ -196,12 +173,11 @@ OMI combines the best patterns from 50+ working agent implementations:
 ## Features
 
 - **NVIDIA NIM Integration**: baai/bge-m3 embeddings, highest quality
-- **Cloud Storage Backends**: AWS S3, Google Cloud Storage, Azure Blob Storage support
-- **Async Cloud Operations**: Non-blocking uploads/downloads with conflict resolution
+- **Automatic Memory Compression**: LLM-powered summarization reduces token costs while preserving originals
 - **Belief Networks**: Track confidence with EMA updates
 - **Security by Architecture**: Byzantine verification, tamper detection
 - **MCP Integration**: Native OpenClaw tools
-- **Full Continuity**: MoltVault backup/restore with cloud sync
+- **Full Continuity**: MoltVault backup/restore
 
 ## Documentation
 
@@ -221,9 +197,9 @@ The bird of Hermes eats her wings. The palace lets her keep eating.
 
 ## Status
 
-**Version 0.2.0** — Cloud storage backends released. Production ready for S3, GCS, and Azure.
+**Version 0.1.0** — Research phase complete. Implementation in progress.
 
-See [CHANGELOG.md](CHANGELOG.md) for release notes and [Issues](https://github.com/slapglif/omi/issues) for current priorities.
+See [Issues](https://github.com/slapglif/omi/issues) for current priorities.
 
 ## License
 
