@@ -701,17 +701,55 @@ class GraphPalace:
         """
         memories = []
 
-        cursor = self._conn.execute("SELECT id FROM memories")
-        memory_ids = [row[0] for row in cursor]
+        # Single aggregated query: fetch all memory data with edge counts
+        cursor = self._conn.execute("""
+            SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
+                   m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
+                   COUNT(e.id) as edge_count
+            FROM memories m
+            LEFT JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
+            GROUP BY m.id
+        """)
 
-        # Calculate centrality for each
-        for memory_id in memory_ids:
-            centrality = self.get_centrality(memory_id)
-            memory = self.get_memory(memory_id)
-            if memory:
-                memories.append((memory, centrality))
+        for row in cursor:
+            # Extract memory data
+            memory_id = row[0]
+            access_count = row[7] or 0
+            last_accessed = datetime.fromisoformat(row[6]) if row[6] else datetime.now()
+            edge_count = row[10]
 
-        # Sort by centrality
+            # Calculate centrality score (same algorithm as get_centrality)
+            # Degree centrality (40% weight)
+            degree_score = min(edge_count / 100.0, 1.0)
+
+            # Access frequency (35% weight, log scale)
+            access_score = min(math.log1p(access_count) / math.log1p(100), 1.0)
+
+            # Recency decay (25% weight)
+            recency_score = self._calculate_recency_score(last_accessed)
+
+            # Weighted combination
+            centrality = (degree_score * 0.40) + (access_score * 0.35) + (recency_score * 0.25)
+            centrality = round(centrality, 4)
+
+            # Build Memory object
+            embedding = self._blob_to_embed(row[2]) if row[2] else None
+            memory = Memory(
+                id=memory_id,
+                content=row[1],
+                embedding=embedding,
+                memory_type=row[3],
+                confidence=row[4],
+                created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                last_accessed=last_accessed,
+                access_count=access_count,
+                instance_ids=json.loads(row[8]) if row[8] else [],
+                content_hash=row[9]
+            )
+
+            memories.append((memory, centrality))
+
+        # Sort by centrality (descending) and limit
         memories.sort(key=lambda x: x[1], reverse=True)
         return memories[:limit]
 
