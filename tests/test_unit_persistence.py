@@ -217,14 +217,14 @@ class TestGraphPalace:
     
     def test_instantiation(self, tmp_path):
         """Can instantiate GraphPalace."""
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         
         palace = GraphPalace(tmp_path / "test.db")
         assert palace is not None
     
     def test_store_memory_returns_id(self, tmp_path):
         """store_memory returns a memory ID."""
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         
         palace = GraphPalace(tmp_path / "test.db")
         # Currently returns empty string (stub)
@@ -234,7 +234,7 @@ class TestGraphPalace:
     
     def test_store_memory_type_filtering_stub(self, tmp_path):
         """store_memory accepts valid types."""
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         
         palace = GraphPalace(tmp_path / "test.db")
         
@@ -246,7 +246,7 @@ class TestGraphPalace:
     
     def test_recall_returns_list(self, tmp_path):
         """recall returns a list."""
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         
         palace = GraphPalace(tmp_path / "test.db")
         # Currently returns empty list
@@ -255,7 +255,7 @@ class TestGraphPalace:
     
     def test_get_centrality_returns_float(self, tmp_path):
         """get_centrality returns a float."""
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         
         palace = GraphPalace(tmp_path / "test.db")
         result = palace.get_centrality("some-id")
@@ -374,7 +374,7 @@ class TestEdgeCases:
     
     def test_graph_palace_nonexistent_db(self, tmp_path):
         """GraphPalace works with non-existent DB."""
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         
         nonexistent = tmp_path / "does_not_exist" / "palace.sqlite"
         # Should either create dir or handle gracefully
