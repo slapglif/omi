@@ -13,22 +13,21 @@ __license__ = "MIT"
 from .storage.graph_palace import GraphPalace
 from .storage.now import NowStorage
 from .graph.belief_network import BeliefNetwork
-from .moltvault import MoltVault as VaultBackup
+from .moltvault import MoltVault
 
-# Keep DailyLogStore and NOWStore from persistence (no replacement exists)
-from .persistence import NOWStore, DailyLogStore
+# Keep DailyLogStore from persistence (no replacement exists)
+from .persistence import DailyLogStore
 
 from .embeddings import OllamaEmbedder, EmbeddingCache
 from .security import IntegrityChecker, ConsensusManager
 from .api import MemoryTools, BeliefTools, CheckpointTools
 
 __all__ = [
-    "NOWStore",
     "NowStorage",
     "DailyLogStore",
     "GraphPalace",
     "BeliefNetwork",
-    "VaultBackup",
+    "MoltVault",
     "OllamaEmbedder",
     "EmbeddingCache",
     "IntegrityChecker",
