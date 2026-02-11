@@ -204,17 +204,22 @@ class NIMEmbedder(EmbeddingProvider):
         return dot / (norm1 * norm2)
 
 
-class OllamaEmbedder:
+class OllamaEmbedder(EmbeddingProvider):
     """
     Local Ollama fallback embeddings
-    
+
     Models:
     - nomic-embed-text (768 dim, fast)
     - mxbai-embed-large (1024 dim, quality)
     """
-    
+
     DEFAULT_MODEL = "nomic-embed-text"
     DEFAULT_DIM = 768
+
+    MODEL_DIMENSIONS = {
+        "nomic-embed-text": 768,
+        "mxbai-embed-large": 1024
+    }
     
     def __init__(self, model: str = DEFAULT_MODEL, 
                  base_url: str = "http://localhost:11434"):
@@ -246,6 +251,11 @@ class OllamaEmbedder:
             )
             response.raise_for_status()
             return response.json()['embedding']
+
+    @property
+    def dimensions(self) -> int:
+        """Return embedding dimensionality based on model"""
+        return self.MODEL_DIMENSIONS.get(self.model, self.DEFAULT_DIM)
 
 
 class EmbeddingCache:
