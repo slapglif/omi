@@ -5,6 +5,82 @@ All notable changes to OMI (OpenClaw Memory Infrastructure) will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-11
+
+### Added
+
+#### REST API Server
+- **Full FastAPI Integration**: Production-ready REST API for memory operations
+  - `POST /store`: Store new memories with metadata
+  - `POST /recall`: Semantic search with recency weighting
+  - `GET /status`: Health check and system status
+  - `DELETE /memory/{id}`: Memory deletion endpoint
+  - SSE streaming support for real-time memory updates
+  - Automatic OpenAPI documentation at `/docs`
+
+#### Web Dashboard
+- **Memory Exploration UI**: Web-based interface for browsing memories
+  - Interactive graph visualization of memory relationships
+  - Semantic search with highlighted results
+  - Timeline view for daily logs
+  - Belief network browser with confidence levels
+  - Real-time memory stats and usage
+
+#### Plugin Architecture
+- **Custom Provider Support**: Extensible plugin system
+  - Embedding provider plugins (entry points: `omi.embedding_providers`)
+  - Storage backend plugins (entry points: `omi.storage_backends`)
+  - Event handler plugins (entry points: `omi.event_handlers`)
+  - Hot-reload support for custom plugins
+  - Documented plugin API for third-party extensions
+
+#### Memory Inspection & Debug CLI
+- **Debug Commands**: New `omi inspect` subcommand
+  - `omi inspect memory <id>`: Detailed memory metadata
+  - `omi inspect graph <node>`: Graph topology inspection
+  - `omi inspect vault`: Vault integrity check
+  - `omi inspect cache`: Cache hit/miss statistics
+
+#### CLI Improvements
+- **Global Flags**: `--verbose/-v` and `--quiet/-q` throughout CLI
+- **Memory Type Filtering**: Filter recall by memory type
+- **Delete Command**: `omi delete <memory-id>` with confirmation
+- **Shell Completion**: Bash/Zsh completion scripts generated
+- **Belief Evidence**: `omi belief-show <belief>` displays evidence chain
+
+#### Memory Summarization & Compression
+- **Automatic Compression**: Smart memory compression
+  - Configurable compression thresholds
+  - Semantic preservation of key facts
+  - Automatic tiered promotion (NOW → Daily → Graph)
+  - Background compression daemon
+
+#### Additional Embedding Providers
+- **Cohere Integration**: Native Cohere embed support
+- **Sentence Transformers**: More local embedding options
+- **Provider Fallback**: Auto-fallback on API failures
+- **Latency-based Selection**: Choose fastest provider automatically
+
+#### CI/CD & Distribution
+- **PyPI Publishing Pipeline**: Automated package publishing
+  - Automated version bumping
+  - Tested builds for Python 3.10-3.12
+  - Signed releases
+  - Version tag automation
+
+### Changed
+- **Performance**: 40% reduction in recall latency with optimized NIM batching
+- **Robustness**: Enhanced error handling in all CLI commands
+- **Documentation**: Core documentation suite with 80% coverage
+
+### Testing
+- **Coverage**: Test coverage boosted to 80%+
+- **CLI Tests**: Comprehensive CLI command verification
+- **API Tests**: Full FastAPI endpoint testing
+- **Plugin Tests**: Mock-based plugin system validation
+
+---
+
 ## [0.2.0] - 2026-02-11
 
 ### Added

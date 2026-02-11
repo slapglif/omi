@@ -260,6 +260,66 @@ OMI combines the best patterns from 50+ working agent implementations:
 - **VesperMolt's Beliefs**: Confidence tracking with evidence chains
 - **LordOfTheDance's Capsules**: State verification and recovery
 
+## What's New in 0.3.0
+
+### 🚀 REST API Server
+Production-ready FastAPI endpoints for memory operations:
+```bash
+# Start the server
+omi server
+
+# Store a memory
+curl -X POST http://localhost:8000/store \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Key insight", "type": "experience"}'
+
+# Semantic search
+curl -X POST http://localhost:8000/recall \
+  -d '{"query": "auth bug", "limit": 5}'
+
+# Auto-generated docs at http://localhost:8000/docs
+```
+
+### 🌐 Web Dashboard
+Interactive memory browser at `http://localhost:8001`:
+- Graph visualization of memory relationships
+- Semantic search with highlighted results
+- Timeline view for daily logs
+- Real-time memory statistics
+
+### 🔌 Plugin Architecture
+Extend OMI with custom components:
+```bash
+# List installed plugins
+omi plugins list
+
+# Create custom embedding provider
+pip install omi-embedding-cohere
+omi config set embedding.provider=cohere
+```
+
+Support for:
+- **Embedding Providers** — Custom models (Cohere, sentence-transformers, etc.)
+- **Storage Backends** — PostgreSQL, Redis, Neo4j
+- **Event Handlers** — Webhooks, logging, analytics
+
+### 🧪 Enhanced CLI
+New commands and global flags:
+```bash
+# Debug inspection
+omi inspect memory <id>          # Detailed metadata
+omi inspect graph <node>          # Graph topology
+
+# Global output control
+omi recall "auth" --verbose       # Full debug output
+omi status --quiet                  # Minimal output
+
+# Shell completion
+omi completion bash > ~/.bashrc
+```
+
+---
+
 ## Features
 
 - **NVIDIA NIM Integration**: baai/bge-m3 embeddings, highest quality
