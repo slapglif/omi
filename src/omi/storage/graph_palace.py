@@ -817,6 +817,37 @@ class GraphPalace:
 
         return cursor.rowcount > 0
 
+    def update_memory_content(self, memory_id: str, new_content: str) -> bool:
+        """
+        Update the content of a memory and recalculate hash and timestamp.
+
+        Args:
+            memory_id: Memory ID
+            new_content: New content text
+
+        Returns:
+            True if successful
+        """
+        new_content_hash = hashlib.sha256(new_content.encode()).hexdigest()
+        now = datetime.now().isoformat()
+
+        cursor = self._conn.execute("""
+            UPDATE memories
+            SET content = ?, content_hash = ?, last_accessed = ?
+            WHERE id = ?
+        """, (new_content, new_content_hash, now, memory_id))
+
+        # Update FTS index
+        if cursor.rowcount > 0:
+            self._conn.execute("""
+                UPDATE memories_fts
+                SET content = ?
+                WHERE memory_id = ?
+            """, (new_content, memory_id))
+
+        self._conn.commit()
+        return cursor.rowcount > 0
+
     def delete_memory(self, memory_id: str) -> bool:
         """
         Delete a memory and all its edges.
@@ -870,6 +901,54 @@ class GraphPalace:
             "edge_distribution": edge_distribution
         }
 
+    def get_compression_stats(self, threshold: Optional[datetime] = None) -> Dict[str, Any]:
+        """
+        Calculate compression statistics for memories (optionally filtered by age).
+
+        Used for dry-run reporting to estimate token savings before compression.
+
+        Args:
+            threshold: Optional datetime threshold - only include memories created before this.
+                      If None, calculates stats for all memories.
+
+        Returns:
+            Dict with total_memories, total_chars, estimated_tokens, memories_by_type
+        """
+        if threshold is not None:
+            # Query memories before threshold
+            cursor = self._conn.execute("""
+                SELECT content, memory_type FROM memories
+                WHERE created_at < ?
+            """, (threshold.isoformat(),))
+        else:
+            # Query all memories
+            cursor = self._conn.execute("""
+                SELECT content, memory_type FROM memories
+            """)
+
+        total_memories = 0
+        total_chars = 0
+        memories_by_type: Dict[str, int] = {}
+
+        for row in cursor:
+            content = row[0]
+            memory_type = row[1]
+
+            total_memories += 1
+            total_chars += len(content)
+
+            memories_by_type[memory_type] = memories_by_type.get(memory_type, 0) + 1
+
+        # Estimate tokens using common approximation: 1 token ≈ 4 characters
+        estimated_tokens = total_chars // 4
+
+        return {
+            "total_memories": total_memories,
+            "total_chars": total_chars,
+            "estimated_tokens": estimated_tokens,
+            "memories_by_type": memories_by_type
+        }
+
     def find_contradictions(self, memory_id: str) -> List[Memory]:
         """
         Find memories that contradict a given memory.
@@ -887,14 +966,66 @@ class GraphPalace:
     def get_supporting_evidence(self, memory_id: str) -> List[Memory]:
         """
         Get memories that support a given memory.
-        
+
         Args:
             memory_id: Memory to get evidence for
-            
+
         Returns:
             List of supporting memories
         """
         return self.get_neighbors(memory_id, edge_type="SUPPORTS")
+
+    def get_memories_before(self, threshold: datetime, limit: Optional[int] = None) -> List[Memory]:
+        """
+        Query memories older than a threshold datetime.
+
+        Used for: finding old memories for summarization/compression
+
+        Args:
+            threshold: Datetime threshold - returns memories created before this
+            limit: Optional max number of results
+
+        Returns:
+            List of Memory objects created before threshold, ordered by created_at ascending (oldest first)
+        """
+        memories = []
+
+        with sqlite3.connect(self.db_path) as conn:
+            if limit is not None:
+                cursor = conn.execute("""
+                    SELECT id, content, embedding, memory_type, confidence,
+                           created_at, last_accessed, access_count, instance_ids, content_hash
+                    FROM memories
+                    WHERE created_at < ?
+                    ORDER BY created_at ASC
+                    LIMIT ?
+                """, (threshold.isoformat(), limit))
+            else:
+                cursor = conn.execute("""
+                    SELECT id, content, embedding, memory_type, confidence,
+                           created_at, last_accessed, access_count, instance_ids, content_hash
+                    FROM memories
+                    WHERE created_at < ?
+                    ORDER BY created_at ASC
+                """, (threshold.isoformat(),))
+
+            for row in cursor:
+                embedding = self._blob_to_embed(row[2]) if row[2] else None
+                memory = Memory(
+                    id=row[0],
+                    content=row[1],
+                    embedding=embedding,
+                    memory_type=row[3],
+                    confidence=row[4],
+                    created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                    last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
+                    access_count=row[7],
+                    instance_ids=json.loads(row[8]) if row[8] else [],
+                    content_hash=row[9]
+                )
+                memories.append(memory)
+
+        return memories
 
     def vacuum(self) -> None:
         """Optimize database ( reclaim space )."""
