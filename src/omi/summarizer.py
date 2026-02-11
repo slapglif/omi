@@ -154,6 +154,48 @@ class MemorySummarizer:
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
 
+    def batch_summarize(self,
+                       memory_contents: List[str],
+                       metadata_list: Optional[List[Optional[Dict]]] = None,
+                       batch_size: int = 8) -> List[str]:
+        """
+        Summarize multiple memories efficiently
+
+        Args:
+            memory_contents: List of memory contents to summarize
+            metadata_list: Optional list of metadata dicts (same length as memory_contents)
+            batch_size: Number of memories to process per batch
+
+        Returns:
+            List of summarized memory contents
+        """
+        results = []
+
+        # Handle metadata list - create None list if not provided
+        if metadata_list is None:
+            metadata_list = [None] * len(memory_contents)
+
+        # Validate metadata_list length
+        if len(metadata_list) != len(memory_contents):
+            raise ValueError(
+                f"metadata_list length ({len(metadata_list)}) must match "
+                f"memory_contents length ({len(memory_contents)})"
+            )
+
+        # Process in batches
+        for i in range(0, len(memory_contents), batch_size):
+            batch_contents = memory_contents[i:i + batch_size]
+            batch_metadata = metadata_list[i:i + batch_size]
+
+            # Summarize each memory in the batch
+            batch_results = [
+                self.summarize_memory(content, metadata)
+                for content, metadata in zip(batch_contents, batch_metadata)
+            ]
+            results.extend(batch_results)
+
+        return results
+
     def _build_summarization_prompt(self,
                                     content: str,
                                     metadata: Optional[Dict] = None) -> str:
