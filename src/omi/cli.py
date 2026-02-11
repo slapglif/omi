@@ -438,21 +438,30 @@ def recall(ctx, query: str, limit: int, json_output: bool) -> None:
 
 
 @cli.command()
-@click.option('--operation', required=True, type=click.Choice(['recall']), help='Operation to debug')
-@click.argument('query')
-@click.option('--limit', '-l', default=10, help='Maximum number of results')
+@click.option('--operation', required=True, type=click.Choice(['recall', 'store']), help='Operation to debug')
+@click.argument('content')
+@click.option('--limit', '-l', default=10, help='Maximum number of results (for recall)')
+@click.option('--type', 'memory_type', default='experience',
+              type=click.Choice(['fact', 'experience', 'belief', 'decision']),
+              help='Type of memory to store (for store)')
+@click.option('--confidence', '-c', type=float, default=None,
+              help='Confidence level (0.0-1.0, for store with beliefs)')
 @click.pass_context
-def debug(ctx, operation: str, query: str, limit: int) -> None:
+def debug(ctx, operation: str, content: str, limit: int, memory_type: str, confidence: Optional[float]) -> None:
     """Debug mode with step-by-step operation output.
 
     Args:
-        --operation: Operation to debug (recall)
-        query: Search query text
-        --limit: Maximum number of results (default: 10)
+        --operation: Operation to debug (recall|store)
+        content: Query text (for recall) or memory content (for store)
+        --limit: Maximum number of results (for recall, default: 10)
+        --type: Memory type (for store, default: experience)
+        --confidence: Confidence level (for store with beliefs)
 
     Examples:
         omi debug --operation recall "test query"
         omi debug --operation recall "auth bug" --limit 5
+        omi debug --operation store "Fixed the auth bug" --type experience
+        omi debug --operation store "Python has GIL" --type fact
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
@@ -465,7 +474,9 @@ def debug(ctx, operation: str, query: str, limit: int) -> None:
         sys.exit(1)
 
     if operation == 'recall':
-        _debug_recall(query, db_path, limit)
+        _debug_recall(content, db_path, limit)
+    elif operation == 'store':
+        _debug_store(content, memory_type, confidence, db_path)
 
 
 def _debug_recall(query: str, db_path: Path, limit: int) -> None:
@@ -536,6 +547,132 @@ def _debug_recall(query: str, db_path: Path, limit: int) -> None:
         click.echo(f"   ID: {click.style(mem.id[:8], fg='bright_black')}... | "
                    f"Created: {click.style(mem.created_at.strftime('%Y-%m-%d %H:%M') if mem.created_at else 'N/A', fg='bright_black')}")
         click.echo(f"   {click.style('─', fg='bright_black') * 78}")
+
+
+def _debug_store(content: str, memory_type: str, confidence: Optional[float], db_path: Path) -> None:
+    """Debug store operation with step-by-step output."""
+    import hashlib
+    import time
+    from omi.embeddings import NIMEmbedder
+
+    click.echo(click.style("=== DEBUG: Store Operation ===", fg="cyan", bold=True))
+    click.echo()
+
+    # Step 1: Input validation
+    click.echo(click.style("Step 1: Input Validation", fg="yellow", bold=True))
+    click.echo(f"Content: {click.style(content, fg='white', bold=True)}")
+    click.echo(f"Type: {click.style(memory_type, fg='cyan')}")
+    if confidence is not None:
+        if memory_type != 'belief':
+            click.echo(click.style("⚠ Warning: --confidence is typically used with --type belief", fg="yellow"))
+        confidence = max(0.0, min(1.0, confidence))
+        click.echo(f"Confidence: {click.style(f'{confidence:.2f}', fg='cyan')}")
+    click.echo(click.style("✓ Input validated", fg="green"))
+
+    # Get database size before
+    db_size_before = db_path.stat().st_size if db_path.exists() else 0
+
+    click.echo()
+
+    # Step 2: Content hash generation
+    click.echo(click.style("Step 2: Content Hash Generation", fg="yellow", bold=True))
+    content_hash = hashlib.sha256(content.encode()).hexdigest()
+    click.echo(f"SHA-256: {click.style(content_hash[:16] + '...', fg='bright_black')}")
+    click.echo(click.style("✓ Content hash generated", fg="green"))
+
+    click.echo()
+
+    # Step 3: Embedding generation
+    click.echo(click.style("Step 3: Generating Embedding", fg="yellow", bold=True))
+
+    try:
+        start_time = time.time()
+        embedder = NIMEmbedder()
+        embedding = embedder.embed(content)
+        elapsed = time.time() - start_time
+        click.echo(click.style(f"✓ Generated {len(embedding)}-dimensional embedding [{elapsed:.2f}s]", fg="green"))
+        click.echo(f"  First 5 values: {embedding[:5]}")
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed to generate embedding: {e}", fg="red"))
+        click.echo(click.style("Tip: Set NIM_API_KEY environment variable", fg="yellow"))
+        sys.exit(1)
+
+    click.echo()
+
+    # Step 4: Database insertion
+    click.echo(click.style("Step 4: Database Insertion", fg="yellow", bold=True))
+
+    try:
+        start_time = time.time()
+        palace = GraphPalace(db_path)
+        memory_id = palace.store_memory(
+            content=content,
+            embedding=embedding,
+            memory_type=memory_type,
+            confidence=confidence
+        )
+        elapsed = time.time() - start_time
+        click.echo(click.style(f"✓ Memory stored [{elapsed:.2f}s]", fg="green"))
+        click.echo(f"  Memory ID: {click.style(memory_id, fg='cyan')}")
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed to store memory: {e}", fg="red"))
+        sys.exit(1)
+
+    click.echo()
+
+    # Step 5: Edge creation (check for similar memories)
+    click.echo(click.style("Step 5: Edge Creation", fg="yellow", bold=True))
+
+    try:
+        # Search for similar memories
+        similar_memories = palace.recall(embedding, limit=5, min_relevance=0.7)
+
+        if similar_memories:
+            # Filter out the newly created memory itself
+            similar_memories = [(mem, score) for mem, score in similar_memories if mem.id != memory_id]
+
+        if similar_memories:
+            click.echo(f"Found {click.style(str(len(similar_memories)), fg='cyan')} similar memories (relevance >= 0.7)")
+
+            # Create edges to similar memories
+            edges_created = 0
+            for mem, score in similar_memories:
+                try:
+                    # Create a RELATED_TO edge
+                    palace.add_edge(memory_id, mem.id, edge_type="RELATED_TO", strength=score)
+                    edges_created += 1
+                    mem_preview = mem.content[:50] + "..." if len(mem.content) > 50 else mem.content
+                    click.echo(f"  → {click.style('RELATED_TO', fg='cyan')} {click.style(mem.id[:8], fg='bright_black')}... "
+                             f"[strength: {click.style(f'{score:.2f}', fg='green')}] {mem_preview}")
+                except Exception as e:
+                    click.echo(click.style(f"  ⚠ Failed to create edge: {e}", fg="yellow"))
+
+            click.echo(click.style(f"✓ Created {edges_created} edges", fg="green"))
+        else:
+            click.echo(click.style("No similar memories found (threshold: 0.7)", fg="yellow"))
+            click.echo(click.style("✓ No edges created", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"⚠ Edge creation check failed: {e}", fg="yellow"))
+        click.echo(click.style("  Memory was stored successfully, but edges could not be checked", fg="yellow"))
+
+    palace.close()
+
+    click.echo()
+
+    # Step 6: Confirmation
+    click.echo(click.style("Step 6: Confirmation", fg="yellow", bold=True))
+    click.echo(click.style("✓ Memory stored successfully", fg="green", bold=True))
+
+    # Get database size after
+    db_size_after = db_path.stat().st_size if db_path.exists() else 0
+    db_size_diff = db_size_after - db_size_before
+
+    click.echo(f"  ID: {click.style(memory_id[:16] + '...', fg='cyan')}")
+    click.echo(f"  Type: {click.style(memory_type, fg='cyan')}")
+    if confidence is not None:
+        conf_color = "green" if confidence > 0.7 else "yellow" if confidence > 0.4 else "red"
+        click.echo(f"  Confidence: {click.style(f'{confidence:.2f}', fg=conf_color)}")
+    click.echo(f"  Database size: {db_size_before:,} → {db_size_after:,} bytes ({click.style(f'+{db_size_diff:,}', fg='green')})")
 
 
 @cli.command()
