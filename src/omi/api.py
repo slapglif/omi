@@ -60,8 +60,11 @@ class MemoryTools:
         Returns:
             Memories sorted by relevance + recency
         """
-        # Get candidates
-        candidates = self.palace.recall(query, limit=limit*2)
+        # Embed the query first using the cache (which handles embedder internally)
+        query_embedding = self.cache.get_or_compute(query)
+
+        # Get candidates using the embedding vector
+        candidates = self.palace.recall(query_embedding, limit=limit*2)
         
         # Filter by type
         if memory_type:
