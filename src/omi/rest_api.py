@@ -16,9 +16,11 @@ Usage:
         events.onmessage = (e) => console.log(JSON.parse(e.data));
 """
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, List
+from pydantic import BaseModel, Field
+from pathlib import Path
 import json
 import asyncio
 import logging
@@ -32,8 +34,64 @@ from .events import (
     SessionStartedEvent,
     SessionEndedEvent
 )
+from .api import MemoryTools
+from .storage.graph_palace import GraphPalace
+from .embeddings import OllamaEmbedder, EmbeddingCache
 
 logger = logging.getLogger(__name__)
+
+
+# Pydantic models for request/response
+class StoreMemoryRequest(BaseModel):
+    """Request body for storing a memory."""
+    content: str = Field(..., description="Memory content to store")
+    memory_type: str = Field(default="experience", description="Type: fact|experience|belief|decision")
+    related_to: Optional[List[str]] = Field(default=None, description="IDs of related memories")
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Confidence score (0.0-1.0)")
+
+
+class StoreMemoryResponse(BaseModel):
+    """Response after storing a memory."""
+    memory_id: str = Field(..., description="UUID of stored memory")
+    message: str = Field(default="Memory stored successfully")
+
+
+class RecallMemoryResponse(BaseModel):
+    """Response containing recalled memories."""
+    memories: List[dict] = Field(..., description="List of recalled memories")
+    count: int = Field(..., description="Number of memories returned")
+
+
+# Initialize components
+_memory_tools_instance = None
+
+def get_memory_tools() -> MemoryTools:
+    """Initialize and return MemoryTools instance (lazy initialization)."""
+    global _memory_tools_instance
+
+    if _memory_tools_instance is None:
+        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        db_path = base_path / 'palace.sqlite'
+
+        # Initialize components
+        palace = GraphPalace(db_path)
+        # Try nomic-embed-text, fall back to available model
+        try:
+            embedder = OllamaEmbedder(model='nomic-embed-text')
+            # Test if model is available
+            embedder.embed("test")
+        except Exception:
+            # Use available embedding model as fallback
+            embedder = OllamaEmbedder(model='nomic-embed-text-v2-moe')
+        cache_path = base_path / 'embeddings'
+        cache = EmbeddingCache(cache_path, embedder)
+
+        _memory_tools_instance = MemoryTools(palace, embedder, cache)
+
+    return _memory_tools_instance
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -50,6 +108,8 @@ async def root():
         "service": "OMI Event Streaming API",
         "version": "1.0.0",
         "endpoints": {
+            "/api/v1/store": "POST - Store a new memory",
+            "/api/v1/recall": "GET - Recall memories by semantic search",
             "/api/v1/events": "SSE endpoint for real-time event streaming",
             "/health": "Health check endpoint"
         }
@@ -60,6 +120,78 @@ async def root():
 async def health():
     """Health check endpoint."""
     return {"status": "healthy", "service": "omi-event-api"}
+
+
+@app.post("/api/v1/store", response_model=StoreMemoryResponse, status_code=status.HTTP_201_CREATED)
+async def store_memory(request: StoreMemoryRequest):
+    """
+    Store a new memory with semantic embedding.
+
+    Args:
+        request: Memory details (content, type, related_to, confidence)
+
+    Returns:
+        StoreMemoryResponse with memory_id
+
+    Example:
+        curl -X POST http://localhost:8420/api/v1/store \\
+            -H "Content-Type: application/json" \\
+            -d '{"content": "test memory", "memory_type": "fact"}'
+    """
+    try:
+        tools = get_memory_tools()
+        memory_id = tools.store(
+            content=request.content,
+            memory_type=request.memory_type,
+            related_to=request.related_to,
+            confidence=request.confidence
+        )
+        return StoreMemoryResponse(memory_id=memory_id)
+    except Exception as e:
+        logger.error(f"Error storing memory: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to store memory: {str(e)}"
+        )
+
+
+@app.get("/api/v1/recall", response_model=RecallMemoryResponse)
+async def recall_memory(
+    query: str = Query(..., description="Natural language search query"),
+    limit: int = Query(10, ge=1, le=100, description="Maximum number of results"),
+    min_relevance: float = Query(0.7, ge=0.0, le=1.0, description="Minimum relevance threshold"),
+    memory_type: Optional[str] = Query(None, description="Filter by type: fact|experience|belief|decision")
+):
+    """
+    Recall memories using semantic search with recency weighting.
+
+    Args:
+        query: Natural language search query
+        limit: Max results (1-100, default: 10)
+        min_relevance: Minimum relevance threshold (0.0-1.0, default: 0.7)
+        memory_type: Optional filter by type
+
+    Returns:
+        RecallMemoryResponse with list of memories
+
+    Example:
+        curl "http://localhost:8420/api/v1/recall?query=recent%20events&limit=5"
+    """
+    try:
+        tools = get_memory_tools()
+        memories = tools.recall(
+            query=query,
+            limit=limit,
+            min_relevance=min_relevance,
+            memory_type=memory_type
+        )
+        return RecallMemoryResponse(memories=memories, count=len(memories))
+    except Exception as e:
+        logger.error(f"Error recalling memories: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to recall memories: {str(e)}"
+        )
 
 
 async def event_stream(event_type_filter: Optional[str] = None) -> AsyncGenerator[str, None]:
