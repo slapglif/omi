@@ -57,6 +57,7 @@ def cli(ctx: click.Context, data_dir: Optional[str]) -> None:
         session-end       End session and backup
         store             Store a memory
         recall            Search memories
+        delete            Delete a memory
         check             Pre-compression checkpoint
         status            Show health and size
         audit             Security audit
@@ -68,6 +69,7 @@ def cli(ctx: click.Context, data_dir: Optional[str]) -> None:
         omi session-start
         omi store "Fixed the auth bug" --type experience
         omi recall "session checkpoint"
+        omi delete abc123def456...
         omi check
         omi session-end
     """
@@ -449,6 +451,69 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory
                 click.echo(click.style("No memories found. Try a different query.", fg="yellow"))
     except Exception as e:
         click.echo(click.style(f"Error: Failed to search memories: {e}", fg="red"))
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument('memory_id')
+@click.option('--force', '-f', is_flag=True, help='Skip confirmation prompt')
+@click.pass_context
+def delete(ctx, memory_id: str, force: bool) -> None:
+    """Delete a memory from the Graph Palace.
+
+    Args:
+        memory_id: The ID of the memory to delete
+        --force: Skip confirmation prompt
+
+    Examples:
+        omi delete abc123def456...
+        omi delete abc123def456... --force
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    db_path = base_path / "palace.sqlite"
+    if not db_path.exists():
+        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    try:
+        palace = GraphPalace(db_path)
+
+        # First, retrieve the memory to show what will be deleted
+        memory = palace.get_memory(memory_id)
+        if not memory:
+            click.echo(click.style(f"Error: Memory not found: {memory_id}", fg="red"))
+            sys.exit(1)
+
+        # Display memory details
+        content = memory.content
+        if len(content) > 100:
+            content = content[:97] + "..."
+
+        click.echo(click.style("Memory to delete:", fg="yellow", bold=True))
+        click.echo(f"  ID: {click.style(memory_id[:16] + '...', fg='cyan')}")
+        click.echo(f"  Type: {click.style(memory.memory_type, fg='cyan')}")
+        click.echo(f"  Content: {content}")
+
+        # Confirmation prompt unless --force is used
+        if not force:
+            click.echo()
+            if not click.confirm(click.style("Are you sure you want to delete this memory?", fg="red")):
+                click.echo(click.style("Deletion cancelled.", fg="yellow"))
+                sys.exit(0)
+
+        # Delete the memory
+        deleted = palace.delete_memory(memory_id)
+        if deleted:
+            click.echo(click.style("\n✓ Memory deleted successfully", fg="green", bold=True))
+        else:
+            click.echo(click.style("Error: Failed to delete memory", fg="red"))
+            sys.exit(1)
+    except Exception as e:
+        click.echo(click.style(f"Error: Failed to delete memory: {e}", fg="red"))
         sys.exit(1)
 
 
