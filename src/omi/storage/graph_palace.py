@@ -230,28 +230,28 @@ class GraphPalace:
         days_ago = (datetime.now() - timestamp).days
         return math.exp(-days_ago / self.RECENCY_HALF_LIFE)
 
-    def store_memory(self, 
-                   content: str, 
+    def store_memory(self,
+                   content: str,
                    embedding: List[float] = None,
                    memory_type: str = "experience",
                    confidence: Optional[float] = None) -> str:
         """
         Store a memory in the palace.
-        
+
         Args:
             content: The memory content text
             embedding: Vector embedding (1024-dim for bge-m3)
             memory_type: One of (fact, experience, belief, decision)
             confidence: 0.0-1.0 for beliefs
-            
+
         Returns:
             memory_id: UUID of the created memory
         """
         self._validate_memory_type(memory_type)
-        
+
         if confidence is not None and (confidence < 0 or confidence > 1):
             raise ValueError("confidence must be between 0.0 and 1.0")
-        
+
         memory_id = str(uuid.uuid4())
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         now = datetime.now().isoformat()
@@ -259,29 +259,28 @@ class GraphPalace:
         # Convert embedding to blob
         embedding_blob = self._embed_to_blob(embedding) if embedding else None
 
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT INTO memories
-                (id, content, embedding, memory_type, confidence, created_at,
-                 last_accessed, access_count, instance_ids, content_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                memory_id,
-                content,
-                embedding_blob,
-                memory_type,
-                confidence,
-                now,
-                now,
-                0,
-                json.dumps([]),
-                content_hash
-            ))
-            # Insert into FTS index
-            conn.execute("""
-                INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
-            """, (memory_id, content))
-            conn.commit()
+        self._conn.execute("""
+            INSERT INTO memories
+            (id, content, embedding, memory_type, confidence, created_at,
+             last_accessed, access_count, instance_ids, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            memory_id,
+            content,
+            embedding_blob,
+            memory_type,
+            confidence,
+            now,
+            now,
+            0,
+            json.dumps([]),
+            content_hash
+        ))
+        # Insert into FTS index
+        self._conn.execute("""
+            INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
+        """, (memory_id, content))
+        self._conn.commit()
 
         # Cache the embedding for fast access
         if embedding:
@@ -293,57 +292,54 @@ class GraphPalace:
         """
         Retrieve a memory by ID.
         Also updates access_count and last_accessed.
-        
+
         Args:
             memory_id: UUID of the memory
-            
+
         Returns:
             Memory object or None if not found
         """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA foreign_keys=ON")
+        # Update access stats
+        self._conn.execute("""
+            UPDATE memories
+            SET access_count = access_count + 1, last_accessed = ?
+            WHERE id = ?
+        """, (datetime.now().isoformat(), memory_id))
+        self._conn.commit()
 
-            # Update access stats
-            conn.execute("""
-                UPDATE memories
-                SET access_count = access_count + 1, last_accessed = ?
-                WHERE id = ?
-            """, (datetime.now().isoformat(), memory_id))
-            conn.commit()
-            
-            # Retrieve memory
-            cursor = conn.execute("""
-                SELECT id, content, embedding, memory_type, confidence, 
-                       created_at, last_accessed, access_count, instance_ids, content_hash
-                FROM memories WHERE id = ?
-            """, (memory_id,))
-            
-            row = cursor.fetchone()
-            if not row:
-                return None
-            
-            # Parse embedding from blob
-            embedding = self._blob_to_embed(row[2]) if row[2] else None
-            instance_ids = json.loads(row[8]) if row[8] else []
-            
-            memory = Memory(
-                id=row[0],
-                content=row[1],
-                embedding=embedding,
-                memory_type=row[3],
-                confidence=row[4],
-                created_at=datetime.fromisoformat(row[5]) if row[5] else None,
-                last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
-                access_count=row[7],
-                instance_ids=instance_ids,
-                content_hash=row[9]
-            )
-            
-            # Update cache
-            if embedding:
-                self._embedding_cache[memory_id] = embedding
-            
-            return memory
+        # Retrieve memory
+        cursor = self._conn.execute("""
+            SELECT id, content, embedding, memory_type, confidence,
+                   created_at, last_accessed, access_count, instance_ids, content_hash
+            FROM memories WHERE id = ?
+        """, (memory_id,))
+
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        # Parse embedding from blob
+        embedding = self._blob_to_embed(row[2]) if row[2] else None
+        instance_ids = json.loads(row[8]) if row[8] else []
+
+        memory = Memory(
+            id=row[0],
+            content=row[1],
+            embedding=embedding,
+            memory_type=row[3],
+            confidence=row[4],
+            created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+            last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
+            access_count=row[7],
+            instance_ids=instance_ids,
+            content_hash=row[9]
+        )
+
+        # Update cache
+        if embedding:
+            self._embedding_cache[memory_id] = embedding
+
+        return memory
 
     def recall(self, 
                query_embedding: List[float], 
@@ -720,51 +716,48 @@ class GraphPalace:
     def update_embedding(self, memory_id: str, embedding: List[float]) -> bool:
         """
         Update the embedding vector for a memory.
-        
+
         Args:
             memory_id: Memory ID
             embedding: New embedding vector
-            
+
         Returns:
             True if successful
         """
         embedding_blob = self._embed_to_blob(embedding) if embedding else None
-        
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
-                UPDATE memories SET embedding = ? WHERE id = ?
-            """, (embedding_blob, memory_id))
-            conn.commit()
-            
-            if cursor.rowcount > 0 and embedding:
-                self._embedding_cache[memory_id] = embedding
-            
-            return cursor.rowcount > 0
+
+        cursor = self._conn.execute("""
+            UPDATE memories SET embedding = ? WHERE id = ?
+        """, (embedding_blob, memory_id))
+        self._conn.commit()
+
+        if cursor.rowcount > 0 and embedding:
+            self._embedding_cache[memory_id] = embedding
+
+        return cursor.rowcount > 0
 
     def delete_memory(self, memory_id: str) -> bool:
         """
         Delete a memory and all its edges.
-        
+
         Args:
             memory_id: Memory ID to delete
-            
+
         Returns:
             True if deleted, False if not found
         """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA foreign_keys=ON")
-            # Remove from FTS index first
-            conn.execute("""
-                DELETE FROM memories_fts WHERE memory_id = ?
-            """, (memory_id,))
-            cursor = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
-            conn.commit()
+        # Remove from FTS index first
+        self._conn.execute("""
+            DELETE FROM memories_fts WHERE memory_id = ?
+        """, (memory_id,))
+        cursor = self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        self._conn.commit()
 
-            # Remove from cache
-            if memory_id in self._embedding_cache:
-                del self._embedding_cache[memory_id]
+        # Remove from cache
+        if memory_id in self._embedding_cache:
+            del self._embedding_cache[memory_id]
 
-            return cursor.rowcount > 0
+        return cursor.rowcount > 0
 
     def get_stats(self) -> Dict[str, Any]:
         """

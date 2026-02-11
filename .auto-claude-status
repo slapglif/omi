@@ -3,23 +3,23 @@
   "spec": "033-use-persistent-sqlite-connection-instead-of-connec",
   "state": "building",
   "subtasks": {
-    "completed": 1,
+    "completed": 2,
     "total": 11,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Setup Persistent Connection",
+    "current": "Migrate Methods to Persistent Connection",
     "id": null,
-    "total": 2
+    "total": 5
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 3,
+    "number": 4,
     "started_at": "2026-02-10T18:21:00.405148"
   },
-  "last_update": "2026-02-10T18:27:04.561453"
+  "last_update": "2026-02-10T18:28:42.684785"
 }
