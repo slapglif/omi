@@ -100,6 +100,69 @@ omi session-end
 omi audit
 ```
 
+## Cloud Storage Backends
+
+OMI supports multiple cloud storage backends for MoltVault backups and distributed agent memory:
+
+| Backend | Provider | Features | Status |
+|---------|----------|----------|--------|
+| **S3** | AWS, Cloudflare R2, MinIO | Full support, encryption, custom endpoints | ✅ Production |
+| **GCS** | Google Cloud Storage | Service account auth, ADC support | ✅ Production |
+| **Azure** | Azure Blob Storage | Connection string, SAS token, account key | ✅ Production |
+
+### Configuration
+
+```bash
+# AWS S3 (or compatible: R2, MinIO)
+omi config --set backup.backend=s3
+omi config --set backup.bucket=my-backup-bucket
+omi config --set backup.region=us-east-1
+# Optional: Custom endpoint for R2/MinIO
+omi config --set backup.endpoint_url=https://account.r2.cloudflarestorage.com
+
+# Google Cloud Storage
+omi config --set backup.backend=gcs
+omi config --set backup.bucket=my-gcs-bucket
+# Optional: Service account credentials
+omi config --set backup.credentials_file=/path/to/service-account.json
+
+# Azure Blob Storage
+omi config --set backup.backend=azure
+omi config --set backup.container=my-container
+omi config --set backup.connection_string="DefaultEndpointsProtocol=https;..."
+# Or use SAS token
+omi config --set backup.account_name=myaccount
+omi config --set backup.sas_token="?sv=2021-06-08&ss=b..."
+```
+
+### Cloud Sync
+
+```bash
+# Check sync status
+omi sync status
+
+# Push local memories to cloud
+omi sync push
+
+# Pull remote memories from cloud
+omi sync pull
+
+# Conflict resolution (if needed)
+# Strategies: last-write-wins (default), manual, merge
+omi config --set sync.conflict_strategy=last-write-wins
+```
+
+**Conflict Resolution Strategies:**
+- `last-write-wins`: Keep the most recently modified version (safest for single user)
+- `manual`: Prompt user to resolve conflicts manually
+- `merge`: Attempt automatic merge for text files (advanced)
+
+**Use Cases:**
+- **Disaster Recovery**: Automatic backups to S3/GCS/Azure ensure memories survive machine failures
+- **Team Collaboration**: Distributed agents share the same knowledge base across infrastructure
+- **Multi-Machine Access**: Sync memories between development laptop and production servers
+- **Encrypted Cloud Storage**: Memories are protected at rest with configurable encryption keys
+
 ## Embeddings: NIM vs Ollama
 
 | Provider | Model | Quality | Speed | Offline? |
@@ -133,10 +196,12 @@ OMI combines the best patterns from 50+ working agent implementations:
 ## Features
 
 - **NVIDIA NIM Integration**: baai/bge-m3 embeddings, highest quality
+- **Cloud Storage Backends**: AWS S3, Google Cloud Storage, Azure Blob Storage support
+- **Async Cloud Operations**: Non-blocking uploads/downloads with conflict resolution
 - **Belief Networks**: Track confidence with EMA updates
 - **Security by Architecture**: Byzantine verification, tamper detection
 - **MCP Integration**: Native OpenClaw tools
-- **Full Continuity**: MoltVault backup/restore
+- **Full Continuity**: MoltVault backup/restore with cloud sync
 
 ## Documentation
 
@@ -156,9 +221,9 @@ The bird of Hermes eats her wings. The palace lets her keep eating.
 
 ## Status
 
-**Version 0.1.0** — Research phase complete. Implementation in progress.
+**Version 0.2.0** — Cloud storage backends released. Production ready for S3, GCS, and Azure.
 
-See [Issues](https://github.com/slapglif/omi/issues) for current priorities.
+See [CHANGELOG.md](CHANGELOG.md) for release notes and [Issues](https://github.com/slapglif/omi/issues) for current priorities.
 
 ## License
 

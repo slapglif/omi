@@ -413,5 +413,82 @@ class TestCommandHelp:
         assert "type" in result.output.lower()
 
 
+def test_config():
+    """Test config command group functionality."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        runner = CliRunner()
+        base_path = Path(tmpdir) / "omi"
+
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        from omi.cli import cli
+
+        # Initialize
+        with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+            result = runner.invoke(cli, ["init"])
+            assert result.exit_code == 0
+
+            # Test config set
+            result = runner.invoke(cli, ["config", "set", "embedding.provider", "ollama"])
+            assert result.exit_code == 0
+            assert "ollama" in result.output
+
+            # Test config get
+            result = runner.invoke(cli, ["config", "get", "embedding.provider"])
+            assert result.exit_code == 0
+            assert "ollama" in result.output
+
+            # Test config show
+            result = runner.invoke(cli, ["config", "show"])
+            assert result.exit_code == 0
+            assert "embedding:" in result.output
+
+
+def test_sync():
+    """Test sync command group functionality."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        runner = CliRunner()
+        base_path = Path(tmpdir) / "omi"
+
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        from omi.cli import cli
+
+        # Initialize
+        with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+            result = runner.invoke(cli, ["init"])
+            assert result.exit_code == 0
+
+            # Test sync status without cloud configured (should show disabled)
+            result = runner.invoke(cli, ["sync", "status"])
+            assert result.exit_code == 0
+            assert "Cloud Sync Status" in result.output
+
+            # Configure cloud storage using backup config structure
+            config_path = base_path / "config.yaml"
+            import yaml
+            config_data = yaml.safe_load(config_path.read_text())
+            config_data['backup'] = {
+                'backend': 's3',
+                'bucket': 'test-bucket',
+                'region': 'us-east-1'
+            }
+            config_path.write_text(yaml.dump(config_data))
+
+            # Test sync push (should fail gracefully without actual S3 credentials)
+            result = runner.invoke(cli, ["sync", "push"])
+            # Exit code may be 0 or 1 depending on whether boto3 is available
+            # and whether credentials are configured
+            assert "Pushing to cloud storage" in result.output
+            assert "s3" in result.output.lower()
+            assert "test-bucket" in result.output
+
+            # Test sync pull (should fail gracefully without actual S3 credentials)
+            result = runner.invoke(cli, ["sync", "pull"])
+            # Exit code may be 0 or 1 depending on whether boto3 is available
+            assert "Pulling from cloud storage" in result.output
+            assert "s3" in result.output.lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

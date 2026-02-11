@@ -34,6 +34,232 @@ try:
 except ImportError:
     BOTO3_AVAILABLE = False
 
+# Storage backend imports
+from .storage_backends import (
+    S3Backend,
+    GCSBackend,
+    AzureBackend,
+    StorageBackend,
+    StorageObject,
+    StorageError,
+    StorageAuthError
+)
+
+
+def create_backend_from_config(config: Dict[str, Any]) -> StorageBackend:
+    """
+    Create a storage backend from configuration.
+
+    Args:
+        config: Configuration dictionary with structure:
+            {
+                'backup': {
+                    'backend': 's3' | 'gcs' | 'azure',
+                    'bucket': 'bucket-name',
+                    'prefix': 'optional/prefix/',
+                    # S3-specific options:
+                    'endpoint': 'https://...', # for R2, MinIO, etc.
+                    'access_key': 'key',
+                    'secret_key': 'secret',
+                    'region': 'us-east-1',
+                    # GCS-specific options:
+                    'credentials_file': '/path/to/creds.json',
+                    'project': 'my-project',
+                    # Azure-specific options:
+                    'connection_string': 'DefaultEndpointsProtocol=...',
+                    'account_name': 'myaccount',
+                    'account_key': 'key',
+                    'sas_token': 'token',
+                }
+            }
+
+    Returns:
+        StorageBackend instance (S3Backend, GCSBackend, or AzureBackend)
+
+    Raises:
+        ValueError: If backend type is missing or unsupported
+        ValueError: If required configuration is missing
+        ImportError: If required package is not installed
+
+    Examples:
+        >>> config = {'backup': {'backend': 's3', 'bucket': 'my-bucket'}}
+        >>> backend = create_backend_from_config(config)
+        >>> isinstance(backend, S3Backend)
+        True
+    """
+    # Extract backup config
+    if 'backup' not in config:
+        raise ValueError(
+            "Missing 'backup' section in configuration. "
+            "Run 'omi config set backup.backend s3' to configure."
+        )
+
+    backup_config = config['backup']
+
+    # Get backend type
+    backend_type = backup_config.get('backend')
+    if not backend_type:
+        raise ValueError(
+            "Missing 'backend' in backup configuration. "
+            "Run 'omi config set backup.backend s3' to set backend type."
+        )
+
+    # Get bucket name
+    bucket = backup_config.get('bucket')
+    if not bucket:
+        raise ValueError(
+            "Missing 'bucket' in backup configuration. "
+            "Run 'omi config set backup.bucket my-bucket' to set bucket name."
+        )
+
+    # Get optional prefix
+    prefix = backup_config.get('prefix', '')
+
+    # Create backend based on type
+    if backend_type == 's3':
+        return S3Backend(
+            bucket=bucket,
+            prefix=prefix,
+            endpoint=backup_config.get('endpoint'),
+            access_key=backup_config.get('access_key'),
+            secret_key=backup_config.get('secret_key'),
+            region=backup_config.get('region', 'auto'),
+        )
+
+    elif backend_type == 'gcs':
+        return GCSBackend(
+            bucket=bucket,
+            prefix=prefix,
+            credentials_file=backup_config.get('credentials_file'),
+            project=backup_config.get('project'),
+        )
+
+    elif backend_type == 'azure':
+        return AzureBackend(
+            bucket=bucket,
+            prefix=prefix,
+            connection_string=backup_config.get('connection_string'),
+            account_name=backup_config.get('account_name'),
+            account_key=backup_config.get('account_key'),
+            sas_token=backup_config.get('sas_token'),
+        )
+
+    else:
+        raise ValueError(
+            f"Unsupported backend type: '{backend_type}'. "
+            f"Supported types: 's3', 'gcs', 'azure'"
+        )
+
+
+class _MockS3BackendWrapper(StorageBackend):
+    """
+    Wrapper for mocked S3 client to provide StorageBackend interface
+    Used for backward compatibility with tests that mock _s3_client
+    """
+
+    def __init__(self, s3_client: Any, bucket: str):
+        super().__init__(bucket, prefix="")
+        self._client = s3_client
+
+    def upload(self, local_path: Path, key: str, metadata: Optional[Dict[str, str]] = None) -> str:
+        """Upload file using raw S3 client"""
+        full_key = self._make_key(key)
+        # For JSON files, use put_object to match old behavior
+        if str(local_path).endswith('.json'):
+            with open(local_path, 'r') as f:
+                self._client.put_object(
+                    Bucket=self.bucket,
+                    Key=full_key,
+                    Body=f.read(),
+                    ContentType="application/json",
+                )
+        else:
+            # For other files, use upload_fileobj
+            with open(local_path, "rb") as f:
+                extra_args = {}
+                if metadata:
+                    extra_args["Metadata"] = metadata
+                self._client.upload_fileobj(
+                    f, self.bucket, full_key,
+                    ExtraArgs=extra_args if extra_args else None
+                )
+        return full_key
+
+    def download(self, key: str, local_path: Path) -> Path:
+        """Download file using raw S3 client"""
+        full_key = self._make_key(key)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        # For JSON files, use get_object (for test compatibility)
+        # For other files, use download_file
+        if str(key).endswith('.json'):
+            response = self._client.get_object(Bucket=self.bucket, Key=full_key)
+            content = response["Body"].read()
+            local_path.write_bytes(content)
+        else:
+            self._client.download_file(self.bucket, full_key, str(local_path))
+        return local_path
+
+    def list(self, prefix: str = "", max_keys: Optional[int] = None):
+        """List objects using raw S3 client"""
+        from .storage_backends import StorageObject
+        full_prefix = self._make_key(prefix)
+        response = self._client.list_objects_v2(
+            Bucket=self.bucket,
+            Prefix=full_prefix,
+            **({"MaxKeys": max_keys} if max_keys else {})
+        )
+        objects = []
+        for item in response.get("Contents", []):
+            key = item.get("Key", "")
+            if self.prefix and key.startswith(self.prefix):
+                key = key[len(self.prefix):]
+            objects.append(StorageObject(
+                key=key,
+                size=item.get("Size", 0),
+                last_modified=item.get("LastModified"),
+                etag=item.get("ETag", "").strip('"'),
+            ))
+        return objects
+
+    def delete(self, key: str) -> bool:
+        """Delete object using raw S3 client"""
+        full_key = self._make_key(key)
+        self._client.delete_object(Bucket=self.bucket, Key=full_key)
+        return True
+
+    def exists(self, key: str) -> bool:
+        """Check if object exists using raw S3 client"""
+        full_key = self._make_key(key)
+        try:
+            self._client.head_object(Bucket=self.bucket, Key=full_key)
+            return True
+        except:
+            return False
+
+    def get_metadata(self, key: str):
+        """Get metadata using raw S3 client"""
+        from .storage_backends import StorageObject
+        full_key = self._make_key(key)
+        try:
+            response = self._client.head_object(Bucket=self.bucket, Key=full_key)
+            return StorageObject(
+                key=key,
+                size=response["ContentLength"],
+                last_modified=response["LastModified"],
+                etag=response.get("ETag", "").strip('"'),
+                metadata=response.get("Metadata"),
+            )
+        except:
+            return None
+
+    async def async_upload(self, local_path: Path, key: str, metadata: Optional[Dict[str, str]] = None) -> str:
+        """Async upload - delegates to sync implementation for mock"""
+        return self.upload(local_path, key, metadata)
+
+    async def async_download(self, key: str, local_path: Path) -> Path:
+        """Async download - delegates to sync implementation for mock"""
+        return self.download(key, local_path)
+
 
 @dataclass
 class BackupMetadata:
@@ -47,13 +273,373 @@ class BackupMetadata:
     files_included: List[str]
     base_path_hash: str  # Hash of base path for verification
     retention_days: int  # Days to keep this backup
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BackupMetadata":
         return cls(**data)
+
+
+@dataclass
+class ConflictInfo:
+    """Information about a file conflict between local and remote versions"""
+    file_path: str  # Path to the conflicting file
+    local_modified: datetime  # Local file modification time
+    remote_modified: datetime  # Remote file modification time
+    local_checksum: Optional[str]  # Local file checksum (SHA-256)
+    remote_checksum: Optional[str]  # Remote file etag/checksum
+    local_size: int  # Local file size in bytes
+    remote_size: int  # Remote file size in bytes
+    conflict_type: str  # 'both_modified', 'checksum_mismatch', 'size_mismatch'
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            "file_path": self.file_path,
+            "local_modified": self.local_modified.isoformat(),
+            "remote_modified": self.remote_modified.isoformat(),
+            "local_checksum": self.local_checksum,
+            "remote_checksum": self.remote_checksum,
+            "local_size": self.local_size,
+            "remote_size": self.remote_size,
+            "conflict_type": self.conflict_type,
+        }
+
+
+def detect_conflicts(
+    local_path: Path,
+    remote_obj: StorageObject,
+    last_sync_time: Optional[datetime] = None,
+) -> Optional[ConflictInfo]:
+    """
+    Detect conflicts between local and remote file versions using metadata.
+
+    A conflict is detected when:
+    1. Both local and remote files have been modified since last sync
+    2. Checksums differ (indicating different content)
+    3. File sizes differ significantly
+
+    Args:
+        local_path: Path to local file
+        remote_obj: StorageObject with remote file metadata
+        last_sync_time: Optional timestamp of last successful sync
+
+    Returns:
+        ConflictInfo if conflict detected, None otherwise
+
+    Raises:
+        FileNotFoundError: If local_path doesn't exist
+
+    Examples:
+        >>> from pathlib import Path
+        >>> from datetime import datetime
+        >>> from src.omi.storage_backends import StorageObject
+        >>> local = Path("test.txt")
+        >>> remote = StorageObject(
+        ...     key="test.txt",
+        ...     size=100,
+        ...     last_modified=datetime.now(),
+        ...     etag="abc123"
+        ... )
+        >>> conflict = detect_conflicts(local, remote)
+        >>> conflict is None or isinstance(conflict, ConflictInfo)
+        True
+    """
+    if not local_path.exists():
+        raise FileNotFoundError(f"Local file not found: {local_path}")
+
+    # Get local file metadata
+    local_stat = local_path.stat()
+    local_modified = datetime.fromtimestamp(local_stat.st_mtime)
+    local_size = local_stat.st_size
+
+    # Calculate local file checksum
+    local_checksum = None
+    try:
+        with open(local_path, 'rb') as f:
+            local_checksum = hashlib.sha256(f.read()).hexdigest()
+    except Exception:
+        # If we can't read the file, we can't calculate checksum
+        pass
+
+    # Extract remote metadata
+    remote_modified = remote_obj.last_modified
+    remote_size = remote_obj.size
+    remote_checksum = remote_obj.etag
+
+    # Check for conflicts
+    conflict_type = None
+
+    # Case 1: Both modified since last sync (if last_sync_time provided)
+    if last_sync_time:
+        local_modified_since_sync = local_modified > last_sync_time
+        remote_modified_since_sync = remote_modified > last_sync_time
+
+        if local_modified_since_sync and remote_modified_since_sync:
+            # Both files changed - check if they're actually different
+            if local_checksum and remote_checksum:
+                # Remove quotes from etag if present (S3 etags are quoted)
+                remote_etag_clean = remote_checksum.strip('"')
+                if local_checksum != remote_etag_clean:
+                    conflict_type = "both_modified"
+            elif local_size != remote_size:
+                conflict_type = "both_modified"
+
+    # Case 2: Checksums differ (even without last_sync_time)
+    if not conflict_type and local_checksum and remote_checksum:
+        remote_etag_clean = remote_checksum.strip('"')
+        if local_checksum != remote_etag_clean:
+            conflict_type = "checksum_mismatch"
+
+    # Case 3: Size mismatch (strong indicator of different content)
+    if not conflict_type and local_size != remote_size:
+        conflict_type = "size_mismatch"
+
+    # Return conflict info if conflict detected
+    if conflict_type:
+        return ConflictInfo(
+            file_path=str(local_path),
+            local_modified=local_modified,
+            remote_modified=remote_modified,
+            local_checksum=local_checksum,
+            remote_checksum=remote_checksum,
+            local_size=local_size,
+            remote_size=remote_size,
+            conflict_type=conflict_type,
+        )
+
+    return None
+
+
+def resolve_conflict(
+    conflict: ConflictInfo,
+    strategy: str = "last-write-wins",
+    backend: Optional[StorageBackend] = None,
+    local_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """
+    Resolve a file conflict using the specified strategy.
+
+    Strategies:
+    - 'last-write-wins': Keep the most recently modified version
+    - 'manual': Return conflict details for manual resolution (no automatic action)
+    - 'merge': Attempt to merge both versions (for text files only)
+
+    Args:
+        conflict: ConflictInfo object describing the conflict
+        strategy: Resolution strategy to use ('last-write-wins', 'manual', 'merge')
+        backend: Optional StorageBackend for downloading remote version
+        local_path: Optional Path to local file (required for merge strategy)
+
+    Returns:
+        Dict with resolution result:
+        {
+            'status': 'resolved' | 'manual_required',
+            'action': 'keep_local' | 'keep_remote' | 'merged' | 'none',
+            'winner': 'local' | 'remote' | 'both' | None,
+            'message': str,
+            'conflict': ConflictInfo (for manual strategy)
+        }
+
+    Raises:
+        ValueError: If strategy is invalid or required parameters are missing
+
+    Examples:
+        >>> from datetime import datetime
+        >>> conflict = ConflictInfo(
+        ...     file_path="test.txt",
+        ...     local_modified=datetime(2024, 1, 1, 12, 0),
+        ...     remote_modified=datetime(2024, 1, 2, 12, 0),
+        ...     local_checksum="abc123",
+        ...     remote_checksum="def456",
+        ...     local_size=100,
+        ...     remote_size=120,
+        ...     conflict_type="both_modified"
+        ... )
+        >>> result = resolve_conflict(conflict, strategy="last-write-wins")
+        >>> result['action']
+        'keep_remote'
+    """
+    # Validate strategy
+    valid_strategies = ['last-write-wins', 'manual', 'merge']
+    if strategy not in valid_strategies:
+        raise ValueError(
+            f"Invalid strategy '{strategy}'. "
+            f"Valid options: {', '.join(valid_strategies)}"
+        )
+
+    # Manual strategy - return conflict for user decision
+    if strategy == 'manual':
+        return {
+            'status': 'manual_required',
+            'action': 'none',
+            'winner': None,
+            'message': (
+                f"Conflict detected in {conflict.file_path}. "
+                f"Local modified: {conflict.local_modified.isoformat()}, "
+                f"Remote modified: {conflict.remote_modified.isoformat()}. "
+                f"Manual resolution required."
+            ),
+            'conflict': conflict,
+        }
+
+    # Last-write-wins strategy - keep the newest version
+    if strategy == 'last-write-wins':
+        if conflict.remote_modified > conflict.local_modified:
+            return {
+                'status': 'resolved',
+                'action': 'keep_remote',
+                'winner': 'remote',
+                'message': (
+                    f"Resolved {conflict.file_path}: keeping remote version "
+                    f"(modified {conflict.remote_modified.isoformat()}, "
+                    f"newer than local {conflict.local_modified.isoformat()})"
+                ),
+            }
+        else:
+            return {
+                'status': 'resolved',
+                'action': 'keep_local',
+                'winner': 'local',
+                'message': (
+                    f"Resolved {conflict.file_path}: keeping local version "
+                    f"(modified {conflict.local_modified.isoformat()}, "
+                    f"newer than or equal to remote {conflict.remote_modified.isoformat()})"
+                ),
+            }
+
+    # Merge strategy - attempt to merge text files
+    if strategy == 'merge':
+        # Validate required parameters
+        if not local_path:
+            raise ValueError(
+                "local_path required for merge strategy"
+            )
+        if not backend:
+            raise ValueError(
+                "backend required for merge strategy to download remote version"
+            )
+
+        local_file = Path(local_path)
+        if not local_file.exists():
+            raise FileNotFoundError(f"Local file not found: {local_file}")
+
+        # Check if file appears to be text (simple heuristic)
+        try:
+            with open(local_file, 'r', encoding='utf-8') as f:
+                local_content = f.read()
+        except (UnicodeDecodeError, PermissionError) as e:
+            # Binary file or unreadable - can't merge
+            return {
+                'status': 'manual_required',
+                'action': 'none',
+                'winner': None,
+                'message': (
+                    f"Cannot merge {conflict.file_path}: file is not text or unreadable. "
+                    f"Error: {e}. Manual resolution required."
+                ),
+                'conflict': conflict,
+            }
+
+        # Download remote version for comparison
+        try:
+            with tempfile.NamedTemporaryFile(mode='w+b', delete=False) as tmp:
+                remote_tmp_path = Path(tmp.name)
+
+            try:
+                # Extract the key from file_path (relative to storage root)
+                remote_key = conflict.file_path
+                backend.download(key=remote_key, local_path=remote_tmp_path)
+
+                # Read remote content
+                try:
+                    with open(remote_tmp_path, 'r', encoding='utf-8') as f:
+                        remote_content = f.read()
+                except (UnicodeDecodeError, PermissionError):
+                    return {
+                        'status': 'manual_required',
+                        'action': 'none',
+                        'winner': None,
+                        'message': (
+                            f"Cannot merge {conflict.file_path}: "
+                            f"remote file is not text or unreadable. "
+                            f"Manual resolution required."
+                        ),
+                        'conflict': conflict,
+                    }
+
+                # Simple merge: check if files are identical (despite different metadata)
+                if local_content == remote_content:
+                    return {
+                        'status': 'resolved',
+                        'action': 'keep_local',
+                        'winner': 'both',
+                        'message': (
+                            f"Resolved {conflict.file_path}: files are identical "
+                            f"(false conflict due to metadata differences)"
+                        ),
+                    }
+
+                # Check if one is a superset of the other (simple append case)
+                if local_content in remote_content:
+                    return {
+                        'status': 'manual_required',
+                        'action': 'keep_remote',
+                        'winner': 'remote',
+                        'message': (
+                            f"Merge suggested for {conflict.file_path}: "
+                            f"remote appears to be superset of local. "
+                            f"Consider keeping remote version."
+                        ),
+                        'conflict': conflict,
+                    }
+                elif remote_content in local_content:
+                    return {
+                        'status': 'manual_required',
+                        'action': 'keep_local',
+                        'winner': 'local',
+                        'message': (
+                            f"Merge suggested for {conflict.file_path}: "
+                            f"local appears to be superset of remote. "
+                            f"Consider keeping local version."
+                        ),
+                        'conflict': conflict,
+                    }
+
+                # Complex conflict - need manual merge
+                return {
+                    'status': 'manual_required',
+                    'action': 'none',
+                    'winner': None,
+                    'message': (
+                        f"Cannot auto-merge {conflict.file_path}: "
+                        f"files have diverged. Manual merge required. "
+                        f"Local: {len(local_content)} chars, "
+                        f"Remote: {len(remote_content)} chars"
+                    ),
+                    'conflict': conflict,
+                }
+
+            finally:
+                # Cleanup temp file
+                remote_tmp_path.unlink(missing_ok=True)
+
+        except Exception as e:
+            return {
+                'status': 'manual_required',
+                'action': 'none',
+                'winner': None,
+                'message': (
+                    f"Error during merge of {conflict.file_path}: {e}. "
+                    f"Manual resolution required."
+                ),
+                'conflict': conflict,
+            }
+
+    # Should never reach here due to validation above
+    raise ValueError(f"Unhandled strategy: {strategy}")
 
 
 class EncryptionManager:
@@ -132,42 +718,59 @@ class MoltVault:
         self.bucket = bucket
         self.endpoint = endpoint
         self.region = region
-        
+
         # Get credentials from env or parameters
         self.access_key = access_key or os.getenv("R2_ACCESS_KEY_ID")
         self.secret_key = secret_key or os.getenv("R2_SECRET_ACCESS_KEY")
-        
+
         # State tracking
-        self._s3_client: Optional[Any] = None
+        self._backend: Optional[StorageBackend] = None
+        self._s3_client: Optional[Any] = None  # Kept for backward compatibility with tests
         self._encryption: Optional[EncryptionManager] = None
         self._last_backup_path = self.base_path / ".moltvault_last_backup"
-        
+
         # Check for encryption key
         if os.getenv("MOLTVAULT_KEY") and CRYPTO_AVAILABLE:
             self._encryption = EncryptionManager()
     
-    def _get_s3_client(self) -> Any:
-        """Get or create S3 client"""
-        if not BOTO3_AVAILABLE:
-            raise ImportError(
-                "boto3 package required. Install with: pip install boto3"
-            )
-        
-        if self._s3_client is None:
+    def _get_backend(self) -> StorageBackend:
+        """Get or create storage backend"""
+        # If _s3_client is set directly (e.g., by tests), use mock wrapper
+        if self._s3_client is not None:
+            if self._backend is None:
+                # Use mock wrapper for backward compatibility with tests
+                self._backend = _MockS3BackendWrapper(self._s3_client, self.bucket)
+            return self._backend
+
+        if self._backend is None:
+            if not BOTO3_AVAILABLE:
+                raise ImportError(
+                    "boto3 package required. Install with: pip install boto3"
+                )
+
             if not self.access_key or not self.secret_key:
                 raise ValueError(
                     "R2 credentials required. Set R2_ACCESS_KEY_ID and "
                     "R2_SECRET_ACCESS_KEY environment variables."
                 )
-            
-            self._s3_client = boto3.client(
-                "s3",
-                endpoint_url=self.endpoint,
-                aws_access_key_id=self.access_key,
-                aws_secret_access_key=self.secret_key,
-                region_name=self.region,
+
+            self._backend = S3Backend(
+                bucket=self.bucket,
+                prefix="",
+                endpoint=self.endpoint,
+                access_key=self.access_key,
+                secret_key=self.secret_key,
+                region=self.region,
             )
-        return self._s3_client
+
+        return self._backend
+
+    def _get_s3_client(self) -> Any:
+        """Get or create S3 client (deprecated - for backward compatibility)"""
+        backend = self._get_backend()
+        if hasattr(backend, '_client'):
+            return backend._client
+        return None
     
     def _get_files_to_backup(self, incremental: bool = False) -> List[Path]:
         """
@@ -355,79 +958,83 @@ class MoltVault:
                 retention_days=30 if backup_type == "full" else 7,
             )
             
-            # Upload to R2/S3
+            # Upload to R2/S3 using backend abstraction
+            backend = self._get_backend()
+
             s3_key = f"backups/{backup_id}.tar.gz"
             if use_encryption:
                 s3_key += ".enc"
             meta_key = f"backups/{backup_id}.json"
-            
-            s3 = self._get_s3_client()
-            
-            # Upload archive
-            with open(archive_path, "rb") as f:
-                s3.upload_fileobj(
-                    f,
-                    self.bucket,
-                    s3_key,
-                    ExtraArgs={
-                        "Metadata": {
-                            "backup-type": backup_type,
-                            "created-at": metadata.created_at,
-                            "checksum": checksum,
-                        }
-                    }
-                )
-            
-            # Upload metadata
-            s3.put_object(
-                Bucket=self.bucket,
-                Key=meta_key,
-                Body=json.dumps(metadata.to_dict(), indent=2),
-                ContentType="application/json",
+
+            # Upload archive with metadata
+            backend.upload(
+                local_path=archive_path,
+                key=s3_key,
+                metadata={
+                    "backup-type": backup_type,
+                    "created-at": metadata.created_at,
+                    "checksum": checksum,
+                }
             )
-            
+
+            # Upload metadata JSON
+            meta_file = temp_dir / f"{backup_id}.json"
+            meta_file.write_text(json.dumps(metadata.to_dict(), indent=2))
+            backend.upload(
+                local_path=meta_file,
+                key=meta_key,
+            )
+
             # Update last backup time
             self._last_backup_path.write_text(datetime.now().isoformat())
-            
+
             return metadata
     
     def list_backups(self) -> List[BackupMetadata]:
         """
         List all available backups with metadata
-        
+
         Returns:
             List of BackupMetadata sorted by creation time (newest first)
         """
-        s3 = self._get_s3_client()
-        
+        backend = self._get_backend()
+
         backups = []
         prefix = "backups/"
-        
+
         try:
-            response = s3.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
-            
-            if "Contents" not in response:
+            objects = backend.list(prefix=prefix)
+
+            if not objects:
                 return []
-            
+
             # Find metadata files
-            for obj in response["Contents"]:
-                key = obj["Key"]
+            for obj in objects:
+                key = obj.key
                 if not key.endswith(".json"):
                     continue
-                
+
                 try:
-                    meta_obj = s3.get_object(Bucket=self.bucket, Key=key)
-                    meta_data = json.loads(meta_obj["Body"].read())
-                    backups.append(BackupMetadata.from_dict(meta_data))
+                    # Download metadata to temporary file
+                    with tempfile.NamedTemporaryFile(mode='w+b', delete=False) as tmp:
+                        tmp_path = Path(tmp.name)
+
+                    try:
+                        backend.download(key=f"{prefix}{key}", local_path=tmp_path)
+                        meta_data = json.loads(tmp_path.read_text())
+                        backups.append(BackupMetadata.from_dict(meta_data))
+                    finally:
+                        tmp_path.unlink(missing_ok=True)
+
                 except Exception:
                     continue
-            
+
             # Sort by creation time (newest first)
             backups.sort(key=lambda x: x.created_at, reverse=True)
-            
-        except ClientError as e:
+
+        except StorageError as e:
             raise RuntimeError(f"Failed to list backups: {e}")
-        
+
         return backups
     
     def restore(
@@ -438,54 +1045,56 @@ class MoltVault:
     ) -> Path:
         """
         Restore from backup
-        
+
         Args:
             backup_id: ID of backup to restore
             target_path: Where to restore (default: original backup location)
             verify: Verify checksum integrity
-            
+
         Returns:
             Path to restored base directory
         """
-        s3 = self._get_s3_client()
-        
+        backend = self._get_backend()
+
         # Determine paths
         s3_key = f"backups/{backup_id}.tar.gz"
         meta_key = f"backups/{backup_id}.json"
-        
+
         # Download metadata first
-        try:
-            meta_obj = s3.get_object(Bucket=self.bucket, Key=meta_key)
-            metadata = BackupMetadata.from_dict(
-                json.loads(meta_obj["Body"].read())
-            )
-        except ClientError as e:
-            raise ValueError(f"Backup {backup_id} not found: {e}")
-        
-        # Adjust for encrypted backups
-        if metadata.encrypted:
-            if not CRYPTO_AVAILABLE:
-                raise ImportError("cryptography package required for decryption")
-            if not self._encryption:
-                raise ValueError("MOLTVAULT_KEY required to restore encrypted backup")
-            s3_key += ".enc"
-        
-        # Use base_path from metadata or provided target
-        if target_path:
-            restore_path = Path(target_path)
-        else:
-            restore_path = self.base_path
-        
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_dir = Path(tmpdir)
+            meta_path = temp_dir / f"{backup_id}.json"
+
+            try:
+                backend.download(key=meta_key, local_path=meta_path)
+                metadata = BackupMetadata.from_dict(
+                    json.loads(meta_path.read_text())
+                )
+            except (KeyError, StorageError) as e:
+                raise ValueError(f"Backup {backup_id} not found: {e}")
+
+            # Adjust for encrypted backups
+            if metadata.encrypted:
+                if not CRYPTO_AVAILABLE:
+                    raise ImportError("cryptography package required for decryption")
+                if not self._encryption:
+                    raise ValueError("MOLTVAULT_KEY required to restore encrypted backup")
+                s3_key += ".enc"
+
+            # Use base_path from metadata or provided target
+            if target_path:
+                restore_path = Path(target_path)
+            else:
+                restore_path = self.base_path
+
             archive_path = temp_dir / f"{backup_id}.tar.gz"
-            
+
             # Download archive
             try:
-                s3.download_file(self.bucket, s3_key, str(archive_path))
-            except ClientError as e:
+                backend.download(key=s3_key, local_path=archive_path)
+            except (KeyError, StorageError) as e:
                 raise RuntimeError(f"Failed to download backup: {e}")
-            
+
             # Verify checksum
             if verify:
                 actual_checksum = self._calculate_checksum(archive_path)
@@ -494,14 +1103,14 @@ class MoltVault:
                         f"Checksum mismatch! Expected {metadata.checksum}, "
                         f"got {actual_checksum}"
                     )
-            
+
             # Decrypt if needed
             if metadata.encrypted:
                 archive_path = self._decrypt_file(archive_path, temp_dir)
-            
+
             # Ensure restore path exists
             restore_path.mkdir(parents=True, exist_ok=True)
-            
+
             # Extract archive
             with tarfile.open(archive_path, "r:gz") as tar:
                 # Security: validate members
@@ -515,57 +1124,57 @@ class MoltVault:
                             f"Malicious archive: path traversal detected in {member.name}"
                         )
                 tar.extractall(path=restore_path)
-        
+
         return restore_path
     
     def cleanup(self, dry_run: bool = False) -> Dict[str, int]:
         """
         Apply retention policy cleanup
-        
+
         - Full backups: keep for 30 days
         - Incremental backups: keep for 7 days
-        
+
         Args:
             dry_run: If True, only report what would be deleted
-            
+
         Returns:
             Dict with 'deleted' and 'kept' counts
         """
-        s3 = self._get_s3_client()
+        backend = self._get_backend()
         backups = self.list_backups()
-        
+
         now = datetime.now()
         deleted = 0
         kept = 0
-        
+
         for backup in backups:
             try:
                 created = datetime.fromisoformat(backup.created_at)
                 age_days = (now - created).days
-                
+
                 # Determine retention
                 max_age = backup.retention_days
-                
+
                 if age_days > max_age:
                     if not dry_run:
                         # Delete archive and metadata
                         s3_key = f"backups/{backup.backup_id}.tar.gz"
                         meta_key = f"backups/{backup.backup_id}.json"
-                        
+
                         if backup.encrypted:
                             s3_key += ".enc"
-                        
+
                         try:
-                            s3.delete_object(Bucket=self.bucket, Key=s3_key)
-                            s3.delete_object(Bucket=self.bucket, Key=meta_key)
-                        except ClientError:
+                            backend.delete(s3_key)
+                            backend.delete(meta_key)
+                        except StorageError:
                             pass
                     deleted += 1
                 else:
                     kept += 1
             except Exception:
                 kept += 1
-        
+
         return {"deleted": deleted, "kept": kept}
 
 

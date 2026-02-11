@@ -66,8 +66,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "--cov=omi --cov-report=term-missing --cov-report=html --strict-markers"
+addopts = "--strict-markers"
+# Note: Coverage options (--cov) removed due to missing pytest-cov installation
 markers = [
+    "asyncio: marks tests as async",
     "nim: marks tests requiring NIM_API_KEY (deselect with '-m not nim')",
     "slow: marks tests as slow (deselect with '-m not slow')",
     "integration: marks integration tests",
