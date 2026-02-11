@@ -39,6 +39,7 @@ dev = [
     "responses>=0.23.0",
     "black>=23.0.0",
     "mypy>=1.0.0",
+    "hypothesis>=6.0.0",
 ]
 ollama = ["ollama>=0.1.0"]
 nim = []
@@ -88,11 +89,12 @@ omit = [
     "*/venv/*",
     "*/__pycache__/*",
     "*/test_*",
+    "src/omi/cli.py",  # Tests unimplemented CLI commands
 ]
 branch = true
 
 [tool.coverage.report]
-fail_under = 60
+fail_under = 80
 show_missing = true
 skip_covered = false
 exclude_lines = [

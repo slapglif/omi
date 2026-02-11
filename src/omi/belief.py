@@ -202,19 +202,25 @@ class ContradictionDetector:
 
 def ema_update(current: float, target: float, lambda_val: float) -> float:
     """
-    Exponential Moving Average update
-    
+    Exponential Moving Average update with float precision handling
+
     Formula: new = current + λ * (target - current)
-    
+
     Args:
         current: Current value
         target: Target value to move toward
         lambda_val: Update rate (0-1)
-    
+
     Returns:
-        Updated value
+        Updated value, guaranteed to be between current and target
     """
-    return current + lambda_val * (target - current)
+    result = current + lambda_val * (target - current)
+
+    # Clamp result between min and max to handle floating-point precision
+    # This ensures the mathematical property holds even with very small floats
+    min_val = min(current, target)
+    max_val = max(current, target)
+    return max(min_val, min(result, max_val))
 
 
 def calculate_recency_score(days_ago: float, half_life: float = 30.0) -> float:
