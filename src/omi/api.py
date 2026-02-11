@@ -21,6 +21,8 @@ from .embeddings import OllamaEmbedder, EmbeddingCache
 
 # Security
 from .security import IntegrityChecker, TopologyVerifier, ConsensusManager
+from .events import MemoryStoredEvent
+from .event_bus import get_event_bus
 
 # Vault
 from .moltvault import MoltVault
@@ -98,31 +100,40 @@ class MemoryTools:
              confidence: Optional[float] = None) -> str:
         """
         memory_store: Persist memory with embedding
-        
+
         Args:
             content: Memory text to store
             memory_type: Type (fact|experience|belief|decision)
             related_to: IDs of related memories (optional)
             confidence: For beliefs, 0.0-1.0
-        
+
         Returns:
             memory_id: UUID for created memory
         """
         # Generate embedding with caching
         embedding = self.cache.get_or_compute(content)
-        
+
         # Store in palace
         memory_id = self.palace.store_memory(
             content=content,
             memory_type=memory_type,
             confidence=confidence
         )
-        
+
         # Create relationships
         if related_to:
             for related_id in related_to:
                 self.palace.create_edge(memory_id, related_id, 'RELATED_TO', 0.5)
-        
+
+        # Emit event
+        event = MemoryStoredEvent(
+            memory_id=memory_id,
+            content=content,
+            memory_type=memory_type,
+            confidence=confidence
+        )
+        get_event_bus().publish(event)
+
         return memory_id
 
 
