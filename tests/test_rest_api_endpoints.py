@@ -814,3 +814,350 @@ class TestCORS:
         In production, test CORS on SSE endpoint with a running server.
         """
         pass
+
+
+class TestIntegration:
+    """Test full workflow integration scenarios."""
+
+    def test_full_workflow_store_and_recall(self, client, mock_memory_tools, disable_auth):
+        """
+        Full workflow: Store memory -> Recall it -> Verify responses
+        Assert: Complete end-to-end flow works correctly
+        """
+        # Configure mock to return a specific memory when recalled
+        stored_memory_id = "mem_integration_test_123"
+        mock_memory_tools.store.return_value = stored_memory_id
+        mock_memory_tools.recall.return_value = [
+            {
+                "id": stored_memory_id,
+                "content": "Integration test memory",
+                "memory_type": "fact",
+                "relevance": 0.95,
+                "created_at": "2024-01-01T00:00:00",
+                "final_score": 0.90
+            }
+        ]
+
+        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            # Step 1: Store a memory
+            store_response = client.post(
+                "/api/v1/store",
+                json={
+                    "content": "Integration test memory",
+                    "memory_type": "fact",
+                    "confidence": 0.95
+                }
+            )
+
+            # Verify store succeeded
+            assert store_response.status_code == 201
+            store_data = store_response.json()
+            assert store_data["memory_id"] == stored_memory_id
+            assert store_data["message"] == "Memory stored successfully"
+
+            # Verify MemoryTools.store was called correctly
+            mock_memory_tools.store.assert_called_once_with(
+                content="Integration test memory",
+                memory_type="fact",
+                related_to=None,
+                confidence=0.95
+            )
+
+            # Step 2: Recall the memory
+            recall_response = client.get(
+                "/api/v1/recall",
+                params={
+                    "query": "integration test",
+                    "limit": 10,
+                    "min_relevance": 0.7
+                }
+            )
+
+            # Verify recall succeeded
+            assert recall_response.status_code == 200
+            recall_data = recall_response.json()
+            assert recall_data["count"] == 1
+            assert len(recall_data["memories"]) == 1
+
+            # Verify recalled memory matches stored memory
+            recalled_memory = recall_data["memories"][0]
+            assert recalled_memory["id"] == stored_memory_id
+            assert recalled_memory["content"] == "Integration test memory"
+            assert recalled_memory["memory_type"] == "fact"
+            assert recalled_memory["relevance"] == 0.95
+
+            # Verify MemoryTools.recall was called correctly
+            mock_memory_tools.recall.assert_called_once_with(
+                query="integration test",
+                limit=10,
+                min_relevance=0.7,
+                memory_type=None
+            )
+
+    def test_full_workflow_with_authentication(self, client, mock_memory_tools):
+        """
+        Full workflow with authentication: Store -> Recall with API key
+        Assert: Authenticated requests work end-to-end
+        """
+        # Set API key in environment
+        old_key = os.environ.get("OMI_API_KEY")
+        os.environ["OMI_API_KEY"] = "integration-test-key"
+
+        try:
+            # Configure mock
+            stored_memory_id = "mem_auth_test_456"
+            mock_memory_tools.store.return_value = stored_memory_id
+            mock_memory_tools.recall.return_value = [
+                {
+                    "id": stored_memory_id,
+                    "content": "Authenticated memory",
+                    "memory_type": "experience",
+                    "relevance": 0.88,
+                    "created_at": "2024-01-01T00:00:00",
+                    "final_score": 0.82
+                }
+            ]
+
+            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+                # Step 1: Store with authentication
+                store_response = client.post(
+                    "/api/v1/store",
+                    json={
+                        "content": "Authenticated memory",
+                        "memory_type": "experience"
+                    },
+                    headers={"X-API-Key": "integration-test-key"}
+                )
+
+                assert store_response.status_code == 201
+                assert store_response.json()["memory_id"] == stored_memory_id
+
+                # Step 2: Recall with authentication
+                recall_response = client.get(
+                    "/api/v1/recall",
+                    params={"query": "authenticated"},
+                    headers={"X-API-Key": "integration-test-key"}
+                )
+
+                assert recall_response.status_code == 200
+                recall_data = recall_response.json()
+                assert recall_data["count"] == 1
+                assert recall_data["memories"][0]["id"] == stored_memory_id
+
+                # Step 3: Verify unauthenticated request fails
+                unauth_response = client.get(
+                    "/api/v1/recall",
+                    params={"query": "authenticated"}
+                )
+
+                assert unauth_response.status_code == 401
+        finally:
+            # Restore old key
+            if old_key:
+                os.environ["OMI_API_KEY"] = old_key
+            else:
+                del os.environ["OMI_API_KEY"]
+
+    def test_full_workflow_multiple_memories(self, client, mock_memory_tools, disable_auth):
+        """
+        Full workflow: Store multiple memories -> Recall with filters
+        Assert: Can handle multiple memories and filtering
+        """
+        # Configure mock for multiple stores
+        mock_memory_tools.store.side_effect = ["mem_1", "mem_2", "mem_3"]
+        mock_memory_tools.recall.return_value = [
+            {
+                "id": "mem_1",
+                "content": "First fact",
+                "memory_type": "fact",
+                "relevance": 0.95,
+                "created_at": "2024-01-01T00:00:00",
+                "final_score": 0.90
+            },
+            {
+                "id": "mem_2",
+                "content": "Second fact",
+                "memory_type": "fact",
+                "relevance": 0.85,
+                "created_at": "2024-01-01T01:00:00",
+                "final_score": 0.80
+            }
+        ]
+
+        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            # Store multiple memories
+            memories = [
+                {"content": "First fact", "memory_type": "fact"},
+                {"content": "Second fact", "memory_type": "fact"},
+                {"content": "An experience", "memory_type": "experience"}
+            ]
+
+            stored_ids = []
+            for memory in memories:
+                response = client.post("/api/v1/store", json=memory)
+                assert response.status_code == 201
+                stored_ids.append(response.json()["memory_id"])
+
+            # Verify all were stored
+            assert len(stored_ids) == 3
+            assert stored_ids == ["mem_1", "mem_2", "mem_3"]
+
+            # Recall with type filter
+            recall_response = client.get(
+                "/api/v1/recall",
+                params={
+                    "query": "fact",
+                    "memory_type": "fact",
+                    "limit": 5
+                }
+            )
+
+            assert recall_response.status_code == 200
+            recall_data = recall_response.json()
+            assert recall_data["count"] == 2
+            # Verify only facts were returned
+            for memory in recall_data["memories"]:
+                assert memory["memory_type"] == "fact"
+
+    def test_full_workflow_with_cors(self, client, mock_memory_tools, disable_auth):
+        """
+        Full workflow with CORS headers: Store -> Recall with Origin header
+        Assert: CORS headers present throughout entire workflow
+        """
+        # Configure mock
+        mock_memory_tools.store.return_value = "mem_cors_test"
+        mock_memory_tools.recall.return_value = [
+            {
+                "id": "mem_cors_test",
+                "content": "CORS test memory",
+                "memory_type": "fact",
+                "relevance": 0.92,
+                "created_at": "2024-01-01T00:00:00",
+                "final_score": 0.88
+            }
+        ]
+
+        origin = "http://localhost:3000"
+
+        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            # Store with Origin header
+            store_response = client.post(
+                "/api/v1/store",
+                json={
+                    "content": "CORS test memory",
+                    "memory_type": "fact"
+                },
+                headers={"Origin": origin}
+            )
+
+            assert store_response.status_code == 201
+            assert "access-control-allow-origin" in store_response.headers
+            assert "access-control-allow-credentials" in store_response.headers
+
+            # Recall with Origin header
+            recall_response = client.get(
+                "/api/v1/recall",
+                params={"query": "cors test"},
+                headers={"Origin": origin}
+            )
+
+            assert recall_response.status_code == 200
+            assert "access-control-allow-origin" in recall_response.headers
+            assert "access-control-allow-credentials" in recall_response.headers
+
+            # Verify data integrity
+            recall_data = recall_response.json()
+            assert recall_data["count"] == 1
+            assert recall_data["memories"][0]["id"] == "mem_cors_test"
+
+    def test_full_workflow_error_recovery(self, client, mock_memory_tools, disable_auth):
+        """
+        Full workflow with error handling: Failed store -> Successful retry
+        Assert: Can recover from errors and continue workflow
+        """
+        # Configure mock to fail first, then succeed
+        mock_memory_tools.store.side_effect = [
+            Exception("Temporary database error"),
+            "mem_retry_success"
+        ]
+        mock_memory_tools.recall.return_value = [
+            {
+                "id": "mem_retry_success",
+                "content": "Retry successful",
+                "memory_type": "fact",
+                "relevance": 0.90,
+                "created_at": "2024-01-01T00:00:00",
+                "final_score": 0.85
+            }
+        ]
+
+        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            # First attempt fails
+            first_response = client.post(
+                "/api/v1/store",
+                json={
+                    "content": "Retry test memory",
+                    "memory_type": "fact"
+                }
+            )
+
+            assert first_response.status_code == 500
+            assert "Failed to store memory" in first_response.json()["detail"]
+
+            # Retry succeeds
+            retry_response = client.post(
+                "/api/v1/store",
+                json={
+                    "content": "Retry successful",
+                    "memory_type": "fact"
+                }
+            )
+
+            assert retry_response.status_code == 201
+            assert retry_response.json()["memory_id"] == "mem_retry_success"
+
+            # Verify can recall the successfully stored memory
+            recall_response = client.get(
+                "/api/v1/recall",
+                params={"query": "retry"}
+            )
+
+            assert recall_response.status_code == 200
+            recall_data = recall_response.json()
+            assert recall_data["count"] == 1
+            assert recall_data["memories"][0]["content"] == "Retry successful"
+
+    def test_full_workflow_health_check_integration(self, client, mock_memory_tools, disable_auth):
+        """
+        Full workflow: Check health -> Store -> Recall -> Check health again
+        Assert: Health endpoint works alongside memory operations
+        """
+        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            # Configure mock
+            mock_memory_tools.store.return_value = "mem_health_test"
+            mock_memory_tools.recall.return_value = []
+
+            # Step 1: Check initial health
+            health_response = client.get("/health")
+            assert health_response.status_code == 200
+            assert health_response.json()["status"] == "healthy"
+
+            # Step 2: Store a memory
+            store_response = client.post(
+                "/api/v1/store",
+                json={"content": "Health test memory"}
+            )
+            assert store_response.status_code == 201
+
+            # Step 3: Recall memories
+            recall_response = client.get(
+                "/api/v1/recall",
+                params={"query": "health"}
+            )
+            assert recall_response.status_code == 200
+
+            # Step 4: Check health after operations
+            final_health = client.get("/health")
+            assert final_health.status_code == 200
+            assert final_health.json()["status"] == "healthy"
+            assert final_health.json()["service"] == "omi-event-api"
