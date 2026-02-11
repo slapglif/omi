@@ -658,6 +658,106 @@ def status(ctx) -> None:
 
 
 @cli.command()
+@click.option('--json-output', is_flag=True, help='Output as JSON')
+@click.pass_context
+def inspect(ctx, json_output: bool) -> None:
+    """Show memory statistics and overview.
+
+    Displays:
+    - Total memories
+    - Breakdown by type
+    - Database size
+    - Last session timestamp (if available)
+
+    Args:
+        --json-output: Output as JSON (for scripts)
+
+    Examples:
+        omi inspect
+        omi inspect --json-output
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    db_path = base_path / "palace.sqlite"
+    if not db_path.exists():
+        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Total memories
+        cursor.execute("SELECT COUNT(*) FROM memories")
+        total_memories = cursor.fetchone()[0]
+
+        # Memory types breakdown
+        cursor.execute("SELECT memory_type, COUNT(*) FROM memories GROUP BY memory_type")
+        type_counts = dict(cursor.fetchall())
+
+        # Database size
+        db_size_kb = db_path.stat().st_size / 1024
+
+        # Last accessed memory (as proxy for last session)
+        cursor.execute("SELECT MAX(last_accessed) FROM memories WHERE last_accessed IS NOT NULL")
+        last_accessed_result = cursor.fetchone()
+        last_session = last_accessed_result[0] if last_accessed_result and last_accessed_result[0] else None
+
+        conn.close()
+
+        if json_output:
+            output = {
+                'total_memories': total_memories,
+                'memory_types': type_counts,
+                'database_size_kb': round(db_size_kb, 2),
+                'last_session': last_session
+            }
+            click.echo(json.dumps(output, indent=2, default=str))
+        else:
+            click.echo(click.style("Memory Inspection Report", fg="cyan", bold=True))
+            click.echo("=" * 50)
+
+            # Total memories
+            click.echo(f"\nTotal Memories: {click.style(str(total_memories), fg='cyan', bold=True)}")
+
+            # Database size
+            click.echo(f"Database Size: {click.style(f'{db_size_kb:.2f} KB', fg='cyan')}")
+
+            # Breakdown by type
+            if type_counts:
+                click.echo(f"\n{click.style('Breakdown by Type:', bold=True)}")
+                for mem_type, count in sorted(type_counts.items()):
+                    type_color = {
+                        'fact': 'blue',
+                        'experience': 'green',
+                        'belief': 'yellow',
+                        'decision': 'magenta'
+                    }.get(mem_type, 'white')
+
+                    percentage = (count / total_memories * 100) if total_memories > 0 else 0
+                    mem_type_str = mem_type.capitalize().ljust(12)
+                    click.echo(f"  {click.style(mem_type_str, fg=type_color)} {count:4} ({percentage:5.1f}%)")
+            else:
+                click.echo(f"\n{click.style('No memories stored yet.', fg='yellow')}")
+
+            # Last session
+            if last_session:
+                click.echo(f"\nLast Activity: {click.style(last_session, fg='cyan')}")
+            else:
+                click.echo(f"\nLast Activity: {click.style('No activity recorded', fg='bright_black')}")
+
+            click.echo()
+
+    except Exception as e:
+        click.echo(click.style(f"Error: Failed to inspect memories: {e}", fg="red"))
+        sys.exit(1)
+
+
+@cli.command()
 @click.pass_context
 def audit(ctx) -> None:
     """Run security audit.
