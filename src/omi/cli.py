@@ -659,8 +659,9 @@ def status(ctx) -> None:
 
 @cli.command()
 @click.option('--json-output', is_flag=True, help='Output as JSON')
+@click.option('--beliefs', is_flag=True, help='Show belief network summary')
 @click.pass_context
-def inspect(ctx, json_output: bool) -> None:
+def inspect(ctx, json_output: bool, beliefs: bool) -> None:
     """Show memory statistics and overview.
 
     Displays:
@@ -668,13 +669,16 @@ def inspect(ctx, json_output: bool) -> None:
     - Breakdown by type
     - Database size
     - Last session timestamp (if available)
+    - Belief network summary (with --beliefs flag)
 
     Args:
         --json-output: Output as JSON (for scripts)
+        --beliefs: Show beliefs with confidence levels and evidence counts
 
     Examples:
         omi inspect
         omi inspect --json-output
+        omi inspect --beliefs
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
@@ -707,6 +711,25 @@ def inspect(ctx, json_output: bool) -> None:
         last_accessed_result = cursor.fetchone()
         last_session = last_accessed_result[0] if last_accessed_result and last_accessed_result[0] else None
 
+        # Belief network summary (if --beliefs flag is set)
+        beliefs_data = []
+        beliefs_table_exists = False
+        if beliefs:
+            # Check if beliefs table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='beliefs'
+            """)
+            beliefs_table_exists = cursor.fetchone() is not None
+
+            if beliefs_table_exists:
+                cursor.execute("""
+                    SELECT id, content, confidence, evidence_count
+                    FROM beliefs
+                    ORDER BY confidence DESC
+                """)
+                beliefs_data = cursor.fetchall()
+
         conn.close()
 
         if json_output:
@@ -716,6 +739,21 @@ def inspect(ctx, json_output: bool) -> None:
                 'database_size_kb': round(db_size_kb, 2),
                 'last_session': last_session
             }
+            if beliefs:
+                if not beliefs_table_exists:
+                    output['beliefs'] = {'error': 'Belief network not initialized'}
+                elif beliefs_data:
+                    output['beliefs'] = [
+                        {
+                            'id': b[0],
+                            'content': b[1],
+                            'confidence': b[2],
+                            'evidence_count': b[3]
+                        }
+                        for b in beliefs_data
+                    ]
+                else:
+                    output['beliefs'] = []
             click.echo(json.dumps(output, indent=2, default=str))
         else:
             click.echo(click.style("Memory Inspection Report", fg="cyan", bold=True))
@@ -749,6 +787,33 @@ def inspect(ctx, json_output: bool) -> None:
                 click.echo(f"\nLast Activity: {click.style(last_session, fg='cyan')}")
             else:
                 click.echo(f"\nLast Activity: {click.style('No activity recorded', fg='bright_black')}")
+
+            # Beliefs network summary
+            if beliefs:
+                if not beliefs_table_exists:
+                    click.echo(f"\n{click.style('Belief network not initialized yet.', fg='yellow')}")
+                    click.echo(f"  Tip: Beliefs are tracked when created with confidence scores.")
+                elif beliefs_data:
+                    click.echo(f"\n{click.style('Belief Network Summary:', bold=True)}")
+                    click.echo(f"Total Beliefs: {click.style(str(len(beliefs_data)), fg='cyan', bold=True)}")
+                    click.echo()
+                    for belief_id, content, confidence, evidence_count in beliefs_data:
+                        # Color code confidence: high (green), medium (yellow), low (red)
+                        if confidence >= 0.7:
+                            conf_color = 'green'
+                        elif confidence >= 0.4:
+                            conf_color = 'yellow'
+                        else:
+                            conf_color = 'red'
+
+                        # Truncate content if too long
+                        display_content = content if len(content) <= 60 else content[:57] + "..."
+
+                        click.echo(f"  {click.style('•', fg=conf_color)} {display_content}")
+                        click.echo(f"    Confidence: {click.style(f'{confidence:.2f}', fg=conf_color)} | "
+                                 f"Evidence: {click.style(str(evidence_count), fg='cyan')}")
+                else:
+                    click.echo(f"\n{click.style('No beliefs in network yet.', fg='yellow')}")
 
             click.echo()
 
