@@ -35,7 +35,119 @@ except ImportError:
     BOTO3_AVAILABLE = False
 
 # Storage backend imports
-from .storage_backends import S3Backend, StorageBackend, StorageError, StorageAuthError
+from .storage_backends import (
+    S3Backend,
+    GCSBackend,
+    AzureBackend,
+    StorageBackend,
+    StorageError,
+    StorageAuthError
+)
+
+
+def create_backend_from_config(config: Dict[str, Any]) -> StorageBackend:
+    """
+    Create a storage backend from configuration.
+
+    Args:
+        config: Configuration dictionary with structure:
+            {
+                'backup': {
+                    'backend': 's3' | 'gcs' | 'azure',
+                    'bucket': 'bucket-name',
+                    'prefix': 'optional/prefix/',
+                    # S3-specific options:
+                    'endpoint': 'https://...', # for R2, MinIO, etc.
+                    'access_key': 'key',
+                    'secret_key': 'secret',
+                    'region': 'us-east-1',
+                    # GCS-specific options:
+                    'credentials_file': '/path/to/creds.json',
+                    'project': 'my-project',
+                    # Azure-specific options:
+                    'connection_string': 'DefaultEndpointsProtocol=...',
+                    'account_name': 'myaccount',
+                    'account_key': 'key',
+                    'sas_token': 'token',
+                }
+            }
+
+    Returns:
+        StorageBackend instance (S3Backend, GCSBackend, or AzureBackend)
+
+    Raises:
+        ValueError: If backend type is missing or unsupported
+        ValueError: If required configuration is missing
+        ImportError: If required package is not installed
+
+    Examples:
+        >>> config = {'backup': {'backend': 's3', 'bucket': 'my-bucket'}}
+        >>> backend = create_backend_from_config(config)
+        >>> isinstance(backend, S3Backend)
+        True
+    """
+    # Extract backup config
+    if 'backup' not in config:
+        raise ValueError(
+            "Missing 'backup' section in configuration. "
+            "Run 'omi config set backup.backend s3' to configure."
+        )
+
+    backup_config = config['backup']
+
+    # Get backend type
+    backend_type = backup_config.get('backend')
+    if not backend_type:
+        raise ValueError(
+            "Missing 'backend' in backup configuration. "
+            "Run 'omi config set backup.backend s3' to set backend type."
+        )
+
+    # Get bucket name
+    bucket = backup_config.get('bucket')
+    if not bucket:
+        raise ValueError(
+            "Missing 'bucket' in backup configuration. "
+            "Run 'omi config set backup.bucket my-bucket' to set bucket name."
+        )
+
+    # Get optional prefix
+    prefix = backup_config.get('prefix', '')
+
+    # Create backend based on type
+    if backend_type == 's3':
+        return S3Backend(
+            bucket=bucket,
+            prefix=prefix,
+            endpoint=backup_config.get('endpoint'),
+            access_key=backup_config.get('access_key'),
+            secret_key=backup_config.get('secret_key'),
+            region=backup_config.get('region', 'auto'),
+        )
+
+    elif backend_type == 'gcs':
+        return GCSBackend(
+            bucket=bucket,
+            prefix=prefix,
+            credentials_file=backup_config.get('credentials_file'),
+            project=backup_config.get('project'),
+        )
+
+    elif backend_type == 'azure':
+        return AzureBackend(
+            bucket=bucket,
+            prefix=prefix,
+            connection_string=backup_config.get('connection_string'),
+            account_name=backup_config.get('account_name'),
+            account_key=backup_config.get('account_key'),
+            sas_token=backup_config.get('sas_token'),
+        )
+
+    else:
+        raise ValueError(
+            f"Unsupported backend type: '{backend_type}'. "
+            f"Supported types: 's3', 'gcs', 'azure'"
+        )
 
 
 class _MockS3BackendWrapper(StorageBackend):
