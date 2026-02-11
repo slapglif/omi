@@ -32,7 +32,7 @@ class TestE2EEventFlow:
         5. Verify all event fields are populated correctly
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         from omi.event_history import EventHistory
         from omi.events import MemoryStoredEvent
 
@@ -118,7 +118,7 @@ class TestE2EEventFlow:
         Test multiple memory operations generate correct event sequence.
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         from omi.event_history import EventHistory
 
         # Setup
@@ -195,7 +195,7 @@ class TestE2EEventFlow:
         Verify timestamps are consistent across EventBus and EventHistory.
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         from omi.event_history import EventHistory
 
         # Setup
@@ -263,7 +263,7 @@ class TestE2EEventFlow:
         Test EventHistory query filters work correctly.
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         from omi.event_history import EventHistory
         from datetime import timedelta
 
@@ -330,7 +330,7 @@ class TestE2EEventFlow:
         Verify event metadata is preserved through the entire flow.
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         from omi.event_history import EventHistory
 
         # Setup
@@ -385,7 +385,7 @@ class TestE2EEventFlow:
         Test wildcard subscription captures all event types.
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         from omi.event_history import EventHistory
 
         # Setup
