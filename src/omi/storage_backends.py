@@ -6,6 +6,7 @@ Each backend implements upload, download, list, and delete operations.
 """
 
 import os
+import asyncio
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, List, Dict, Any, BinaryIO
@@ -168,6 +169,52 @@ class StorageBackend(ABC):
 
         Raises:
             StorageError: If metadata retrieval fails
+        """
+        pass
+
+    @abstractmethod
+    async def async_upload(
+        self,
+        local_path: Path,
+        key: str,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """
+        Upload a file to storage asynchronously (non-blocking)
+
+        Args:
+            local_path: Path to local file to upload
+            key: Storage key (path) for the object
+            metadata: Optional metadata to attach to object
+
+        Returns:
+            The storage key of the uploaded object
+
+        Raises:
+            FileNotFoundError: If local_path doesn't exist
+            StorageError: If upload fails
+        """
+        pass
+
+    @abstractmethod
+    async def async_download(
+        self,
+        key: str,
+        local_path: Path,
+    ) -> Path:
+        """
+        Download a file from storage asynchronously (non-blocking)
+
+        Args:
+            key: Storage key of object to download
+            local_path: Path where file should be saved
+
+        Returns:
+            Path to downloaded file
+
+        Raises:
+            KeyError: If key doesn't exist in storage
+            StorageError: If download fails
         """
         pass
 
@@ -482,6 +529,25 @@ class S3Backend(StorageBackend):
         except Exception as e:
             raise StorageError(f"Unexpected error getting metadata for {key}: {e}") from e
 
+    async def async_upload(
+        self,
+        local_path: Path,
+        key: str,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Upload a file to S3 asynchronously"""
+        # Run synchronous upload in a thread pool to avoid blocking
+        return await asyncio.to_thread(self.upload, local_path, key, metadata)
+
+    async def async_download(
+        self,
+        key: str,
+        local_path: Path,
+    ) -> Path:
+        """Download a file from S3 asynchronously"""
+        # Run synchronous download in a thread pool to avoid blocking
+        return await asyncio.to_thread(self.download, key, local_path)
+
 
 # Google Cloud Storage imports
 try:
@@ -742,6 +808,25 @@ class GCSBackend(StorageBackend):
             raise StorageError(f"Failed to get metadata for {key}: {e}") from e
         except Exception as e:
             raise StorageError(f"Unexpected error getting metadata for {key}: {e}") from e
+
+    async def async_upload(
+        self,
+        local_path: Path,
+        key: str,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Upload a file to GCS asynchronously"""
+        # Run synchronous upload in a thread pool to avoid blocking
+        return await asyncio.to_thread(self.upload, local_path, key, metadata)
+
+    async def async_download(
+        self,
+        key: str,
+        local_path: Path,
+    ) -> Path:
+        """Download a file from GCS asynchronously"""
+        # Run synchronous download in a thread pool to avoid blocking
+        return await asyncio.to_thread(self.download, key, local_path)
 
 
 # Azure Blob Storage imports
@@ -1038,3 +1123,22 @@ class AzureBackend(StorageBackend):
                 raise StorageError(f"Failed to get metadata for {key}: {e}") from e
         except Exception as e:
             raise StorageError(f"Unexpected error getting metadata for {key}: {e}") from e
+
+    async def async_upload(
+        self,
+        local_path: Path,
+        key: str,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Upload a file to Azure Blob Storage asynchronously"""
+        # Run synchronous upload in a thread pool to avoid blocking
+        return await asyncio.to_thread(self.upload, local_path, key, metadata)
+
+    async def async_download(
+        self,
+        key: str,
+        local_path: Path,
+    ) -> Path:
+        """Download a file from Azure Blob Storage asynchronously"""
+        # Run synchronous download in a thread pool to avoid blocking
+        return await asyncio.to_thread(self.download, key, local_path)
