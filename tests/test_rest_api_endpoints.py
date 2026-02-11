@@ -78,6 +78,233 @@ def disable_auth():
         os.environ["OMI_API_KEY"] = old_key
 
 
+class TestAuthentication:
+    """Test authentication with/without API key."""
+
+    def test_store_without_api_key_when_none_required(self, client, mock_memory_tools):
+        """
+        POST /api/v1/store without API key when OMI_API_KEY is not set
+        Assert: Returns 201 (development mode allows all requests)
+        """
+        # Ensure no API key is set (development mode)
+        old_key = os.environ.get("OMI_API_KEY")
+        if "OMI_API_KEY" in os.environ:
+            del os.environ["OMI_API_KEY"]
+
+        try:
+            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+                response = client.post(
+                    "/api/v1/store",
+                    json={
+                        "content": "Test memory",
+                        "memory_type": "fact"
+                    }
+                )
+
+                assert response.status_code == 201
+                data = response.json()
+                assert "memory_id" in data
+        finally:
+            # Restore old key
+            if old_key:
+                os.environ["OMI_API_KEY"] = old_key
+
+    def test_store_without_api_key_when_required(self, client):
+        """
+        POST /api/v1/store without API key when OMI_API_KEY is set
+        Assert: Returns 401 with missing API key error
+        """
+        # Set API key in environment to require authentication
+        old_key = os.environ.get("OMI_API_KEY")
+        os.environ["OMI_API_KEY"] = "test-secret-key"
+
+        try:
+            response = client.post(
+                "/api/v1/store",
+                json={
+                    "content": "Test memory",
+                    "memory_type": "fact"
+                }
+            )
+
+            assert response.status_code == 401
+            data = response.json()
+            assert "detail" in data
+            assert "Missing API key" in data["detail"]
+        finally:
+            # Restore old key
+            if old_key:
+                os.environ["OMI_API_KEY"] = old_key
+            else:
+                del os.environ["OMI_API_KEY"]
+
+    def test_store_with_valid_api_key(self, client, mock_memory_tools):
+        """
+        POST /api/v1/store with valid API key in X-API-Key header
+        Assert: Returns 201 and successfully stores memory
+        """
+        # Set API key in environment
+        old_key = os.environ.get("OMI_API_KEY")
+        os.environ["OMI_API_KEY"] = "test-secret-key"
+
+        try:
+            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+                response = client.post(
+                    "/api/v1/store",
+                    json={
+                        "content": "Authenticated memory",
+                        "memory_type": "fact"
+                    },
+                    headers={"X-API-Key": "test-secret-key"}
+                )
+
+                assert response.status_code == 201
+                data = response.json()
+                assert "memory_id" in data
+                assert data["memory_id"] == "mem_test_123"
+        finally:
+            # Restore old key
+            if old_key:
+                os.environ["OMI_API_KEY"] = old_key
+            else:
+                del os.environ["OMI_API_KEY"]
+
+    def test_store_with_invalid_api_key(self, client):
+        """
+        POST /api/v1/store with incorrect API key
+        Assert: Returns 401 with invalid API key error
+        """
+        # Set API key in environment
+        old_key = os.environ.get("OMI_API_KEY")
+        os.environ["OMI_API_KEY"] = "test-secret-key"
+
+        try:
+            response = client.post(
+                "/api/v1/store",
+                json={
+                    "content": "Test memory",
+                    "memory_type": "fact"
+                },
+                headers={"X-API-Key": "wrong-key"}
+            )
+
+            assert response.status_code == 401
+            data = response.json()
+            assert "detail" in data
+            assert "Invalid API key" in data["detail"]
+        finally:
+            # Restore old key
+            if old_key:
+                os.environ["OMI_API_KEY"] = old_key
+            else:
+                del os.environ["OMI_API_KEY"]
+
+    def test_recall_without_api_key_when_required(self, client):
+        """
+        GET /api/v1/recall without API key when OMI_API_KEY is set
+        Assert: Returns 401 with missing API key error
+        """
+        # Set API key in environment
+        old_key = os.environ.get("OMI_API_KEY")
+        os.environ["OMI_API_KEY"] = "test-secret-key"
+
+        try:
+            response = client.get("/api/v1/recall?query=test")
+
+            assert response.status_code == 401
+            data = response.json()
+            assert "detail" in data
+            assert "Missing API key" in data["detail"]
+        finally:
+            # Restore old key
+            if old_key:
+                os.environ["OMI_API_KEY"] = old_key
+            else:
+                del os.environ["OMI_API_KEY"]
+
+    def test_recall_with_valid_api_key(self, client, mock_memory_tools):
+        """
+        GET /api/v1/recall with valid API key
+        Assert: Returns 200 and successfully recalls memories
+        """
+        # Set API key in environment
+        old_key = os.environ.get("OMI_API_KEY")
+        os.environ["OMI_API_KEY"] = "test-secret-key"
+
+        try:
+            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+                response = client.get(
+                    "/api/v1/recall?query=test",
+                    headers={"X-API-Key": "test-secret-key"}
+                )
+
+                assert response.status_code == 200
+                data = response.json()
+                assert "memories" in data
+                assert data["count"] == 2
+        finally:
+            # Restore old key
+            if old_key:
+                os.environ["OMI_API_KEY"] = old_key
+            else:
+                del os.environ["OMI_API_KEY"]
+
+    def test_public_endpoints_dont_require_auth(self, client):
+        """
+        GET / and /health endpoints should work without authentication
+        Assert: Both return 200 even when API key is required
+        """
+        # Set API key in environment to require auth for protected endpoints
+        old_key = os.environ.get("OMI_API_KEY")
+        os.environ["OMI_API_KEY"] = "test-secret-key"
+
+        try:
+            # Test root endpoint
+            root_response = client.get("/")
+            assert root_response.status_code == 200
+            assert "service" in root_response.json()
+
+            # Test health endpoint
+            health_response = client.get("/health")
+            assert health_response.status_code == 200
+            assert health_response.json()["status"] == "healthy"
+        finally:
+            # Restore old key
+            if old_key:
+                os.environ["OMI_API_KEY"] = old_key
+            else:
+                del os.environ["OMI_API_KEY"]
+
+    def test_case_sensitive_api_key(self, client):
+        """
+        POST /api/v1/store with API key that differs only in case
+        Assert: Returns 401 (API keys are case-sensitive)
+        """
+        # Set API key in environment
+        old_key = os.environ.get("OMI_API_KEY")
+        os.environ["OMI_API_KEY"] = "Test-Secret-Key"
+
+        try:
+            response = client.post(
+                "/api/v1/store",
+                json={
+                    "content": "Test memory",
+                    "memory_type": "fact"
+                },
+                headers={"X-API-Key": "test-secret-key"}  # Different case
+            )
+
+            assert response.status_code == 401
+            data = response.json()
+            assert "Invalid API key" in data["detail"]
+        finally:
+            # Restore old key
+            if old_key:
+                os.environ["OMI_API_KEY"] = old_key
+            else:
+                del os.environ["OMI_API_KEY"]
+
+
 class TestMemoryEndpoints:
     """Test memory operation endpoints (store, recall)."""
 
