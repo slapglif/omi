@@ -107,6 +107,10 @@ server:
   host: 0.0.0.0
   port: 8420
   # api_key: ${OMI_API_KEY}  # Set via environment variable for REST API authentication
+  cors:
+    # origins: "*"  # Allow all origins (default), or specify comma-separated list
+    # origins: "http://localhost:3000,https://example.com"
+    # Set via OMI_CORS_ORIGINS environment variable
 
 embedding:
   provider: nim  # or ollama
