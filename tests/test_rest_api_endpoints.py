@@ -661,3 +661,156 @@ class TestMemoryEndpoints:
             assert response.status_code == 200
             # Event publishing is tested in the MemoryTools tests
             # Here we just verify the endpoint succeeds
+
+
+class TestCORS:
+    """Test CORS (Cross-Origin Resource Sharing) headers."""
+
+    def test_cors_headers_on_get_request(self, client):
+        """
+        GET / with Origin header
+        Assert: CORS headers are present in response
+        """
+        response = client.get(
+            "/",
+            headers={"Origin": "http://localhost:3000"}
+        )
+
+        assert response.status_code == 200
+        # FastAPI's CORSMiddleware adds these headers
+        assert "access-control-allow-origin" in response.headers
+        assert "access-control-allow-credentials" in response.headers
+
+    def test_cors_headers_on_post_request(self, client, mock_memory_tools, disable_auth):
+        """
+        POST /api/v1/store with Origin header
+        Assert: CORS headers are present in response
+        """
+        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            response = client.post(
+                "/api/v1/store",
+                json={
+                    "content": "Test memory",
+                    "memory_type": "fact"
+                },
+                headers={"Origin": "http://localhost:3000"}
+            )
+
+            assert response.status_code == 201
+            assert "access-control-allow-origin" in response.headers
+            assert "access-control-allow-credentials" in response.headers
+
+    def test_cors_preflight_request(self, client):
+        """
+        OPTIONS /api/v1/store (preflight request)
+        Assert: Returns 200 with CORS headers
+        """
+        response = client.options(
+            "/api/v1/store",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type"
+            }
+        )
+
+        assert response.status_code == 200
+        assert "access-control-allow-origin" in response.headers
+        assert "access-control-allow-methods" in response.headers
+        assert "access-control-allow-headers" in response.headers
+
+    def test_cors_allow_credentials(self, client):
+        """
+        GET /health with Origin header
+        Assert: access-control-allow-credentials is 'true'
+        """
+        response = client.get(
+            "/health",
+            headers={"Origin": "http://example.com"}
+        )
+
+        assert response.status_code == 200
+        credentials_header = response.headers.get("access-control-allow-credentials", "").lower()
+        assert credentials_header == "true"
+
+    def test_cors_headers_on_different_origins(self, client):
+        """
+        GET / with different Origin values
+        Assert: CORS headers respond appropriately for each origin
+        """
+        origins = [
+            "http://localhost:3000",
+            "http://localhost:8080",
+            "https://example.com"
+        ]
+
+        for origin in origins:
+            response = client.get(
+                "/",
+                headers={"Origin": origin}
+            )
+
+            assert response.status_code == 200
+            assert "access-control-allow-origin" in response.headers
+            # In default mode (*), should allow all origins
+            allow_origin = response.headers["access-control-allow-origin"]
+            # FastAPI returns either the origin or *
+            assert allow_origin in [origin, "*"]
+
+    def test_cors_headers_on_error_response(self, client):
+        """
+        GET /api/v1/recall without required query parameter, with Origin header
+        Assert: CORS headers are present even on error responses
+        """
+        response = client.get(
+            "/api/v1/recall",
+            headers={"Origin": "http://localhost:3000"}
+        )
+
+        assert response.status_code == 422
+        # CORS headers should be present even on errors
+        assert "access-control-allow-origin" in response.headers
+
+    def test_cors_headers_on_authenticated_endpoint(self, client, mock_memory_tools):
+        """
+        POST /api/v1/store with valid API key and Origin header
+        Assert: CORS headers are present on authenticated requests
+        """
+        # Set API key in environment
+        old_key = os.environ.get("OMI_API_KEY")
+        os.environ["OMI_API_KEY"] = "test-secret-key"
+
+        try:
+            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+                response = client.post(
+                    "/api/v1/store",
+                    json={
+                        "content": "Authenticated memory",
+                        "memory_type": "fact"
+                    },
+                    headers={
+                        "X-API-Key": "test-secret-key",
+                        "Origin": "http://localhost:3000"
+                    }
+                )
+
+                assert response.status_code == 201
+                assert "access-control-allow-origin" in response.headers
+                assert "access-control-allow-credentials" in response.headers
+        finally:
+            # Restore old key
+            if old_key:
+                os.environ["OMI_API_KEY"] = old_key
+            else:
+                del os.environ["OMI_API_KEY"]
+
+    @pytest.mark.skip(reason="SSE streaming tests hang with TestClient - test with running server")
+    def test_cors_headers_on_sse_endpoint(self, client):
+        """
+        GET /api/v1/events with Origin header
+        Assert: CORS headers are present on SSE endpoint
+
+        Note: This test is skipped because TestClient hangs on SSE endpoints.
+        In production, test CORS on SSE endpoint with a running server.
+        """
+        pass
