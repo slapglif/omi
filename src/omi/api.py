@@ -21,7 +21,7 @@ from .embeddings import OllamaEmbedder, EmbeddingCache
 
 # Security
 from .security import IntegrityChecker, TopologyVerifier, ConsensusManager
-from .events import MemoryStoredEvent, MemoryRecalledEvent, BeliefUpdatedEvent
+from .events import MemoryStoredEvent, MemoryRecalledEvent, BeliefUpdatedEvent, ContradictionDetectedEvent
 from .event_bus import get_event_bus
 
 # Vault
@@ -230,16 +230,27 @@ class BeliefTools:
     def check_contradiction(self, memory1_id: str, memory2_id: str) -> bool:
         """
         belief_check_contradiction: Detect conflicting evidence
-        
+
         Patterns: "should always" vs "should never", etc.
         """
         mem1 = self.belief.palace.get_memory(memory1_id)
         mem2 = self.belief.palace.get_memory(memory2_id)
-        
-        return self.detector.detect_contradiction(
+
+        is_contradiction, pattern = self.detector.detect_contradiction_with_pattern(
             mem1.get('content', ''),
             mem2.get('content', '')
         )
+
+        # Emit event if contradiction detected
+        if is_contradiction:
+            event = ContradictionDetectedEvent(
+                memory_id_1=memory1_id,
+                memory_id_2=memory2_id,
+                contradiction_pattern=pattern or "unknown"
+            )
+            get_event_bus().publish(event)
+
+        return is_contradiction
     
     def get_evidence_chain(self, belief_id: str) -> List[dict]:
         """

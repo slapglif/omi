@@ -175,13 +175,29 @@ class ContradictionDetector:
         """Check if two memories contain opposing patterns"""
         m1_lower = memory1.lower()
         m2_lower = memory2.lower()
-        
+
         for opp1, opp2 in self.OPPOSITION_PATTERNS:
             if (opp1 in m1_lower and opp2 in m2_lower) or \
                (opp1 in m2_lower and opp2 in m1_lower):
                 return True
-        
+
         return False
+
+    def detect_contradiction_with_pattern(self, memory1: str, memory2: str) -> tuple[bool, Optional[str]]:
+        """Check if two memories contain opposing patterns and return the pattern
+
+        Returns:
+            (is_contradiction, pattern): Pattern string like "should always vs should never"
+        """
+        m1_lower = memory1.lower()
+        m2_lower = memory2.lower()
+
+        for opp1, opp2 in self.OPPOSITION_PATTERNS:
+            if (opp1 in m1_lower and opp2 in m2_lower) or \
+               (opp1 in m2_lower and opp2 in m1_lower):
+                return (True, f"{opp1} vs {opp2}")
+
+        return (False, None)
 
 
 def ema_update(current: float, target: float, lambda_val: float) -> float:
