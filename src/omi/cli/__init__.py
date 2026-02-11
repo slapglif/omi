@@ -23,6 +23,7 @@ from .monitoring import monitoring_group
 from .config import config_group
 from .events import events_group
 from .sync import sync_group
+from .plugins import plugins_group
 
 # CLI version - matches project version
 __version__ = "0.1.0"
@@ -88,6 +89,9 @@ cli.add_command(events_group, name='events')
 
 # Register sync command group (sync status, push, pull)
 cli.add_command(sync_group, name='sync')
+
+# Register plugins command group (plugins list)
+cli.add_command(plugins_group, name='plugins')
 
 
 def main():
