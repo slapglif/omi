@@ -7,10 +7,23 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
 
-from .persistence import NOWStore, DailyLogStore, GraphPalace, VaultBackup
-from .belief import BeliefNetwork, Evidence, ContradictionDetector
+# Storage tier - import from new modular locations
+from .storage.graph_palace import GraphPalace
+from .storage.now import NowStorage
+from .persistence import DailyLogStore, NOWStore, NOWEntry, VaultBackup
+
+# Belief system - using legacy module for now due to API compatibility
+# TODO: Migrate to .graph.belief_network when API is unified
+from .belief import BeliefNetwork, Evidence, ContradictionDetector, calculate_recency_score
+
+# Embeddings
 from .embeddings import OllamaEmbedder, EmbeddingCache
+
+# Security
 from .security import IntegrityChecker, TopologyVerifier, ConsensusManager
+
+# Vault (MoltVault is available from .moltvault but VaultBackup API is used here)
+# from .moltvault import MoltVault
 
 
 class MemoryTools:
@@ -53,7 +66,7 @@ class MemoryTools:
                          if c.get('memory_type') == memory_type]
         
         # Apply recency weighting
-        from .belief import calculate_recency_score
+        # calculate_recency_score already imported at module level
         half_life = 30.0  # days
         
         weighted = []
@@ -244,11 +257,11 @@ class CheckpointTools:
                   key_files: Optional[List[str]] = None) -> None:
         """
         now_update: Update operational state
-        
+
         Trigger: 70% context threshold, task completion
         """
-        from .persistence import NOWEntry
-        
+        # NOWEntry already imported at module level
+
         entry = NOWEntry(
             current_task=current_task or "",
             recent_completions=recent_completions or [],
@@ -416,12 +429,12 @@ def get_all_mcp_tools(config: dict) -> dict:
     cache = EmbeddingCache(cache_path, embedder)
     
     # Initialize belief network
-    from .belief import BeliefNetwork, ContradictionDetector
+    # BeliefNetwork and ContradictionDetector already imported at module level
     belief_net = BeliefNetwork(palace)
     detector = ContradictionDetector()
     
     # Initialize security
-    from .security import IntegrityChecker, TopologyVerifier
+    # IntegrityChecker and TopologyVerifier already imported at module level
     integrity = IntegrityChecker(base_path)
     topology = TopologyVerifier(palace)
     
