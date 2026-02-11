@@ -17,6 +17,7 @@ Usage:
 """
 
 from fastapi import FastAPI, Query, HTTPException, status, Header, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from typing import Optional, AsyncGenerator, List
@@ -219,6 +220,27 @@ app = FastAPI(
     description="Server-Sent Events (SSE) API for real-time memory operation events",
     version="1.0.0"
 )
+
+
+# Configure CORS
+# Get allowed origins from environment variable (comma-separated list)
+# Default to "*" (all origins) for development mode
+cors_origins_str = os.environ.get("OMI_CORS_ORIGINS", "*")
+if cors_origins_str == "*":
+    cors_origins = ["*"]
+else:
+    # Parse comma-separated list of origins
+    cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logger.info(f"CORS enabled with origins: {cors_origins}")
 
 
 @app.get("/")
