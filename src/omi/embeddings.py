@@ -108,17 +108,17 @@ class NIMConfig:
     max_tokens: int = 512
 
 
-class NIMEmbedder:
+class NIMEmbedder(EmbeddingProvider):
     """
     NVIDIA NIM embeddings (baai/bge-m3)
-    
+
     Model: baai/bge-m3 (proven in MEMORY.md)
     Dimensions: 1024
     Quality: > nomic-embed-text (768 dim)
-    
+
     Fallback: Ollama (local) for airgapped environments
     """
-    
+
     DEFAULT_MODEL = "baai/bge-m3"
     DEFAULT_DIM = 1024
     
@@ -228,16 +228,24 @@ class NIMEmbedder:
         result: Any = dot / (norm1 * norm2)
         return float(result)
 
+    def get_dimension(self) -> int:
+        """Get embedding dimensionality"""
+        return self.DEFAULT_DIM
 
-class OllamaEmbedder:
+    def get_model_name(self) -> str:
+        """Get model name"""
+        return self.model
+
+
+class OllamaEmbedder(EmbeddingProvider):
     """
     Local Ollama fallback embeddings
-    
+
     Models:
     - nomic-embed-text (768 dim, fast)
     - mxbai-embed-large (1024 dim, quality)
     """
-    
+
     DEFAULT_MODEL = "nomic-embed-text"
     DEFAULT_DIM = 768
     
@@ -276,6 +284,38 @@ class OllamaEmbedder:
             resp.raise_for_status()
             embedding_result: List[float] = resp.json()['embedding']
             return embedding_result
+
+    def embed_batch(self, texts: List[str], batch_size: int = 8) -> List[List[float]]:
+        """Generate embeddings for multiple texts"""
+        results = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            batch_results = [self.embed(t) for t in batch]
+            results.extend(batch_results)
+        return results
+
+    def similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
+        """Cosine similarity"""
+        v1: Any = np.array(embedding1)  # type: ignore[attr-defined]
+        v2: Any = np.array(embedding2)  # type: ignore[attr-defined]
+
+        dot: Any = np.dot(v1, v2)  # type: ignore[attr-defined]
+        norm1: Any = np.linalg.norm(v1)
+        norm2: Any = np.linalg.norm(v2)
+
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+
+        result: Any = dot / (norm1 * norm2)
+        return float(result)
+
+    def get_dimension(self) -> int:
+        """Get embedding dimensionality"""
+        return self.DEFAULT_DIM
+
+    def get_model_name(self) -> str:
+        """Get model name"""
+        return self.model
 
 
 class EmbeddingCache:
