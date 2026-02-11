@@ -42,7 +42,7 @@ class StorageBackend(ABC):
     This enables plugin-based architecture for MoltVault backups.
     """
 
-    def __init__(self, bucket: str, prefix: str = ""):
+    def __init__(self, bucket: str, prefix: str = "") -> None:
         """
         Initialize storage backend
 
@@ -50,8 +50,8 @@ class StorageBackend(ABC):
             bucket: Bucket/container name
             prefix: Optional prefix for all keys (e.g., "backups/")
         """
-        self.bucket = bucket
-        self.prefix = prefix.rstrip("/") + "/" if prefix else ""
+        self.bucket: str = bucket
+        self.prefix: str = prefix.rstrip("/") + "/" if prefix else ""
 
     def _make_key(self, key: str) -> str:
         """Apply prefix to key"""
@@ -267,7 +267,7 @@ class S3Backend(StorageBackend):
         access_key: Optional[str] = None,
         secret_key: Optional[str] = None,
         region: str = "auto",
-    ):
+    ) -> None:
         """
         Initialize S3 backend
 
@@ -287,21 +287,20 @@ class S3Backend(StorageBackend):
                 "Install with: pip install boto3"
             )
 
-        self.endpoint = endpoint
-        self.region = region
+        self.endpoint: Optional[str] = endpoint
+        self.region: str = region
 
         # Get credentials from parameters or environment
-        self.access_key = access_key or os.getenv("AWS_ACCESS_KEY_ID")
-        self.secret_key = secret_key or os.getenv("AWS_SECRET_ACCESS_KEY")
+        self.access_key: Optional[str] = access_key or os.getenv("AWS_ACCESS_KEY_ID")
+        self.secret_key: Optional[str] = secret_key or os.getenv("AWS_SECRET_ACCESS_KEY")
 
         # Initialize S3 client
-        self._client = self._create_client()
+        self._client: Any = self._create_client()
 
     def _create_client(self) -> Any:
         """Create and configure S3 client"""
         try:
-            client_kwargs = {
-                "service_name": "s3",
+            client_kwargs: Dict[str, Any] = {
                 "region_name": self.region,
             }
 
@@ -314,7 +313,7 @@ class S3Backend(StorageBackend):
                 client_kwargs["aws_access_key_id"] = self.access_key
                 client_kwargs["aws_secret_access_key"] = self.secret_key
 
-            return boto3.client(**client_kwargs)
+            return boto3.client("s3", **client_kwargs)
 
         except NoCredentialsError as e:
             raise StorageAuthError(
@@ -406,7 +405,7 @@ class S3Backend(StorageBackend):
         full_prefix = self._make_key(prefix)
 
         try:
-            list_kwargs = {
+            list_kwargs: Dict[str, Any] = {
                 "Bucket": self.bucket,
                 "Prefix": full_prefix,
             }
@@ -551,8 +550,8 @@ class S3Backend(StorageBackend):
 
 # Google Cloud Storage imports
 try:
-    from google.cloud import storage
-    from google.cloud.exceptions import NotFound, Forbidden, GoogleCloudError
+    from google.cloud import storage  # type: ignore[import-untyped]
+    from google.cloud.exceptions import NotFound, Forbidden, GoogleCloudError  # type: ignore[import-untyped]
     from google.api_core.exceptions import Unauthenticated
     GCS_AVAILABLE = True
 except ImportError:
@@ -575,7 +574,7 @@ class GCSBackend(StorageBackend):
         prefix: str = "",
         credentials_file: Optional[str] = None,
         project: Optional[str] = None,
-    ):
+    ) -> None:
         """
         Initialize GCS backend
 
@@ -593,12 +592,12 @@ class GCSBackend(StorageBackend):
                 "Install with: pip install google-cloud-storage"
             )
 
-        self.project = project
-        self.credentials_file = credentials_file or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        self.project: Optional[str] = project
+        self.credentials_file: Optional[str] = credentials_file or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
         # Initialize GCS client
-        self._client = self._create_client()
-        self._bucket = self._client.bucket(self.bucket)
+        self._client: Any = self._create_client()
+        self._bucket: Any = self._client.bucket(self.bucket)
 
     def _create_client(self) -> Any:
         """Create and configure GCS client"""
@@ -611,7 +610,7 @@ class GCSBackend(StorageBackend):
             # Load credentials from file if specified
             if self.credentials_file:
                 from google.oauth2 import service_account
-                credentials = service_account.Credentials.from_service_account_file(
+                credentials = service_account.Credentials.from_service_account_file(  # type: ignore[no-untyped-call]
                     self.credentials_file
                 )
                 client_kwargs["credentials"] = credentials
@@ -765,7 +764,8 @@ class GCSBackend(StorageBackend):
 
         try:
             blob = self._bucket.blob(full_key)
-            return blob.exists()
+            result: bool = blob.exists()
+            return result
 
         except NotFound:
             return False
@@ -831,8 +831,8 @@ class GCSBackend(StorageBackend):
 
 # Azure Blob Storage imports
 try:
-    from azure.storage.blob import BlobServiceClient, BlobClient, ContentSettings
-    from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
+    from azure.storage.blob import BlobServiceClient, BlobClient, ContentSettings  # type: ignore[import-not-found]
+    from azure.core.exceptions import ResourceNotFoundError, HttpResponseError  # type: ignore[import-not-found]
     AZURE_AVAILABLE = True
 except ImportError:
     AZURE_AVAILABLE = False
@@ -859,7 +859,7 @@ class AzureBackend(StorageBackend):
         account_name: Optional[str] = None,
         account_key: Optional[str] = None,
         sas_token: Optional[str] = None,
-    ):
+    ) -> None:
         """
         Initialize Azure Blob Storage backend
 
@@ -879,13 +879,13 @@ class AzureBackend(StorageBackend):
                 "Install with: pip install azure-storage-blob"
             )
 
-        self.connection_string = connection_string or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        self.account_name = account_name or os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
-        self.account_key = account_key or os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
-        self.sas_token = sas_token or os.getenv("AZURE_STORAGE_SAS_TOKEN")
+        self.connection_string: Optional[str] = connection_string or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        self.account_name: Optional[str] = account_name or os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
+        self.account_key: Optional[str] = account_key or os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
+        self.sas_token: Optional[str] = sas_token or os.getenv("AZURE_STORAGE_SAS_TOKEN")
 
         # Initialize Azure Blob Storage client
-        self._client = self._create_client()
+        self._client: Any = self._create_client()
 
     def _create_client(self) -> Any:
         """Create and configure Azure Blob Storage client"""
@@ -1074,7 +1074,8 @@ class AzureBackend(StorageBackend):
                 container=self.bucket,
                 blob=full_key,
             )
-            return blob_client.exists()
+            result: bool = blob_client.exists()
+            return result
 
         except ResourceNotFoundError:
             return False

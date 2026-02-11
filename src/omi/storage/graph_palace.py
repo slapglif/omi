@@ -32,13 +32,13 @@ class Memory:
     embedding: Optional[List[float]] = None
     memory_type: str = "experience"  # fact | experience | belief | decision
     confidence: Optional[float] = None  # 0.0-1.0 for beliefs
-    created_at: datetime = None
+    created_at: Optional[datetime] = None
     last_accessed: Optional[datetime] = None
     access_count: int = 0
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.created_at is None:
             self.created_at = datetime.now()
         if self.last_accessed is None:
@@ -72,9 +72,9 @@ class Edge:
     target_id: str
     edge_type: str  # SUPPORTS | CONTRADICTS | RELATED_TO | DEPENDS_ON | POSTED | DISCUSSED
     strength: Optional[float] = None  # 0.0-1.0
-    created_at: datetime = None
+    created_at: Optional[datetime] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.created_at is None:
             self.created_at = datetime.now()
 
@@ -224,9 +224,9 @@ class GraphPalace:
         """Calculate cosine similarity between two vectors."""
         if not v1 or not v2:
             return 0.0
-        arr1 = np.array(v1, dtype=np.float32)
-        arr2 = np.array(v2, dtype=np.float32)
-        dot = np.dot(arr1, arr2)
+        arr1 = np.array(v1, dtype=np.float32)  # type: ignore[attr-defined]
+        arr2 = np.array(v2, dtype=np.float32)  # type: ignore[attr-defined]
+        dot = np.dot(arr1, arr2)  # type: ignore[attr-defined]
         norm = np.linalg.norm(arr1) * np.linalg.norm(arr2)
         return float(dot / norm) if norm > 0 else 0.0
 
@@ -242,7 +242,7 @@ class GraphPalace:
 
     def store_memory(self,
                    content: str,
-                   embedding: List[float] = None,
+                   embedding: Optional[List[float]] = None,
                    memory_type: str = "experience",
                    confidence: Optional[float] = None) -> str:
         """
@@ -379,7 +379,7 @@ class GraphPalace:
             return []
 
         # Convert query to numpy array
-        query_vec = np.array(query_embedding, dtype=np.float32)
+        query_vec = np.array(query_embedding, dtype=np.float32)  # type: ignore[attr-defined]
         query_norm = np.linalg.norm(query_vec)
 
         if query_norm == 0:
@@ -408,22 +408,22 @@ class GraphPalace:
 
         # Vectorized cosine similarity calculation
         # Convert to numpy matrix: (n_memories, embedding_dim)
-        embeddings_matrix = np.array(embeddings, dtype=np.float32)
+        embeddings_matrix = np.array(embeddings, dtype=np.float32)  # type: ignore[attr-defined]
 
         # Compute norms for all embeddings: (n_memories,)
         norms = np.linalg.norm(embeddings_matrix, axis=1)
 
         # Compute dot products: (n_memories,)
-        dots = np.dot(embeddings_matrix, query_vec)
+        dots = np.dot(embeddings_matrix, query_vec)  # type: ignore[attr-defined]
 
         # Compute cosine similarities: (n_memories,)
         # Avoid division by zero
-        similarities = np.divide(dots, norms * query_norm,
-                                out=np.zeros_like(dots),
+        similarities = np.divide(dots, norms * query_norm,  # type: ignore[attr-defined]
+                                out=np.zeros_like(dots),  # type: ignore[attr-defined]
                                 where=(norms * query_norm) > 0)
 
         # Filter by min_relevance
-        valid_indices = np.where(similarities >= min_relevance)[0]
+        valid_indices = np.where(similarities >= min_relevance)[0]  # type: ignore[attr-defined]
 
         if len(valid_indices) == 0:
             return []
@@ -672,7 +672,7 @@ class GraphPalace:
         # Weighted combination
         centrality = (degree_score * 0.40) + (access_score * 0.35) + (recency_score * 0.25)
 
-        return round(centrality, 4)
+        return float(round(centrality, 4))
 
     def get_connected(self, memory_id: str, depth: int = 2) -> List[Memory]:
         """
@@ -1038,8 +1038,8 @@ class GraphPalace:
             self._conn.close()
         self._embedding_cache.clear()
 
-    def __enter__(self):
+    def __enter__(self) -> "GraphPalace":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.close()

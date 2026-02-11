@@ -14,6 +14,7 @@ import hashlib
 import tempfile
 import tarfile
 import io
+import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
 from unittest.mock import Mock, MagicMock, patch, call
@@ -326,18 +327,43 @@ class TestMoltVaultWithMockS3:
     def test_backup_incremental(self, vault_with_mock_s3):
         """Test incremental backup."""
         vault, _ = vault_with_mock_s3
-        
+
         # Create initial backup
         full_meta = vault.backup(full=True)
-        
+
         # Modify a file
         (vault.base_path / "NOW.md").write_text("# NOW\n\nUpdated task")
-        
+
         # Create incremental backup
         incr_meta = vault.backup(incremental=True)
-        
+
         assert incr_meta.backup_type == "incremental"
-    
+
+    def test_backup_with_progress_callback(self, vault_with_mock_s3):
+        """Test backup with progress callback."""
+        vault, _ = vault_with_mock_s3
+
+        # Track progress updates
+        progress_updates = []
+
+        def progress_callback(percentage):
+            progress_updates.append(percentage)
+
+        # Create backup with progress callback
+        metadata = vault.backup(full=True, progress_callback=progress_callback)
+
+        # Verify backup completed
+        assert metadata.backup_type == "full"
+
+        # Verify progress callback was called with increasing values
+        assert len(progress_updates) > 0
+        assert progress_updates[0] <= progress_updates[-1]
+        assert 100 in progress_updates  # Should reach 100% at the end
+
+        # Verify progress increases monotonically (each value >= previous)
+        for i in range(1, len(progress_updates)):
+            assert progress_updates[i] >= progress_updates[i-1]
+
     def test_list_backups(self, vault_with_mock_s3):
         """Test listing backups."""
         vault, mock_s3 = vault_with_mock_s3
@@ -758,3 +784,264 @@ class TestBackupRestoreCycle:
                 # Check memory logs
                 assert (target_dir / "memory" / "2025-02-01.md").exists()
                 assert (target_dir / "memory" / "2025-02-02.md").exists()
+
+
+class TestProgressCallbacks:
+    """Test progress callback functionality in MoltVault operations."""
+
+    @pytest.fixture
+    def temp_omi_dir(self, tmp_path):
+        """Create temporary OMI directory structure."""
+        omi_dir = tmp_path / ".openclaw" / "omi"
+        omi_dir.mkdir(parents=True)
+
+        # Create critical files
+        (omi_dir / "palace.sqlite").write_text("fake sqlite data")
+        (omi_dir / "NOW.md").write_text("# NOW\n\nCurrent task")
+        (omi_dir / "config.yaml").write_text("# config")
+        (omi_dir / "MEMORY.md").write_text("# Memory")
+
+        # Create memory logs
+        memory_dir = omi_dir / "memory"
+        memory_dir.mkdir()
+        (memory_dir / "2025-01-01.md").write_text("Log 1")
+
+        return omi_dir
+
+    def test_backup_calls_progress_callback(self, temp_omi_dir):
+        """Test that backup method calls progress_callback with updates."""
+        from omi.moltvault import MoltVault
+
+        progress_values = []
+
+        def progress_callback(percentage: int):
+            progress_values.append(percentage)
+
+        # Mock backend to avoid actual S3 operations
+        mock_backend = MagicMock()
+        mock_backend.upload_file.return_value = None
+        mock_backend.upload_data.return_value = None
+
+        with patch("omi.moltvault.BOTO3_AVAILABLE", False):
+            vault = MoltVault(temp_omi_dir)
+            vault._backend = mock_backend
+
+            # Run backup with progress callback
+            metadata = vault.backup(full=True, progress_callback=progress_callback)
+
+            # Verify progress callback was called
+            assert len(progress_values) > 0
+            # Should have at least start and end progress
+            assert 0 <= progress_values[0] <= 100
+            # Should end at 100
+            assert progress_values[-1] == 100
+            # Progress should be monotonically increasing
+            for i in range(1, len(progress_values)):
+                assert progress_values[i] >= progress_values[i-1]
+
+    def test_backup_works_without_progress_callback(self, temp_omi_dir):
+        """Test that backup works when progress_callback is None."""
+        from omi.moltvault import MoltVault
+
+        # Mock backend to avoid actual S3 operations
+        mock_backend = MagicMock()
+        mock_backend.upload_file.return_value = None
+        mock_backend.upload_data.return_value = None
+
+        with patch("omi.moltvault.BOTO3_AVAILABLE", False):
+            vault = MoltVault(temp_omi_dir)
+            vault._backend = mock_backend
+
+            # Run backup without progress callback - should not raise error
+            metadata = vault.backup(full=True, progress_callback=None)
+
+            assert metadata is not None
+            assert metadata.backup_id is not None
+
+    def test_restore_calls_progress_callback(self, temp_omi_dir, tmp_path):
+        """Test that restore method calls progress_callback with updates."""
+        from omi.moltvault import MoltVault, BackupMetadata
+
+        progress_values = []
+
+        def progress_callback(percentage: int):
+            progress_values.append(percentage)
+
+        # Create a test archive
+        backup_id = "test-backup-123"
+
+        # Create persistent test files
+        test_files_dir = tmp_path / "test_files"
+        test_files_dir.mkdir()
+        archive_path = test_files_dir / f"{backup_id}.tar.gz"
+
+        # Create minimal tar.gz
+        with tarfile.open(archive_path, "w:gz") as tar:
+            # Add a test file
+            info = tarfile.TarInfo(name="test.txt")
+            info.size = 5
+            tar.addfile(info, io.BytesIO(b"hello"))
+
+        # Create metadata
+        mock_metadata = BackupMetadata(
+            backup_id=backup_id,
+            backup_type="full",
+            created_at="2025-01-01T00:00:00",
+            file_size=1024,
+            checksum=hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+            encrypted=False,
+            files_included=["test.txt"],
+            base_path_hash="hash123",
+            retention_days=30,
+        )
+
+        # Mock backend download method to copy files to local_path
+        def mock_download(key, local_path):
+            if "tar.gz" in key:
+                shutil.copy(archive_path, local_path)
+            elif "json" in key:
+                local_path.write_text(json.dumps(mock_metadata.to_dict()))
+
+        mock_backend = MagicMock()
+        mock_backend.download.side_effect = mock_download
+
+        with patch("omi.moltvault.BOTO3_AVAILABLE", False):
+            vault = MoltVault(temp_omi_dir)
+            vault._backend = mock_backend
+
+            target_path = tmp_path / "restore"
+            target_path.mkdir()
+
+            # Run restore with progress callback
+            restored_path = vault.restore(
+                backup_id=backup_id,
+                target_path=target_path,
+                progress_callback=progress_callback
+            )
+
+            # Verify progress callback was called
+            assert len(progress_values) > 0
+            # Should end at 100
+            assert progress_values[-1] == 100
+            # Progress should be monotonically increasing
+            for i in range(1, len(progress_values)):
+                assert progress_values[i] >= progress_values[i-1]
+
+    def test_restore_works_without_progress_callback(self, temp_omi_dir, tmp_path):
+        """Test that restore works when progress_callback is None."""
+        from omi.moltvault import MoltVault, BackupMetadata
+
+        # Create a test archive
+        backup_id = "test-backup-456"
+
+        # Create persistent test files
+        test_files_dir = tmp_path / "test_files"
+        test_files_dir.mkdir()
+        archive_path = test_files_dir / f"{backup_id}.tar.gz"
+
+        # Create minimal tar.gz
+        with tarfile.open(archive_path, "w:gz") as tar:
+            info = tarfile.TarInfo(name="test.txt")
+            info.size = 5
+            tar.addfile(info, io.BytesIO(b"hello"))
+
+        # Create metadata
+        mock_metadata = BackupMetadata(
+            backup_id=backup_id,
+            backup_type="full",
+            created_at="2025-01-01T00:00:00",
+            file_size=1024,
+            checksum=hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+            encrypted=False,
+            files_included=["test.txt"],
+            base_path_hash="hash123",
+            retention_days=30,
+        )
+
+        # Mock backend download method to copy files to local_path
+        def mock_download(key, local_path):
+            if "tar.gz" in key:
+                shutil.copy(archive_path, local_path)
+            elif "json" in key:
+                local_path.write_text(json.dumps(mock_metadata.to_dict()))
+
+        mock_backend = MagicMock()
+        mock_backend.download.side_effect = mock_download
+
+        with patch("omi.moltvault.BOTO3_AVAILABLE", False):
+            vault = MoltVault(temp_omi_dir)
+            vault._backend = mock_backend
+
+            target_path = tmp_path / "restore"
+            target_path.mkdir()
+
+            # Run restore without progress callback - should not raise error
+            restored_path = vault.restore(
+                backup_id=backup_id,
+                target_path=target_path,
+                progress_callback=None
+            )
+
+            assert restored_path is not None
+
+    def test_cleanup_calls_progress_callback(self, temp_omi_dir):
+        """Test that cleanup method calls progress_callback with updates."""
+        from omi.moltvault import MoltVault, BackupMetadata
+
+        progress_values = []
+
+        def progress_callback(percentage: int):
+            progress_values.append(percentage)
+
+        # Mock backend with some backups
+        mock_backend = MagicMock()
+
+        # Create mock metadata for old backup
+        old_backup = BackupMetadata(
+            backup_id="old-backup-1",
+            backup_type="full",
+            created_at=(datetime.now() - timedelta(days=60)).isoformat(),
+            file_size=1024,
+            checksum="abc123",
+            encrypted=False,
+            files_included=["test.txt"],
+            base_path_hash="hash123",
+            retention_days=30,
+        )
+
+        mock_backend.list_objects.return_value = [
+            MagicMock(key=f"backups/{old_backup.backup_id}.json")
+        ]
+        mock_backend.download_data.return_value = json.dumps(old_backup.to_dict()).encode()
+        mock_backend.delete_object.return_value = None
+
+        with patch("omi.moltvault.BOTO3_AVAILABLE", False):
+            vault = MoltVault(temp_omi_dir)
+            vault._backend = mock_backend
+
+            # Run cleanup with progress callback
+            result = vault.cleanup(dry_run=False, progress_callback=progress_callback)
+
+            # Verify progress callback was called
+            assert len(progress_values) > 0
+            # Should end at or near 100
+            assert progress_values[-1] >= 90
+
+    def test_cleanup_works_without_progress_callback(self, temp_omi_dir):
+        """Test that cleanup works when progress_callback is None."""
+        from omi.moltvault import MoltVault
+
+        # Mock backend with no backups
+        mock_backend = MagicMock()
+        mock_backend.list_objects.return_value = []
+
+        with patch("omi.moltvault.BOTO3_AVAILABLE", False):
+            vault = MoltVault(temp_omi_dir)
+            vault._backend = mock_backend
+
+            # Run cleanup without progress callback - should not raise error
+            result = vault.cleanup(dry_run=True, progress_callback=None)
+
+            assert result is not None
+            assert 'deleted' in result
+            assert 'kept' in result

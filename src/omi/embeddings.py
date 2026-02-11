@@ -7,9 +7,12 @@ import os
 import json
 import hashlib
 from pathlib import Path
-from typing import List, Optional, Union, Dict
+from typing import List, Optional, Union, Dict, Any, TYPE_CHECKING
 from dataclasses import dataclass
 import numpy as np
+
+if TYPE_CHECKING:
+    import ollama  # type: ignore[import-not-found]
 
 
 @dataclass
@@ -37,7 +40,7 @@ class NIMEmbedder:
     DEFAULT_MODEL = "baai/bge-m3"
     DEFAULT_DIM = 1024
     
-    def __init__(self, 
+    def __init__(self,
                  api_key: Optional[str] = None,
                  base_url: str = "https://integrate.api.nvidia.com/v1",
                  model: str = DEFAULT_MODEL,
@@ -49,11 +52,12 @@ class NIMEmbedder:
             model: baai/bge-m3 (recommended) or other
             fallback_to_ollama: Use local Ollama if NIM unavailable
         """
-        self.api_key = api_key or os.getenv("NIM_API_KEY")
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-        self.fallback_enabled = fallback_to_ollama
-        self._ollama_embedder = None
+        self.api_key: Optional[str] = api_key or os.getenv("NIM_API_KEY")
+        self.base_url: str = base_url.rstrip("/")
+        self.model: str = model
+        self.fallback_enabled: bool = fallback_to_ollama
+        self._ollama_embedder: Optional['OllamaEmbedder'] = None
+        self._session: Any  # requests.Session
         
         if not self.api_key:
             raise ValueError("NIM_API_KEY required or set NIM_API_KEY env var")
@@ -61,11 +65,12 @@ class NIMEmbedder:
         # Initialize HTTP session
         try:
             import requests
-            self._session = requests.Session()
-            self._session.headers.update({
+            session = requests.Session()
+            session.headers.update({
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json"
             })
+            self._session = session
             self._test_connection()
         except Exception as e:
             if self.fallback_enabled:
@@ -85,7 +90,7 @@ class NIMEmbedder:
     def _init_ollama_fallback(self) -> None:
         """Initialize Ollama fallback"""
         try:
-            from .ollama_fallback import OllamaEmbedder
+            from .ollama_fallback import OllamaEmbedder  # type: ignore[import-not-found]
             self._ollama_embedder = OllamaEmbedder()
         except Exception:
             raise RuntimeError("NIM unavailable and Ollama fallback failed")
@@ -111,9 +116,10 @@ class NIMEmbedder:
             timeout=30
         )
         response.raise_for_status()
-        
+
         data = response.json()
-        return data["data"][0]["embedding"]
+        embedding: List[float] = data["data"][0]["embedding"]
+        return embedding
     
     def embed_batch(self, texts: List[str], batch_size: int = 8) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
@@ -124,20 +130,21 @@ class NIMEmbedder:
             results.extend(batch_results)
         return results
     
-    def similarity(self, embedding1: List[float], 
+    def similarity(self, embedding1: List[float],
                   embedding2: List[float]) -> float:
         """Cosine similarity"""
-        v1 = np.array(embedding1)
-        v2 = np.array(embedding2)
-        
-        dot = np.dot(v1, v2)
-        norm1 = np.linalg.norm(v1)
-        norm2 = np.linalg.norm(v2)
-        
+        v1: Any = np.array(embedding1)  # type: ignore[attr-defined]
+        v2: Any = np.array(embedding2)  # type: ignore[attr-defined]
+
+        dot: Any = np.dot(v1, v2)  # type: ignore[attr-defined]
+        norm1: Any = np.linalg.norm(v1)
+        norm2: Any = np.linalg.norm(v2)
+
         if norm1 == 0 or norm2 == 0:
             return 0.0
-        
-        return dot / (norm1 * norm2)
+
+        result: Any = dot / (norm1 * norm2)
+        return float(result)
 
 
 class OllamaEmbedder:
@@ -152,11 +159,14 @@ class OllamaEmbedder:
     DEFAULT_MODEL = "nomic-embed-text"
     DEFAULT_DIM = 768
     
-    def __init__(self, model: str = DEFAULT_MODEL, 
+    def __init__(self, model: str = DEFAULT_MODEL,
                  base_url: str = "http://localhost:11434"):
-        self.model = model
-        self.base_url = base_url
-        
+        self.model: str = model
+        self.base_url: str = base_url
+        self.client: Any  # ollama.Client
+        self._use_client: bool
+        self._session: Any  # requests.Session
+
         try:
             import ollama
             self.client = ollama.Client(host=base_url)
@@ -173,35 +183,39 @@ class OllamaEmbedder:
                 model=self.model,
                 prompt=text
             )
-            return response['embedding']
+            embedding: List[float] = response['embedding']
+            return embedding
         else:
             import requests
-            response = self._session.post(
+            resp = self._session.post(
                 f"{self.base_url}/api/embeddings",
                 json={"model": self.model, "prompt": text}
             )
-            response.raise_for_status()
-            return response.json()['embedding']
+            resp.raise_for_status()
+            embedding_result: List[float] = resp.json()['embedding']
+            return embedding_result
 
 
 class EmbeddingCache:
     """Disk cache for embeddings"""
-    
+
     def __init__(self, cache_dir: Path, embedder: Union[NIMEmbedder, OllamaEmbedder]):
-        self.cache_dir = Path(cache_dir)
+        self.cache_dir: Path = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.embedder = embedder
+        self.embedder: Union[NIMEmbedder, OllamaEmbedder] = embedder
     
     def get_or_compute(self, text: str) -> List[float]:
         """Get from cache or compute and store"""
         content_hash = hashlib.sha256(text.encode()).hexdigest()
         cache_path = self.cache_dir / f"{content_hash}.npy"
-        
+
         if cache_path.exists():
-            return np.load(cache_path).tolist()
-        
+            loaded: Any = np.load(cache_path)  # type: ignore[attr-defined]
+            result: List[float] = loaded.tolist()
+            return result
+
         embedding = self.embedder.embed(text)
-        np.save(cache_path, np.array(embedding))
+        np.save(cache_path, np.array(embedding))  # type: ignore[attr-defined]
         return embedding
 
 
@@ -219,10 +233,10 @@ class NIMInference:
     CONTRADICTION_MODEL = "baai/bge-m3"
     
     def __init__(self, config: Optional[NIMConfig] = None):
-        self.config = config or NIMConfig(
+        self.config: NIMConfig = config or NIMConfig(
             api_key=os.getenv("NIM_API_KEY", "")
         )
-        self._session = None
+        self._session: Any  # requests.Session
         self._init_session()
     
     def _init_session(self) -> None:
@@ -233,10 +247,10 @@ class NIMInference:
             "Content-Type": "application/json"
         })
     
-    def verify_capsule_state(self, 
-                           capsule_state: str, 
+    def verify_capsule_state(self,
+                           capsule_state: str,
                            retrieved_clips: List[str],
-                           threshold: float = 0.85) -> dict:
+                           threshold: float = 0.85) -> Dict[str, Any]:
         """
         Micro-model verification of state capsule
         
@@ -264,12 +278,14 @@ class NIMInference:
             timeout=30
         )
         response.raise_for_status()
-        return response.json()["data"][0]["embedding"]
+        embedding: List[float] = response.json()["data"][0]["embedding"]
+        return embedding
     
     def _similarity(self, e1: List[float], e2: List[float]) -> float:
-        import numpy as np
-        a, b = np.array(e1), np.array(e2)
-        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+        a: Any = np.array(e1)  # type: ignore[attr-defined]
+        b: Any = np.array(e2)  # type: ignore[attr-defined]
+        result: Any = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))  # type: ignore[attr-defined]
+        return float(result)
     
     def classify_memory_type(self, content: str) -> str:
         """
@@ -285,27 +301,27 @@ class NIMInference:
         }
         
         content_emb = self._embed(content)
-        
+
         best_type = "experience"  # default
-        best_sim = 0
-        
+        best_sim: float = 0.0
+
         for mem_type, example in type_examples.items():
             type_emb = self._embed(example)
             sim = self._similarity(content_emb, type_emb)
             if sim > best_sim:
                 best_sim = sim
                 best_type = mem_type
-        
+
         return best_type
 
 
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:
     """Calculate cosine similarity"""
-    import numpy as np
-    a, b = np.array(v1), np.array(v2)
-    dot = np.dot(a, b)
-    norm = np.linalg.norm(a) * np.linalg.norm(b)
-    return dot / norm if norm > 0 else 0.0
+    a: Any = np.array(v1)  # type: ignore[attr-defined]
+    b: Any = np.array(v2)  # type: ignore[attr-defined]
+    dot: Any = np.dot(a, b)  # type: ignore[attr-defined]
+    norm: Any = np.linalg.norm(a) * np.linalg.norm(b)
+    return float(dot / norm) if norm > 0 else 0.0
 
 
 # Backwards compatibility

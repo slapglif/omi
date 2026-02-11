@@ -21,7 +21,7 @@ Usage:
     bus.publish(event)
 """
 
-from typing import Callable, Dict, List, Any
+from typing import Callable, Dict, List, Any, Optional
 from threading import Lock
 import logging
 
@@ -38,7 +38,7 @@ class EventBus:
     - Wildcard subscription: subscribe('*', callback) receives all events
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty event bus with thread safety."""
         # Dictionary mapping event_type -> list of callbacks
         self._subscribers: Dict[str, List[Callable[[Any], None]]] = {}
@@ -148,7 +148,7 @@ class EventBus:
             self._subscribers.clear()
             logger.debug("Cleared all subscriptions")
 
-    def subscriber_count(self, event_type: str = None) -> int:
+    def subscriber_count(self, event_type: Optional[str] = None) -> int:
         """
         Get count of subscribers.
 
@@ -167,7 +167,7 @@ class EventBus:
 
 # Global event bus instance
 # Services can import and use this shared bus
-_global_bus = None
+_global_bus: Optional[EventBus] = None
 
 
 def get_event_bus() -> EventBus:
@@ -217,12 +217,12 @@ class WebhookDispatcher:
     def __init__(
         self,
         webhook_url: str,
-        event_types: List[str] = None,
-        headers: Dict[str, str] = None,
+        event_types: Optional[List[str]] = None,
+        headers: Optional[Dict[str, str]] = None,
         timeout: int = 10,
         max_retries: int = 3,
         retry_delay: float = 1.0,
-    ):
+    ) -> None:
         """
         Initialize webhook dispatcher.
 
@@ -243,7 +243,7 @@ class WebhookDispatcher:
 
         self._event_bus = get_event_bus()
         self._active = False
-        self._callbacks_registered = []
+        self._callbacks_registered: List[str] = []
 
         # Validate requests library is available
         try:

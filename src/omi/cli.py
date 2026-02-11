@@ -7,7 +7,7 @@ import sys
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any, Dict, cast
 import click
 
 # OMI imports
@@ -45,7 +45,7 @@ def get_base_path(ctx_data_dir: Optional[Path] = None) -> Path:
 @click.option('--data-dir', type=click.Path(), default=None, envvar='OMI_BASE_PATH',
               help='Base directory for OMI data (default: ~/.openclaw/omi)')
 @click.pass_context
-def cli(ctx, data_dir):
+def cli(ctx: click.Context, data_dir: Optional[str]) -> None:
     """OMI - OpenClaw Memory Infrastructure
 
     A unified memory system for AI agents.
@@ -80,7 +80,7 @@ def cli(ctx, data_dir):
 
 @cli.command()
 @click.pass_context
-def init(ctx) -> None:
+def init(ctx: click.Context) -> None:
     """Initialize memory infrastructure.
 
     Creates the following:
@@ -222,7 +222,7 @@ Initializing OMI memory infrastructure.
 @cli.command("session-start")
 @click.option("--show-now", is_flag=True, help="Display NOW.md content")
 @click.pass_context
-def session_start(ctx, show_now: bool) -> None:
+def session_start(ctx: click.Context, show_now: bool) -> None:
     """Load context and start a session.
 
     Performs:
@@ -236,20 +236,26 @@ def session_start(ctx, show_now: bool) -> None:
         sys.exit(1)
 
     click.echo(click.style("Starting OMI session...", fg="cyan", bold=True))
-    
+
     # 1. Load NOW.md
-    now_storage = NOWStore(base_path)
+    from .persistence import NOWEntry
+    now_storage = NOWStore(str(base_path))
     content = now_storage.read()
 
     # Check if NOW.md exists and has content
-    if not content or content == now_storage._default_content():
+    default_content = "# NOW\n\n## Current Task\n\n## Recent Completions\n\n## Pending Decisions\n\n## Key Files\n"
+    if not content or content == default_content:
         click.echo(click.style(" ⚠ NOW.md not found, creating default", fg="yellow"))
-        now_storage.update(
+        now_storage.update(  # type: ignore[attr-defined]
             current_task="",
             recent_completions=[],
             pending_decisions=[],
             key_files=[]
         )
+        content = now_storage.read()
+
+    # Parse NOW entry
+    now_entry = NOWEntry.from_markdown(content) if content else None
     
     # 2. Get database stats
     db_path = base_path / "palace.sqlite"
@@ -263,11 +269,11 @@ def session_start(ctx, show_now: bool) -> None:
         mem_count = result[0] if result else 0
         conn.close()
     
-    click.echo(f" ✓ Loaded context: {len(now_entry.recent_completions)} recent completions")
+    click.echo(f" ✓ Loaded context: {len(now_entry.recent_completions) if now_entry else 0} recent completions")
     click.echo(f" ✓ Database: {mem_count} memories stored")
-    
+
     # 3. Semantic recall for current task
-    if now_entry.current_task and mem_count > 0:
+    if now_entry and now_entry.current_task and mem_count > 0:
         try:
             palace = GraphPalace(db_path)
             results = palace.full_text_search(now_entry.current_task, limit=5)
@@ -275,17 +281,17 @@ def session_start(ctx, show_now: bool) -> None:
                 click.echo(f"\n ✓ {len(results)} relevant memories found")
         except Exception as e:
             click.echo(click.style(f" ⚠ Recall error: {e}", fg="yellow"))
-    
+
     # 4. Session status
     from .security import IntegrityChecker
     integrity_checker = IntegrityChecker(base_path.parent if base_path.name == "omi" else base_path)
     now_integrity = integrity_checker.check_now_md()
-    
+
     click.echo(f"\n" + click.style("Session Status:", bold=True))
-    if show_now and now_entry.current_task:
+    if show_now and now_entry and now_entry.current_task:
         click.echo(f"\n{click.style('Current Task:', fg='cyan')}")
         click.echo(f"  {now_entry.current_task}")
-    if now_entry.pending_decisions:
+    if now_entry and now_entry.pending_decisions:
         click.echo(f"\n{click.style('Pending Decisions:', fg='yellow')}")
         for item in now_entry.pending_decisions:
             click.echo(f"  - [ ] {item}")
@@ -317,7 +323,7 @@ def session_start(ctx, show_now: bool) -> None:
 @click.option('--confidence', '-c', type=float, default=None,
               help='Confidence level (0.0-1.0, for beliefs only)')
 @click.pass_context
-def store(ctx, content: str, memory_type: str, confidence: Optional[float]) -> None:
+def store(ctx: click.Context, content: str, memory_type: str, confidence: Optional[float]) -> None:
     """Store a memory in the Graph Palace.
 
     Args:
@@ -369,7 +375,7 @@ def store(ctx, content: str, memory_type: str, confidence: Optional[float]) -> N
 @click.option('--limit', '-l', default=10, help='Maximum number of results')
 @click.option('--json-output', is_flag=True, help='Output as JSON')
 @click.pass_context
-def recall(ctx, query: str, limit: int, json_output: bool) -> None:
+def recall(ctx: click.Context, query: str, limit: int, json_output: bool) -> None:
     """Search memories using semantic recall.
 
     Args:
@@ -439,7 +445,7 @@ def recall(ctx, query: str, limit: int, json_output: bool) -> None:
 
 @cli.command()
 @click.pass_context
-def check(ctx) -> None:
+def check(ctx: click.Context) -> None:
     """Create a pre-compression checkpoint.
 
     Performs:
@@ -455,14 +461,16 @@ def check(ctx) -> None:
     click.echo(click.style("Creating checkpoint...", fg="cyan", bold=True))
 
     # Update NOW.md timestamp
-    now_storage = NOWStore(base_path)
-    if now_storage.now_file.exists():
+    from .persistence import NOWEntry
+    now_storage = NOWStore(str(base_path))
+    now_file_path = base_path / "NOW.md"
+    if now_file_path.exists():
         content = now_storage.read()
-        if content and content != now_storage._default_content():
+        default_content = "# NOW\n\n## Current Task\n\n## Recent Completions\n\n## Pending Decisions\n\n## Key Files\n"
+        if content and content != default_content:
             # Parse existing content and re-write to update timestamp
-            from .persistence import NOWEntry
             now_entry = NOWEntry.from_markdown(content)
-            now_storage.update(
+            now_storage.update(  # type: ignore[attr-defined]
                 current_task=now_entry.current_task,
                 recent_completions=now_entry.recent_completions,
                 pending_decisions=now_entry.pending_decisions,
@@ -471,7 +479,8 @@ def check(ctx) -> None:
             click.echo(f" ✓ Updated NOW.md")
 
     # Create state capsule
-    capsule = {
+    from typing import Dict, cast
+    capsule: Dict[str, Any] = {
         "timestamp": datetime.now().isoformat(),
         "version": __version__,
         "now_md_hash": None,
@@ -487,20 +496,27 @@ def check(ctx) -> None:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM memories")
-        capsule["memory_summary"]["total_memories"] = cursor.fetchone()[0]
+        result = cursor.fetchone()
+        if result:
+            memory_summary = cast(Dict[str, Any], capsule["memory_summary"])
+            memory_summary["total_memories"] = result[0]
         cursor.execute("SELECT memory_type, COUNT(*) FROM memories GROUP BY memory_type")
         for row in cursor.fetchall():
-            capsule["memory_summary"]["types"][row[0]] = row[1]
+            memory_summary = cast(Dict[str, Any], capsule["memory_summary"])
+            types_dict = cast(Dict[str, int], memory_summary["types"])
+            types_dict[row[0]] = row[1]
         conn.close()
         click.echo(f" ✓ Memory capsule created")
     
     # Report status
     click.echo(f"\n" + click.style("Checkpoint Status:", bold=True))
-    click.echo(f"  Timestamp: {click.style(capsule['timestamp'], fg='cyan')}")
-    click.echo(f"  Memories: {click.style(str(capsule['memory_summary']['total_memories']), fg='cyan')}")
-    if capsule["memory_summary"]["types"]:
+    click.echo(f"  Timestamp: {click.style(str(capsule['timestamp']), fg='cyan')}")
+    memory_summary = cast(Dict[str, Any], capsule['memory_summary'])
+    click.echo(f"  Memories: {click.style(str(memory_summary['total_memories']), fg='cyan')}")
+    types_dict = cast(Dict[str, int], memory_summary["types"])
+    if types_dict:
         click.echo(f"\n  Memory types:")
-        for mem_type, count in capsule["memory_summary"]["types"].items():
+        for mem_type, count in types_dict.items():
             click.echo(f"    {mem_type}: {count}")
     
     click.echo(click.style("\n✓ Checkpoint complete", fg="green", bold=True))
@@ -509,7 +525,7 @@ def check(ctx) -> None:
 @cli.command("session-end")
 @click.option('--no-backup', is_flag=True, help="Skip vault backup")
 @click.pass_context
-def session_end(ctx, no_backup: bool) -> None:
+def session_end(ctx: click.Context, no_backup: bool) -> None:
     """End session and backup.
 
     Performs:
@@ -525,15 +541,17 @@ def session_end(ctx, no_backup: bool) -> None:
     click.echo(click.style("Ending OMI session...", fg="cyan", bold=True))
 
     # Update NOW.md timestamp and get current task for log
-    now_storage = NOWStore(base_path)
-    now_entry = None
-    if now_storage.now_file.exists():
+    from .persistence import NOWEntry
+    now_storage = NOWStore(str(base_path))
+    now_entry: Optional[NOWEntry] = None
+    now_file_path = base_path / "NOW.md"
+    if now_file_path.exists():
         content = now_storage.read()
-        if content and content != now_storage._default_content():
+        default_content = "# NOW\n\n## Current Task\n\n## Recent Completions\n\n## Pending Decisions\n\n## Key Files\n"
+        if content and content != default_content:
             # Parse existing content and re-write to update timestamp
-            from .persistence import NOWEntry
             now_entry = NOWEntry.from_markdown(content)
-            now_storage.update(
+            now_storage.update(  # type: ignore[attr-defined]
                 current_task=now_entry.current_task,
                 recent_completions=now_entry.recent_completions,
                 pending_decisions=now_entry.pending_decisions,
@@ -550,14 +568,17 @@ def session_end(ctx, no_backup: bool) -> None:
     click.echo(f" ✓ Appended to daily log: {log_path.name}")
     
     # Vault backup
+    vault_enabled = False
     if not no_backup:
         config_path = base_path / "config.yaml"
-        vault_enabled = False
         if config_path.exists():
-            import yaml
             try:
+                import yaml  # type: ignore[import-untyped]
                 config = yaml.safe_load(config_path.read_text())
-                vault_enabled = config.get('vault', {}).get('enabled', False)
+                if config and isinstance(config, dict):
+                    vault_config = config.get('vault', {})
+                    if isinstance(vault_config, dict):
+                        vault_enabled = bool(vault_config.get('enabled', False))
             except Exception:
                 pass
         if vault_enabled:
@@ -574,7 +595,7 @@ def session_end(ctx, no_backup: bool) -> None:
         session_id=session_timestamp.isoformat(),
         timestamp=session_timestamp,
         metadata={
-            "vault_backup": not no_backup and vault_enabled if 'vault_enabled' in locals() else False
+            "vault_backup": not no_backup and vault_enabled
         }
     )
     get_event_bus().publish(event)
@@ -582,7 +603,7 @@ def session_end(ctx, no_backup: bool) -> None:
 
 @cli.command()
 @click.pass_context
-def status(ctx) -> None:
+def status(ctx: click.Context) -> None:
     """Show OMI health and size statistics."""
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
@@ -659,7 +680,7 @@ def status(ctx) -> None:
 
 @cli.command()
 @click.pass_context
-def audit(ctx) -> None:
+def audit(ctx: click.Context) -> None:
     """Run security audit.
 
     Checks:
@@ -733,7 +754,7 @@ def audit(ctx) -> None:
 
 @cli.group()
 @click.pass_context
-def config(ctx):
+def config(ctx: click.Context) -> None:
     """Configuration management commands."""
     ctx.ensure_object(dict)
 
@@ -742,7 +763,7 @@ def config(ctx):
 @click.argument('key')
 @click.argument('value')
 @click.pass_context
-def config_set(ctx, key: str, value: str) -> None:
+def config_set(ctx: click.Context, key: str, value: str) -> None:
     """Set a configuration value.
 
     Args:
@@ -761,21 +782,27 @@ def config_set(ctx, key: str, value: str) -> None:
     if not config_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
+
     try:
         import yaml
-        config_data = yaml.safe_load(config_path.read_text()) or {}
-        
+        config_data_raw = yaml.safe_load(config_path.read_text())
+        config_data: Dict[str, Any] = config_data_raw if isinstance(config_data_raw, dict) else {}
+
         # Parse nested keys (e.g., 'embedding.provider')
         keys = key.split('.')
-        current = config_data
+        current: Dict[str, Any] = config_data
         for k in keys[:-1]:
             if k not in current:
                 current[k] = {}
-            current = current[k]
-        
+            next_val = current[k]
+            if isinstance(next_val, dict):
+                current = next_val
+            else:
+                current[k] = {}
+                current = cast(Dict[str, Any], current[k])
+
         current[keys[-1]] = value
-        
+
         # Write back
         config_path.write_text(yaml.dump(config_data, default_flow_style=False))
         click.echo(click.style(f"✓ Set {key} = {value}", fg="green"))
@@ -787,7 +814,7 @@ def config_set(ctx, key: str, value: str) -> None:
 @config.command('get')
 @click.argument('key')
 @click.pass_context
-def config_get(ctx, key: str) -> None:
+def config_get(ctx: click.Context, key: str) -> None:
     """Get a configuration value.
 
     Args:
@@ -803,21 +830,22 @@ def config_get(ctx, key: str) -> None:
     if not config_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
+
     try:
         import yaml
-        config_data = yaml.safe_load(config_path.read_text()) or {}
-        
+        config_data_raw = yaml.safe_load(config_path.read_text())
+        config_data: Dict[str, Any] = config_data_raw if isinstance(config_data_raw, dict) else {}
+
         # Parse nested keys
         keys = key.split('.')
-        current = config_data
+        current: Any = config_data
         for k in keys:
-            if k not in current:
+            if not isinstance(current, dict) or k not in current:
                 click.echo(click.style(f"Key '{key}' not found", fg="yellow"))
                 sys.exit(1)
             current = current[k]
-        
-        click.echo(current)
+
+        click.echo(str(current))
     except Exception as e:
         click.echo(click.style(f"Error: Failed to get config: {e}", fg="red"))
         sys.exit(1)
@@ -825,7 +853,7 @@ def config_get(ctx, key: str) -> None:
 
 @config.command('show')
 @click.pass_context
-def config_show(ctx) -> None:
+def config_show(ctx: click.Context) -> None:
     """Display full configuration."""
     base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
@@ -841,7 +869,7 @@ def config_show(ctx) -> None:
 
 @cli.group()
 @click.pass_context
-def events(ctx):
+def events(ctx: click.Context) -> None:
     """Event history commands."""
     ctx.ensure_object(dict)
 
@@ -853,7 +881,7 @@ def events(ctx):
 @click.option('--limit', '-l', default=100, help='Maximum number of results (default: 100)')
 @click.option('--json-output', is_flag=True, help='Output as JSON')
 @click.pass_context
-def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Optional[str],
+def list_events(ctx: click.Context, event_type: Optional[str], since: Optional[str], until: Optional[str],
                 limit: int, json_output: bool) -> None:
     """List events from history with filters.
 
@@ -967,7 +995,7 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
 @events.command('subscribe')
 @click.option('--type', '-t', 'event_type', default=None, help='Filter by event type (default: all events)')
 @click.pass_context
-def subscribe_events(ctx, event_type: Optional[str]) -> None:
+def subscribe_events(ctx: click.Context, event_type: Optional[str]) -> None:
     """Subscribe to live event stream.
 
     Connects to the EventBus and prints events in real-time as they occur.
@@ -1005,7 +1033,7 @@ def subscribe_events(ctx, event_type: Optional[str]) -> None:
     click.echo()
 
     # Event handler callback
-    def print_event(event):
+    def print_event(event: Any) -> None:
         """Print event to stdout when received."""
         try:
             # Format timestamp
@@ -1054,7 +1082,7 @@ def subscribe_events(ctx, event_type: Optional[str]) -> None:
 
 
 # Main entry point
-def main():
+def main() -> None:
     """Entry point for the OMI CLI."""
     cli()
 

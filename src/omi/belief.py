@@ -5,7 +5,7 @@ Based on: Hindsight paper (arxiv:2512.12818), VesperMolt's implementation
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple, cast
 import math
 
 
@@ -35,7 +35,7 @@ class BeliefNetwork:
     SUPPORT_LAMBDA = 0.15
     CONTRADICT_LAMBDA = 0.30
     
-    def __init__(self, palace_store):
+    def __init__(self, palace_store: Any) -> None:
         """
         Args:
             palace_store: GraphPalace instance for storage
@@ -57,7 +57,7 @@ class BeliefNetwork:
             memory_type='belief',
             confidence=initial_confidence
         )
-        return belief_id
+        return cast(str, belief_id)
     
     def update_with_evidence(self, belief_id: str, evidence: Evidence) -> float:
         """
@@ -75,7 +75,7 @@ class BeliefNetwork:
         
         # Get current confidence
         current = self.palace.get_belief(belief_id)
-        old_confidence = current.get('confidence', 0.5)
+        old_confidence: float = current.get('confidence', 0.5)
         
         # Calculate target
         if evidence.supports:
@@ -98,8 +98,8 @@ class BeliefNetwork:
         
         return new_confidence
     
-    def retrieve_with_confidence_weighting(self, query: str, 
-                                          min_confidence: Optional[float] = None) -> List[dict]:
+    def retrieve_with_confidence_weighting(self, query: str,
+                                          min_confidence: Optional[float] = None) -> List[Dict[str, Any]]:
         """
         Retrieve beliefs, applying confidence exponent weighting
         
@@ -183,7 +183,7 @@ class ContradictionDetector:
 
         return False
 
-    def detect_contradiction_with_pattern(self, memory1: str, memory2: str) -> tuple[bool, Optional[str]]:
+    def detect_contradiction_with_pattern(self, memory1: str, memory2: str) -> Tuple[bool, Optional[str]]:
         """Check if two memories contain opposing patterns and return the pattern
 
         Returns:

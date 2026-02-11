@@ -8,8 +8,8 @@ import json
 import hashlib
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass
+from typing import List, Dict, Optional, Tuple, Any
+from dataclasses import dataclass, field
 import numpy as np
 
 
@@ -25,7 +25,7 @@ class MemoryNode:
     memory_type: str = "fact"  # fact | experience | belief | decision
     confidence: Optional[float] = None
     hash: str = ""
-    instance_ids: List[str] = None
+    instance_ids: Optional[List[str]] = None
 
 
 class MemoryGraph:
@@ -125,19 +125,21 @@ class MemoryGraph:
             cursor = conn.execute(
                 "SELECT access_count FROM memories WHERE id = ?", (node_id,)
             )
-            access = cursor.fetchone()[0] if cursor.fetchone() else 0
-            
+            row = cursor.fetchone()
+            access: int = int(row[0]) if row else 0
+
             cursor = conn.execute(
                 "SELECT COUNT(*) FROM edges WHERE source_id = ? OR target_id = ?",
                 (node_id, node_id)
             )
-            edges = cursor.fetchone()[0]
-            
-            return (access * 0.7) + (edges * 0.3)
+            edge_row = cursor.fetchone()
+            edges: int = int(edge_row[0]) if edge_row else 0
+
+            return float((access * 0.7) + (edges * 0.3))
     
     def verify_topology(self) -> Dict[str, List[str]]:
         """Verify graph topology - return anomalies."""
-        anomalies = {
+        anomalies: Dict[str, List[str]] = {
             "orphan_nodes": [],
             "sudden_cores": [],
         }
@@ -164,5 +166,9 @@ class MemoryGraph:
     
     def _cosine_similarity(self, a: List[float], b: List[float]) -> float:
         """Calculate cosine similarity between two vectors."""
-        a, b = np.array(a), np.array(b)
-        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+        arr_a = np.array(a)  # type: ignore[attr-defined]
+        arr_b = np.array(b)  # type: ignore[attr-defined]
+        dot_product = np.dot(arr_a, arr_b)  # type: ignore[attr-defined]
+        norm_a = np.linalg.norm(arr_a)
+        norm_b = np.linalg.norm(arr_b)
+        return float(dot_product / (norm_a * norm_b))

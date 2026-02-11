@@ -32,50 +32,52 @@ from .moltvault import MoltVault
 class MemoryTools:
     """
     Core memory operations (MCP tools)
-    
+
     Recommended: memory_recall, memory_store
     """
-    
-    def __init__(self, palace_store: GraphPalace, 
+
+    def __init__(self, palace_store: GraphPalace,
                  embedder: OllamaEmbedder,
-                 cache: EmbeddingCache):
-        self.palace = palace_store
-        self.embedder = embedder
-        self.cache = cache
+                 cache: EmbeddingCache) -> None:
+        self.palace: GraphPalace = palace_store
+        self.embedder: OllamaEmbedder = embedder
+        self.cache: EmbeddingCache = cache
     
     def recall(self,
               query: str,
               limit: int = 10,
               min_relevance: float = 0.7,
-              memory_type: Optional[str] = None) -> List[dict]:
+              memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         memory_recall: Semantic search with recency weighting
-
+        
         Args:
             query: Natural language search query
             limit: Max results (default: 10)
             min_relevance: Similarity threshold (default: 0.7)
             memory_type: Filter by type (fact|experience|belief|decision)
-
+        
         Returns:
             Memories sorted by relevance + recency
         """
-        # Convert query string to embeddings
-        query_embedding = self.embedder.embed(query)
+        # Generate embedding for query
+        query_embedding = self.cache.get_or_compute(query)
 
-        # Get candidates
-        candidates = self.palace.recall(query_embedding, limit=limit*2)
-        
-        # Filter by type
-        if memory_type:
-            candidates = [c for c in candidates 
-                         if c.get('memory_type') == memory_type]
-        
+        # Get candidates from palace (returns List[Tuple[Memory, float]])
+        candidate_tuples = self.palace.recall(query_embedding, limit=limit*2, min_relevance=min_relevance)
+
+        # Convert tuples to dicts and filter by type
+        candidates: List[Dict[str, Any]] = []
+        for memory, relevance in candidate_tuples:
+            mem_dict = memory.to_dict()
+            mem_dict['relevance'] = relevance
+            if memory_type is None or mem_dict.get('memory_type') == memory_type:
+                candidates.append(mem_dict)
+
         # Apply recency weighting
-        # calculate_recency_score already imported at module level
         half_life = 30.0  # days
-        
-        weighted = []
+
+        weighted: List[Dict[str, Any]] = []
         for mem in candidates:
             created_at = mem.get('created_at')
             if isinstance(created_at, str):
@@ -87,13 +89,13 @@ class MemoryTools:
                 created_at = datetime.now()
             days_ago = (datetime.now() - created_at).days
             recency = calculate_recency_score(days_ago, half_life)
-            
+
             final_score = (mem.get('relevance', 0.7) * 0.7) + (recency * 0.3)
             mem['final_score'] = final_score
             weighted.append(mem)
-        
+
         # Sort by final score
-        weighted.sort(key=lambda x: x['final_score'], reverse=True)
+        weighted.sort(key=lambda x: x.get('final_score', 0.0), reverse=True)
         results = weighted[:limit]
 
         # Emit event
@@ -154,11 +156,11 @@ class BeliefTools:
     """
     Belief network operations
     """
-    
+
     def __init__(self, belief_network: BeliefNetwork,
-                 detector: ContradictionDetector):
-        self.belief = belief_network
-        self.detector = detector
+                 detector: ContradictionDetector) -> None:
+        self.belief: BeliefNetwork = belief_network
+        self.detector: ContradictionDetector = detector
     
     def create(self,
               content: str,
@@ -220,7 +222,7 @@ class BeliefTools:
     
     def retrieve(self,
                query: str,
-               min_confidence: Optional[float] = None) -> List[dict]:
+               min_confidence: Optional[float] = None) -> List[Dict[str, Any]]:
         """
         belief_retrieve: Get beliefs with confidence weighting
         
@@ -255,7 +257,7 @@ class BeliefTools:
 
         return is_contradiction
     
-    def get_evidence_chain(self, belief_id: str) -> List[dict]:
+    def get_evidence_chain(self, belief_id: str) -> List[Dict[str, Any]]:
         """
         belief_evidence_chain: Show supporting/contradicting evidence
         
@@ -278,13 +280,13 @@ class CheckpointTools:
     Session checkpoint and recovery
     """
 
-    def __init__(self, now_store,
-                 vault: MoltVault):
+    def __init__(self, now_store: NowStorage,
+                 vault: MoltVault) -> None:
         # NOWStore is now an alias for NowStorage
-        self.now = now_store
-        self.vault = vault
+        self.now: NowStorage = now_store
+        self.vault: MoltVault = vault
     
-    def now_read(self) -> dict:
+    def now_read(self) -> Dict[str, Any]:
         """
         now_read: Load current operational context
 
@@ -327,7 +329,7 @@ class CheckpointTools:
     
     def create_capsule(self,
                       intent: str,
-                      partial_plan: str) -> dict:
+                      partial_plan: str) -> Dict[str, Any]:
         """
         capsule_create: Serialize state for recovery
         
@@ -353,42 +355,52 @@ class CheckpointTools:
         
         return capsule
     
-    def vault_backup(self, memory_content: str) -> str:
+    def vault_backup(self, full: bool = True) -> str:
         """
         vault_backup: Full backup to MoltVault
-        
-        Calls: POST molt-vault.com/api/v1/vault/backup
+
+        Args:
+            full: Create full backup (default: True)
+
+        Returns:
+            backup_id: ID of created backup
         """
-        return self.vault.backup(memory_content)
-    
+        metadata = self.vault.backup(full=full)
+        return metadata.backup_id
+
     def vault_restore(self, backup_id: str) -> str:
         """
         vault_restore: Restore from MoltVault
-        
-        Pattern: POST /vault/restore
+
+        Args:
+            backup_id: ID of backup to restore
+
+        Returns:
+            Restored directory path as string
         """
-        return self.vault.restore(backup_id)
+        restore_path = self.vault.restore(backup_id)
+        return str(restore_path)
 
 
 class SecurityTools:
     """
     Security verification (MCP tools)
     """
-    
+
     def __init__(self, integrity: IntegrityChecker,
                  topology: TopologyVerifier,
-                 consensus: ConsensusManager = None):
-        self.integrity = integrity
-        self.topology = topology
-        self.consensus = consensus
+                 consensus: Optional[ConsensusManager] = None) -> None:
+        self.integrity: IntegrityChecker = integrity
+        self.topology: TopologyVerifier = topology
+        self.consensus: Optional[ConsensusManager] = consensus
     
-    def integrity_check(self, scope: str = 'all') -> dict:
+    def integrity_check(self, scope: str = 'all') -> Dict[str, Any]:
         """
         integrity_check: Verify memory files
-        
+
         Scopes: 'now' | 'daily' | 'graph' | 'all'
         """
-        results = {
+        results: Dict[str, Any] = {
             'now_md': self.integrity.check_now_md(),
             'memory_md': self.integrity.check_memory_md()
         }
@@ -409,7 +421,7 @@ class SecurityTools:
         
         return results
     
-    def topology_audit(self) -> dict:
+    def topology_audit(self) -> Dict[str, Any]:
         """
         topology_audit: Check graph anomalies
         
@@ -431,9 +443,9 @@ class DailyLogTools:
     """
     Daily log operations
     """
-    
-    def __init__(self, daily_store: DailyLogStore):
-        self.daily = daily_store
+
+    def __init__(self, daily_store: DailyLogStore) -> None:
+        self.daily: DailyLogStore = daily_store
     
     def append(self, content: str) -> str:
         """
@@ -456,7 +468,7 @@ class DailyLogTools:
         return [str(p) for p in self.daily.list_days(days)]
 
 
-def get_all_mcp_tools(config: dict) -> dict:
+def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Initialize all MCP tools with configuration
     
@@ -472,7 +484,7 @@ def get_all_mcp_tools(config: dict) -> dict:
     now_store = NowStorage(base_path)
     daily_store = DailyLogStore(base_path)
     palace = GraphPalace(db_path)
-    vault = MoltVault(api_key=config.get('vault_api_key'), base_path=base_path)
+    vault = MoltVault(base_path=base_path)
     
     # Initialize embedders
     embedder = OllamaEmbedder(
@@ -485,7 +497,7 @@ def get_all_mcp_tools(config: dict) -> dict:
     # BeliefNetwork and ContradictionDetector already imported at module level
     belief_net = BeliefNetwork(palace)
     detector = ContradictionDetector()
-    
+
     # Initialize security
     # IntegrityChecker and TopologyVerifier already imported at module level
     integrity = IntegrityChecker(base_path)

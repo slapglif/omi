@@ -54,6 +54,9 @@ Issues = "https://github.com/slapglif/omi/issues"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+omi = ["py.typed"]
+
 [tool.black]
 line-length = 100
 target-version = ["py310", "py311", "py312"]

@@ -133,7 +133,7 @@ class TestGraphPalace(unittest.TestCase):
         
         result = self.palace.update_embedding(memory_id, new_embedding)
         self.assertTrue(result)
-
+        
         memory = self.palace.get_memory(memory_id)
         self.assertTrue(np.allclose(memory.embedding, new_embedding, rtol=1e-5))
 

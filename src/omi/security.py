@@ -5,7 +5,7 @@ Pattern: Trust is the attack surface
 
 import hashlib
 from pathlib import Path
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -13,22 +13,22 @@ from datetime import datetime, timedelta
 @dataclass
 class AnomalyReport:
     """Report of detected anomalies"""
-    orphan_nodes: List[str]           # Memories with no relationships
-    sudden_cores: List[dict]          # "Core" memories with no history
-    semantic_anomalies: List[dict]   # Embedding drift
-    hash_mismatches: List[str]       # Files that fail integrity
+    orphan_nodes: List[str]                  # Memories with no relationships
+    sudden_cores: List[Dict[str, Any]]       # "Core" memories with no history
+    semantic_anomalies: List[Dict[str, Any]] # Embedding drift
+    hash_mismatches: List[str]               # Files that fail integrity
     timestamp: datetime
 
 
 class IntegrityChecker:
     """
     Integrity verification for memory files
-    
+
     Pattern: SHA-256 hashes, Git version control, tamper detection
     """
-    
-    def __init__(self, base_path: Path):
-        self.base_path = Path(base_path)
+
+    def __init__(self, base_path: Path) -> None:
+        self.base_path: Path = Path(base_path)
     
     def hash_file(self, file_path: Path) -> str:
         """Generate SHA-256 hash of file contents"""
@@ -82,10 +82,10 @@ class IntegrityChecker:
                 file_hash = self.hash_file(file_path)
                 hash_path.write_text(file_hash)
     
-    def audit_git_history(self) -> Optional[dict]:
+    def audit_git_history(self) -> Optional[Dict[str, Any]]:
         """
         Check git history for suspicious modifications
-        
+
         Returns anomalies like:
         - Commits without proper messages
         - Large modifications to identity files
@@ -140,16 +140,16 @@ class IntegrityChecker:
 class TopologyVerifier:
     """
     Graph topology verification for poisoning detection
-    
+
     Principle: Compromised memories will have abnormal graph patterns
     """
-    
-    def __init__(self, palace_store):
+
+    def __init__(self, palace_store: Any) -> None:
         """
         Args:
             palace_store: GraphPalace instance
         """
-        self.palace = palace_store
+        self.palace: Any = palace_store
     
     def find_orphan_nodes(self) -> List[str]:
         """
@@ -183,7 +183,7 @@ class TopologyVerifier:
 
         return []
 
-    def find_sudden_cores(self, min_in_edges: int = 5) -> List[dict]:
+    def find_sudden_cores(self, min_in_edges: int = 5) -> List[Dict[str, Any]]:
         """
         Find "core" memories that appeared suddenly
 
@@ -217,10 +217,10 @@ class TopologyVerifier:
 
         return []
     
-    def check_embedding_drift(self, memory_id: str) -> Optional[dict]:
+    def check_embedding_drift(self, memory_id: str) -> Optional[Dict[str, Any]]:
         """
         Check if a memory's embedding is anomalous
-        
+
         Pattern: Memory claims to be about X but embeds near Y
         """
         memory = self.palace.get_memory(memory_id)
@@ -236,7 +236,7 @@ class TopologyVerifier:
         current_embedding = embedder.embed(content)
         
         # Check drift
-        similarity = embedder.similarity(embedding, current_embedding)
+        similarity = embedder.similarity(embedding, current_embedding)  # type: ignore[attr-defined]
         
         if similarity < 0.9:
             # Significant drift - possible corruption
@@ -288,22 +288,22 @@ class TopologyVerifier:
 class ConsensusManager:
     """
     Multi-instance consensus for memory protection
-    
+
     Principle: No single compromised instance can poison shared memory
     """
-    
-    def __init__(self, instance_id: str, 
-                 palace_store,
-                 required_instances: int = 3):
+
+    def __init__(self, instance_id: str,
+                 palace_store: Any,
+                 required_instances: int = 3) -> None:
         """
         Args:
             instance_id: Unique ID for this agent instance
             palace_store: GraphPalace (shared across instances)
             required_instances: Min instances to agree for "foundational" memories
         """
-        self.instance_id = instance_id
-        self.palace = palace_store
-        self.required_instances = required_instances
+        self.instance_id: str = instance_id
+        self.palace: Any = palace_store
+        self.required_instances: int = required_instances
     
     def propose_foundation_memory(self, content: str) -> str:
         """
@@ -312,25 +312,25 @@ class ConsensusManager:
         Requires multi-instance consensus to be marked as "foundational"
         """
         # Create memory
-        memory_id = self.palace.store_memory(
+        memory_id: str = str(self.palace.store_memory(
             content=content,
             memory_type='fact'
-        )
-        
+        ))
+
         # Record this instance's support
         self.palace.add_consensus_vote(
             memory_id=memory_id,
             instance_id=self.instance_id,
             votes_for=1
         )
-        
+
         # Check if consensus reached
         votes = self.palace.get_consensus_votes(memory_id)
-        
+
         if votes >= self.required_instances:
             # Mark as foundational
             self.palace.mark_as_foundational(memory_id)
-        
+
         return memory_id
     
     def support_memory(self, memory_id: str) -> None:
@@ -341,7 +341,7 @@ class ConsensusManager:
             votes_for=1
         )
     
-    def check_consensus(self, memory_id: str) -> dict:
+    def check_consensus(self, memory_id: str) -> Dict[str, Any]:
         """Check consensus status for a memory"""
         votes = self.palace.get_consensus_votes(memory_id)
         
@@ -356,21 +356,21 @@ class ConsensusManager:
 class PoisonDetector:
     """
     Unified poisoning detection
-    
+
     Combines: integrity checks, topology verification, consensus
     """
-    
-    def __init__(self, base_path: Path, palace_store=None):
-        self.integrity = IntegrityChecker(base_path)
-        self.topology = TopologyVerifier(palace_store) if palace_store else None
 
-    def full_security_audit(self) -> dict:
+    def __init__(self, base_path: Path, palace_store: Optional[Any] = None) -> None:
+        self.integrity: IntegrityChecker = IntegrityChecker(base_path)
+        self.topology: Optional[TopologyVerifier] = TopologyVerifier(palace_store) if palace_store else None
+
+    def full_security_audit(self) -> Dict[str, Any]:
         """Run complete security check"""
         file_integrity = self.integrity.check_now_md() and \
                         self.integrity.check_memory_md()
 
         orphan_nodes: List[str] = []
-        sudden_cores: List[dict] = []
+        sudden_cores: List[Dict[str, Any]] = []
 
         if self.topology:
             topology_audit = self.topology.full_topology_audit()

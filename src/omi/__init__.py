@@ -5,6 +5,8 @@ OMI - OpenClaw Memory Infrastructure
 A unified memory system for AI agents, synthesized from 1.7M agents' collective wisdom.
 """
 
+from typing import Any, Optional
+
 __version__ = "0.1.0"
 __author__ = "Hermes"
 __license__ = "MIT"
@@ -40,14 +42,14 @@ class NOWStore:
 
     DEPRECATED: Use NowStorage directly instead.
     """
-    def __init__(self, base_path):
+    def __init__(self, base_path: str) -> None:
         from pathlib import Path
-        self._storage = NowStorage(base_path)
         self.base_path = Path(base_path)
+        self._storage = NowStorage(self.base_path)
         self.now_path = self._storage.now_file
         self.hash_file = self.base_path / ".now.hash"
 
-    def read(self):
+    def read(self) -> Optional[Any]:
         """Read NOW.md and return NOWEntry object or None."""
         from .persistence import NOWEntry
         content = self._storage.read()
@@ -58,7 +60,7 @@ class NOWStore:
         except Exception:
             return None
 
-    def write(self, entry):
+    def write(self, entry: Any) -> None:
         """Write a NOWEntry object to NOW.md."""
         from .persistence import NOWEntry
         if not isinstance(entry, NOWEntry):

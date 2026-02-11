@@ -117,6 +117,74 @@ class TestNIMConnection:
         for emb in embeddings:
             assert len(emb) == REQUIRED_DIM, "Each embedding should have correct dimension"
 
+    def test_nim_batch_performance_improvement(self):
+        """
+        Integration test: Verify batch embedding is faster than sequential calls
+        Skip if NIM_API_KEY not set
+
+        This test compares:
+        1. Sequential: calling embed() for each text individually
+        2. Batch: calling embed_batch() with all texts at once
+
+        Expected: Batch should be significantly faster (at least 30% improvement)
+        """
+        if SKIP_NIM_TESTS:
+            pytest.skip("NIM_API_KEY not set")
+
+        embedder = NIMEmbedder(api_key=NIM_API_KEY, fallback_to_ollama=False)
+
+        # Use 10 texts to make the performance difference measurable
+        texts = [
+            "artificial intelligence and machine learning",
+            "natural language processing techniques",
+            "computer vision applications",
+            "deep neural network architectures",
+            "reinforcement learning algorithms",
+            "data science and analytics",
+            "cloud computing infrastructure",
+            "distributed systems design",
+            "software engineering practices",
+            "database optimization strategies"
+        ]
+
+        # Measure sequential embedding time
+        start_sequential = time.time()
+        sequential_embeddings = []
+        for text in texts:
+            emb = embedder.embed(text)
+            sequential_embeddings.append(emb)
+        sequential_time = time.time() - start_sequential
+
+        # Measure batch embedding time
+        start_batch = time.time()
+        batch_embeddings = embedder.embed_batch(texts, batch_size=10)
+        batch_time = time.time() - start_batch
+
+        # Verify correctness: both methods should return same number of embeddings
+        assert len(sequential_embeddings) == len(texts), "Sequential should return all embeddings"
+        assert len(batch_embeddings) == len(texts), "Batch should return all embeddings"
+
+        # Verify dimension correctness
+        for emb in sequential_embeddings + batch_embeddings:
+            assert len(emb) == REQUIRED_DIM, "All embeddings should have correct dimension"
+
+        # Verify performance improvement: batch should be at least 30% faster
+        # (batch_time should be <= 70% of sequential_time)
+        speedup_ratio = sequential_time / batch_time if batch_time > 0 else float('inf')
+        time_saved_pct = ((sequential_time - batch_time) / sequential_time * 100) if sequential_time > 0 else 0
+
+        assert batch_time < sequential_time, (
+            f"Batch embedding should be faster than sequential. "
+            f"Sequential: {sequential_time:.2f}s, Batch: {batch_time:.2f}s"
+        )
+
+        # Expect at least 30% improvement (batch time <= 70% of sequential time)
+        assert batch_time <= sequential_time * 0.7, (
+            f"Batch embedding should be at least 30% faster than sequential. "
+            f"Sequential: {sequential_time:.2f}s, Batch: {batch_time:.2f}s "
+            f"(speedup: {speedup_ratio:.2f}x, time saved: {time_saved_pct:.1f}%)"
+        )
+
 
 class TestNIMFallback:
     """Test Ollama fallback when NIM is unavailable"""

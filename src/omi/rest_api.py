@@ -18,7 +18,7 @@ Usage:
 
 from fastapi import FastAPI, Query
 from fastapi.responses import StreamingResponse
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, Dict, Any
 import json
 import asyncio
 import logging
@@ -44,7 +44,7 @@ app = FastAPI(
 
 
 @app.get("/")
-async def root():
+async def root() -> Dict[str, Any]:
     """API root endpoint with service information."""
     return {
         "service": "OMI Event Streaming API",
@@ -57,7 +57,7 @@ async def root():
 
 
 @app.get("/health")
-async def health():
+async def health() -> Dict[str, str]:
     """Health check endpoint."""
     return {"status": "healthy", "service": "omi-event-api"}
 
@@ -73,9 +73,9 @@ async def event_stream(event_type_filter: Optional[str] = None) -> AsyncGenerato
         SSE-formatted event data
     """
     # Queue to hold events from EventBus
-    event_queue = asyncio.Queue()
+    event_queue: asyncio.Queue[Any] = asyncio.Queue()
 
-    def event_callback(event):
+    def event_callback(event: Any) -> None:
         """Callback to receive events from EventBus and put them in queue."""
         try:
             # Put event in queue (non-blocking)
@@ -132,7 +132,7 @@ async def events_sse(
         None,
         description="Filter by event type (e.g., 'memory.stored', 'belief.updated'). Omit for all events."
     )
-):
+) -> StreamingResponse:
     """
     Server-Sent Events (SSE) endpoint for real-time event streaming.
 
@@ -166,14 +166,14 @@ async def events_sse(
 
 
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     """Log startup message."""
     logger.info("OMI Event Streaming API started")
     logger.info("SSE endpoint available at /api/v1/events")
 
 
 @app.on_event("shutdown")
-async def shutdown_event():
+async def shutdown_event() -> None:
     """Cleanup on shutdown."""
     logger.info("OMI Event Streaming API shutting down")
 

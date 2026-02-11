@@ -51,7 +51,7 @@ class EventHistory:
     - Full-text search of event payloads
     """
 
-    def __init__(self, db_path: Path, enable_wal: bool = True):
+    def __init__(self, db_path: Path, enable_wal: bool = True) -> None:
         """
         Initialize Event History.
 
@@ -146,7 +146,7 @@ class EventHistory:
                 id=row[0],
                 event_type=row[1],
                 payload=json.loads(row[2]) if row[2] else {},
-                timestamp=datetime.fromisoformat(row[3]) if row[3] else None,
+                timestamp=datetime.fromisoformat(row[3]) if row[3] else datetime.now(),
                 metadata=json.loads(row[4]) if row[4] else None
             )
 
@@ -167,11 +167,11 @@ class EventHistory:
         Returns:
             List of EventRecord objects
         """
-        events = []
+        events: List[EventRecord] = []
 
         # Build query dynamically based on filters
         query = "SELECT id, event_type, payload, timestamp, metadata FROM events WHERE 1=1"
-        params = []
+        params: List[Any] = []
 
         if event_type:
             query += " AND event_type = ?"
@@ -196,7 +196,7 @@ class EventHistory:
                     id=row[0],
                     event_type=row[1],
                     payload=json.loads(row[2]) if row[2] else {},
-                    timestamp=datetime.fromisoformat(row[3]) if row[3] else None,
+                    timestamp=datetime.fromisoformat(row[3]) if row[3] else datetime.now(),
                     metadata=json.loads(row[4]) if row[4] else None
                 ))
 
@@ -231,7 +231,7 @@ class EventHistory:
             Count of matching events
         """
         query = "SELECT COUNT(*) FROM events WHERE 1=1"
-        params = []
+        params: List[Any] = []
 
         if event_type:
             query += " AND event_type = ?"
@@ -247,7 +247,8 @@ class EventHistory:
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(query, params)
-            return cursor.fetchone()[0]
+            result = cursor.fetchone()
+            return int(result[0]) if result else 0
 
     def delete_events_before(self, timestamp: datetime) -> int:
         """
@@ -309,8 +310,8 @@ class EventHistory:
         """Close connection and cleanup."""
         pass
 
-    def __enter__(self):
+    def __enter__(self) -> "EventHistory":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.close()

@@ -5,7 +5,7 @@ Pattern: Cloud API with configurable providers, consistent with embeddings.py se
 
 import os
 import json
-from typing import Optional, Dict, List, Union
+from typing import Optional, Dict, List, Union, Any
 from dataclasses import dataclass
 from enum import Enum
 
@@ -49,13 +49,13 @@ class MemorySummarizer:
         summary = summarizer.summarize_memory(memory_content)
     """
 
-    DEFAULT_MODELS = {
+    DEFAULT_MODELS: Dict[LLMProvider, str] = {
         LLMProvider.OPENAI: "gpt-4o-mini",
         LLMProvider.ANTHROPIC: "claude-3-haiku-20240307",
         LLMProvider.OLLAMA: "llama3.2:3b"
     }
 
-    DEFAULT_BASE_URLS = {
+    DEFAULT_BASE_URLS: Dict[LLMProvider, str] = {
         LLMProvider.OPENAI: "https://api.openai.com/v1",
         LLMProvider.ANTHROPIC: "https://api.anthropic.com/v1",
         LLMProvider.OLLAMA: "http://localhost:11434"
@@ -80,7 +80,7 @@ class MemorySummarizer:
         # Parse provider
         if isinstance(provider, str):
             provider = LLMProvider(provider.lower())
-        self.provider = provider
+        self.provider: LLMProvider = provider
 
         # Get API key from env if not provided
         if api_key is None:
@@ -97,14 +97,14 @@ class MemorySummarizer:
                 f"{self.provider.value.upper()}_API_KEY required or pass api_key parameter"
             )
 
-        self.api_key = api_key
-        self.base_url = base_url or self.DEFAULT_BASE_URLS[self.provider]
-        self.model = model or self.DEFAULT_MODELS[self.provider]
-        self.temperature = temperature
-        self.max_tokens = max_tokens
+        self.api_key: str = api_key
+        self.base_url: str = base_url or self.DEFAULT_BASE_URLS[self.provider]
+        self.model: str = model or self.DEFAULT_MODELS[self.provider]
+        self.temperature: float = temperature
+        self.max_tokens: int = max_tokens
 
         # Initialize HTTP session
-        self._session = None
+        self._session: Any  # requests.Session
         self._init_session()
 
     def _init_session(self) -> None:
@@ -130,7 +130,7 @@ class MemorySummarizer:
 
     def summarize_memory(self,
                         memory_content: str,
-                        metadata: Optional[Dict] = None) -> str:
+                        metadata: Optional[Dict[str, Any]] = None) -> str:
         """
         Summarize a single memory, preserving key facts
 
@@ -156,7 +156,7 @@ class MemorySummarizer:
 
     def batch_summarize(self,
                        memory_contents: List[str],
-                       metadata_list: Optional[List[Optional[Dict]]] = None,
+                       metadata_list: Optional[List[Optional[Dict[str, Any]]]] = None,
                        batch_size: int = 8) -> List[str]:
         """
         Summarize multiple memories efficiently
@@ -169,7 +169,7 @@ class MemorySummarizer:
         Returns:
             List of summarized memory contents
         """
-        results = []
+        results: List[str] = []
 
         # Handle metadata list - create None list if not provided
         if metadata_list is None:
@@ -198,7 +198,7 @@ class MemorySummarizer:
 
     def _build_summarization_prompt(self,
                                     content: str,
-                                    metadata: Optional[Dict] = None) -> str:
+                                    metadata: Optional[Dict[str, Any]] = None) -> str:
         """
         Build prompt for memory summarization
 
@@ -253,8 +253,9 @@ SUMMARIZED MEMORY (concise but complete):"""
         )
         response.raise_for_status()
 
-        data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
+        data: Any = response.json()
+        result: str = data["choices"][0]["message"]["content"].strip()
+        return result
 
     def _summarize_anthropic(self, prompt: str) -> str:
         """Summarize using Anthropic API"""
@@ -276,8 +277,9 @@ SUMMARIZED MEMORY (concise but complete):"""
         )
         response.raise_for_status()
 
-        data = response.json()
-        return data["content"][0]["text"].strip()
+        data: Any = response.json()
+        result: str = data["content"][0]["text"].strip()
+        return result
 
     def _summarize_ollama(self, prompt: str) -> str:
         """Summarize using Ollama (local)"""
@@ -296,8 +298,9 @@ SUMMARIZED MEMORY (concise but complete):"""
         )
         response.raise_for_status()
 
-        data = response.json()
-        return data["response"].strip()
+        data: Any = response.json()
+        result: str = data["response"].strip()
+        return result
 
     def estimate_tokens(self, text: str) -> int:
         """
@@ -346,11 +349,14 @@ class OllamaSummarizer:
     def __init__(self,
                  model: str = DEFAULT_MODEL,
                  base_url: str = "http://localhost:11434"):
-        self.model = model
-        self.base_url = base_url
+        self.model: str = model
+        self.base_url: str = base_url
+        self.client: Any
+        self._use_client: bool
+        self._session: Any  # requests.Session
 
         try:
-            import ollama
+            import ollama  # type: ignore[import-not-found]
             self.client = ollama.Client(host=base_url)
             self._use_client = True
         except ImportError:
@@ -367,14 +373,15 @@ class OllamaSummarizer:
 SUMMARY:"""
 
         if self._use_client:
-            response = self.client.generate(
+            response: Any = self.client.generate(
                 model=self.model,
                 prompt=prompt
             )
-            return response['response'].strip()
+            result: str = response['response'].strip()
+            return result
         else:
             import requests
-            response = self._session.post(
+            response_http: Any = self._session.post(
                 f"{self.base_url}/api/generate",
                 json={
                     "model": self.model,
@@ -382,5 +389,7 @@ SUMMARY:"""
                     "stream": False
                 }
             )
-            response.raise_for_status()
-            return response.json()['response'].strip()
+            response_http.raise_for_status()
+            data: Any = response_http.json()
+            result_str: str = data['response'].strip()
+            return result_str

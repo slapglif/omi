@@ -1,15 +1,15 @@
 {
   "active": true,
-  "spec": "036-consolidate-duplicate-graphpalace-implementations",
+  "spec": "004-type-safety-py-typed-marker",
   "state": "building",
   "subtasks": {
-    "completed": 5,
-    "total": 7,
+    "completed": 15,
+    "total": 16,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Verification",
+    "current": "Full Package Verification",
     "id": null,
     "total": 3
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 7,
-    "started_at": "2026-02-10T20:05:08.667480"
+    "number": 17,
+    "started_at": "2026-02-11T00:06:21.852224"
   },
-  "last_update": "2026-02-10T20:22:01.746061"
+  "last_update": "2026-02-11T01:00:00.369804"
 }

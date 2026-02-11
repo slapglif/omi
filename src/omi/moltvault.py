@@ -13,7 +13,7 @@ import tempfile
 import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, BinaryIO
+from typing import Optional, List, Dict, Any, BinaryIO, Iterator
 from dataclasses import dataclass, asdict
 from contextlib import contextmanager
 
@@ -157,9 +157,9 @@ class _MockS3BackendWrapper(StorageBackend):
     Used for backward compatibility with tests that mock _s3_client
     """
 
-    def __init__(self, s3_client: Any, bucket: str):
+    def __init__(self, s3_client: Any, bucket: str) -> None:
         super().__init__(bucket, prefix="")
-        self._client = s3_client
+        self._client: Any = s3_client
 
     def upload(self, local_path: Path, key: str, metadata: Optional[Dict[str, str]] = None) -> str:
         """Upload file using raw S3 client"""
@@ -199,7 +199,7 @@ class _MockS3BackendWrapper(StorageBackend):
             self._client.download_file(self.bucket, full_key, str(local_path))
         return local_path
 
-    def list(self, prefix: str = "", max_keys: Optional[int] = None):
+    def list(self, prefix: str = "", max_keys: Optional[int] = None) -> List[StorageObject]:
         """List objects using raw S3 client"""
         from .storage_backends import StorageObject
         full_prefix = self._make_key(prefix)
@@ -208,7 +208,7 @@ class _MockS3BackendWrapper(StorageBackend):
             Prefix=full_prefix,
             **({"MaxKeys": max_keys} if max_keys else {})
         )
-        objects = []
+        objects: List[StorageObject] = []
         for item in response.get("Contents", []):
             key = item.get("Key", "")
             if self.prefix and key.startswith(self.prefix):
@@ -236,7 +236,7 @@ class _MockS3BackendWrapper(StorageBackend):
         except:
             return False
 
-    def get_metadata(self, key: str):
+    def get_metadata(self, key: str) -> Optional[StorageObject]:
         """Get metadata using raw S3 client"""
         from .storage_backends import StorageObject
         full_key = self._make_key(key)
@@ -644,21 +644,21 @@ def resolve_conflict(
 
 class EncryptionManager:
     """Handle encryption/decryption of backups"""
-    
-    def __init__(self, key: Optional[str] = None):
+
+    def __init__(self, key: Optional[str] = None) -> None:
         if not CRYPTO_AVAILABLE:
             raise ImportError(
                 "cryptography package required. Install with: pip install cryptography"
             )
-        
-        self.key = key or os.getenv("MOLTVAULT_KEY")
+
+        self.key: str = key or os.getenv("MOLTVAULT_KEY")  # type: ignore
         if not self.key:
             raise ValueError(
                 "Encryption key required. Set MOLTVAULT_KEY environment variable."
             )
-        self.fernet = self._get_fernet()
+        self.fernet: "Fernet" = self._get_fernet()
     
-    def _get_fernet(self):
+    def _get_fernet(self) -> "Fernet":
         """Derive Fernet key from passphrase"""
         # Use a constant salt - safe because this is for local encryption
         # Not for passwords stored in databases
@@ -702,10 +702,10 @@ class MoltVault:
         access_key: Optional[str] = None,
         secret_key: Optional[str] = None,
         region: str = "auto",
-    ):
+    ) -> None:
         """
         Initialize MoltVault
-        
+
         Args:
             base_path: Path to OMI data directory
             bucket: S3/R2 bucket name
@@ -714,20 +714,20 @@ class MoltVault:
             secret_key: S3 secret key (default: R2_SECRET_ACCESS_KEY env var)
             region: S3 region
         """
-        self.base_path = Path(base_path)
-        self.bucket = bucket
-        self.endpoint = endpoint
-        self.region = region
+        self.base_path: Path = Path(base_path)
+        self.bucket: str = bucket
+        self.endpoint: str = endpoint
+        self.region: str = region
 
         # Get credentials from env or parameters
-        self.access_key = access_key or os.getenv("R2_ACCESS_KEY_ID")
-        self.secret_key = secret_key or os.getenv("R2_SECRET_ACCESS_KEY")
+        self.access_key: Optional[str] = access_key or os.getenv("R2_ACCESS_KEY_ID")
+        self.secret_key: Optional[str] = secret_key or os.getenv("R2_SECRET_ACCESS_KEY")
 
         # State tracking
         self._backend: Optional[StorageBackend] = None
         self._s3_client: Optional[Any] = None  # Kept for backward compatibility with tests
         self._encryption: Optional[EncryptionManager] = None
-        self._last_backup_path = self.base_path / ".moltvault_last_backup"
+        self._last_backup_path: Path = self.base_path / ".moltvault_last_backup"
 
         # Check for encryption key
         if os.getenv("MOLTVAULT_KEY") and CRYPTO_AVAILABLE:
@@ -765,7 +765,7 @@ class MoltVault:
 
         return self._backend
 
-    def _get_s3_client(self) -> Any:
+    def _get_s3_client(self) -> Optional[Any]:
         """Get or create S3 client (deprecated - for backward compatibility)"""
         backend = self._get_backend()
         if hasattr(backend, '_client'):
