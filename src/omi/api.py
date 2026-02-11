@@ -50,18 +50,21 @@ class MemoryTools:
               memory_type: Optional[str] = None) -> List[dict]:
         """
         memory_recall: Semantic search with recency weighting
-        
+
         Args:
             query: Natural language search query
             limit: Max results (default: 10)
             min_relevance: Similarity threshold (default: 0.7)
             memory_type: Filter by type (fact|experience|belief|decision)
-        
+
         Returns:
             Memories sorted by relevance + recency
         """
+        # Convert query string to embeddings
+        query_embedding = self.embedder.embed(query)
+
         # Get candidates
-        candidates = self.palace.recall(query, limit=limit*2)
+        candidates = self.palace.recall(query_embedding, limit=limit*2)
         
         # Filter by type
         if memory_type:
