@@ -8,7 +8,13 @@ from typing import Optional
 import click
 
 # Local CLI imports
-from .common import get_base_path
+from .common import (
+    get_base_path,
+    VERBOSITY_NORMAL,
+    echo_verbose,
+    echo_normal,
+    echo_quiet,
+)
 
 
 @click.group()
@@ -42,9 +48,10 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
     """
     from omi.event_history import EventHistory
 
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
     # Event history database path
@@ -53,7 +60,7 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
         if json_output:
             click.echo(json.dumps([], indent=2))
         else:
-            click.echo(click.style("No events found. Event history is empty.", fg="yellow"))
+            echo_normal(click.style("No events found. Event history is empty.", fg="yellow"), verbosity)
         return
 
     # Parse timestamps if provided
@@ -64,14 +71,14 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
         try:
             since_dt = datetime.fromisoformat(since)
         except ValueError:
-            click.echo(click.style(f"Error: Invalid --since timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)", fg="red"))
+            echo_quiet(click.style(f"Error: Invalid --since timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)", fg="red"), verbosity)
             sys.exit(1)
 
     if until:
         try:
             until_dt = datetime.fromisoformat(until)
         except ValueError:
-            click.echo(click.style(f"Error: Invalid --until timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)", fg="red"))
+            echo_quiet(click.style(f"Error: Invalid --until timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)", fg="red"), verbosity)
             sys.exit(1)
 
     try:
@@ -88,7 +95,7 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
             click.echo(json.dumps(output, indent=2))
         else:
             if not events_list:
-                click.echo(click.style("No events found matching filters.", fg="yellow"))
+                echo_normal(click.style("No events found matching filters.", fg="yellow"), verbosity)
                 return
 
             # Display header
@@ -101,18 +108,18 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
                 filter_info.append(f"until={until}")
             filter_str = f" ({', '.join(filter_info)})" if filter_info else ""
 
-            click.echo(click.style(f"Event History ({len(events_list)} found{filter_str})", fg="cyan", bold=True))
-            click.echo()
+            echo_normal(click.style(f"Event History ({len(events_list)} found{filter_str})", fg="cyan", bold=True), verbosity)
+            echo_normal("", verbosity)
 
             # Display events
             for event in events_list:
                 # Event header
                 timestamp_str = event.timestamp.strftime('%Y-%m-%d %H:%M:%S') if event.timestamp else 'N/A'
-                click.echo(click.style(f"[{timestamp_str}] ", fg="blue") +
-                          click.style(event.event_type, fg="green", bold=True))
+                echo_normal(click.style(f"[{timestamp_str}] ", fg="blue") +
+                          click.style(event.event_type, fg="green", bold=True), verbosity)
 
                 # Event ID
-                click.echo(f"  ID: {click.style(event.id[:16] + '...', fg='cyan')}")
+                echo_normal(f"  ID: {click.style(event.id[:16] + '...', fg='cyan')}", verbosity)
 
                 # Payload (truncated if too long)
                 payload_str = json.dumps(event.payload, indent=2)
@@ -122,16 +129,16 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
                     if len(lines) > 5:
                         payload_str = '\n'.join(lines[:5]) + '\n  ...'
 
-                click.echo(f"  Payload: {payload_str}")
+                echo_normal(f"  Payload: {payload_str}", verbosity)
 
                 # Metadata if present
                 if event.metadata:
-                    click.echo(f"  Metadata: {json.dumps(event.metadata)}")
+                    echo_verbose(f"  Metadata: {json.dumps(event.metadata)}", verbosity)
 
-                click.echo()  # Blank line between events
+                echo_normal("", verbosity)  # Blank line between events
 
     except Exception as e:
-        click.echo(click.style(f"Error: Failed to query events: {e}", fg="red"))
+        echo_quiet(click.style(f"Error: Failed to query events: {e}", fg="red"), verbosity)
         sys.exit(1)
 
 
@@ -155,9 +162,10 @@ def subscribe_events(ctx, event_type: Optional[str]) -> None:
     """
     from omi.event_bus import get_event_bus
 
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
     # Get the global event bus
@@ -168,11 +176,11 @@ def subscribe_events(ctx, event_type: Optional[str]) -> None:
 
     # Display subscription info
     if event_type:
-        click.echo(click.style(f"Subscribing to events: {event_type}", fg="cyan", bold=True))
+        echo_normal(click.style(f"Subscribing to events: {event_type}", fg="cyan", bold=True), verbosity)
     else:
-        click.echo(click.style("Subscribing to all events", fg="cyan", bold=True))
-    click.echo(click.style("Press Ctrl+C to exit", fg="yellow"))
-    click.echo()
+        echo_normal(click.style("Subscribing to all events", fg="cyan", bold=True), verbosity)
+    echo_normal(click.style("Press Ctrl+C to exit", fg="yellow"), verbosity)
+    echo_normal("", verbosity)
 
     # Event handler callback
     def print_event(event):
@@ -182,8 +190,8 @@ def subscribe_events(ctx, event_type: Optional[str]) -> None:
             timestamp_str = event.timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(event, 'timestamp') and event.timestamp else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             # Print event header
-            click.echo(click.style(f"[{timestamp_str}] ", fg="blue") +
-                      click.style(event.event_type, fg="green", bold=True))
+            echo_normal(click.style(f"[{timestamp_str}] ", fg="blue") +
+                      click.style(event.event_type, fg="green", bold=True), verbosity)
 
             # Print event details (convert to dict for pretty printing)
             if hasattr(event, 'to_dict'):
@@ -199,25 +207,25 @@ def subscribe_events(ctx, event_type: Optional[str]) -> None:
                             value_str = json.dumps(value, indent=2)
                         else:
                             value_str = str(value)
-                        click.echo(f"  {key}: {value_str}")
+                        echo_normal(f"  {key}: {value_str}", verbosity)
 
-            click.echo()  # Blank line between events
+            echo_normal("", verbosity)  # Blank line between events
 
         except Exception as e:
-            click.echo(click.style(f"Error formatting event: {e}", fg="red"))
+            echo_quiet(click.style(f"Error formatting event: {e}", fg="red"), verbosity)
 
     # Subscribe to event bus
     bus.subscribe(subscription_type, print_event)
 
     try:
         # Keep the process running and listening for events
-        click.echo(click.style("Listening for events...", fg="green"))
+        echo_verbose(click.style("Listening for events...", fg="green"), verbosity)
         while True:
             time.sleep(0.1)  # Sleep briefly to keep CPU usage low
     except KeyboardInterrupt:
         # Graceful shutdown on Ctrl+C
-        click.echo()
-        click.echo(click.style("Unsubscribing from events...", fg="yellow"))
+        echo_normal("", verbosity)
+        echo_normal(click.style("Unsubscribing from events...", fg="yellow"), verbosity)
         bus.unsubscribe(subscription_type, print_event)
-        click.echo(click.style("Disconnected.", fg="cyan"))
+        echo_normal(click.style("Disconnected.", fg="cyan"), verbosity)
         sys.exit(0)

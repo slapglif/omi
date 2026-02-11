@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "004-type-safety-py-typed-marker",
+  "spec": "027-add-verbose-and-quiet-mode-options",
   "state": "building",
   "subtasks": {
-    "completed": 15,
-    "total": 16,
+    "completed": 6,
+    "total": 11,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Full Package Verification",
+    "current": "Update CLI Commands",
     "id": null,
-    "total": 3
+    "total": 6
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 17,
-    "started_at": "2026-02-11T00:06:21.852224"
+    "number": 8,
+    "started_at": "2026-02-11T02:27:09.961324"
   },
-  "last_update": "2026-02-11T01:00:00.369804"
+  "last_update": "2026-02-11T02:47:37.783449"
 }
