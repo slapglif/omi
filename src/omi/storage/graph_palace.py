@@ -341,101 +341,55 @@ class GraphPalace:
 
         return memory
 
-    def recall(self, 
-               query_embedding: List[float], 
-               limit: int = 10, 
+    def recall(self,
+               query_embedding: List[float],
+               limit: int = 10,
                min_relevance: float = 0.7) -> List[Tuple[Memory, float]]:
         """
         Semantic search with recency weighting.
-        
+
         Algorithm:
         1. Calculate cosine similarity between query and all memories
         2. Apply recency decay: score = relevance * exp(-days/30)
         3. Sort by final score and return top results
-        
+
         Target: <500ms for 1000 memories
-        
+
         Args:
             query_embedding: Query vector (1024-dim)
             limit: Max results to return
             min_relevance: Minimum similarity threshold
-            
+
         Returns:
             List of (Memory, final_score) tuples
         """
         if not query_embedding:
             return []
-        
+
         results = []
-        
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
-                SELECT id, content, embedding, memory_type, confidence, 
-                       created_at, last_accessed, access_count, instance_ids, content_hash
-                FROM memories WHERE embedding IS NOT NULL
-            """)
-            
-            for row in cursor:
-                embedding = self._blob_to_embed(row[2])
-                if not embedding or len(embedding) != len(query_embedding):
-                    continue
-                
-                # Calculate cosine similarity
-                relevance = self._cosine_similarity(query_embedding, embedding)
-                
-                if relevance >= min_relevance:
-                    # Calculate recency score
-                    last_accessed = datetime.fromisoformat(row[6]) if row[6] else datetime.now()
-                    recency = self._calculate_recency_score(last_accessed)
-                    
-                    # Weight: 70% relevance, 30% recency
-                    final_score = min((relevance * 0.7) + (recency * 0.3), 1.0)
 
-                    memory = Memory(
-                        id=row[0],
-                        content=row[1],
-                        embedding=embedding,
-                        memory_type=row[3],
-                        confidence=row[4],
-                        created_at=datetime.fromisoformat(row[5]) if row[5] else None,
-                        last_accessed=last_accessed,
-                        access_count=row[7],
-                        instance_ids=json.loads(row[8]) if row[8] else [],
-                        content_hash=row[9]
-                    )
-                    results.append((memory, final_score))
-        
-        # Sort by final score (descending)
-        results.sort(key=lambda x: x[1], reverse=True)
-        return results[:limit]
+        cursor = self._conn.execute("""
+            SELECT id, content, embedding, memory_type, confidence,
+                   created_at, last_accessed, access_count, instance_ids, content_hash
+            FROM memories WHERE embedding IS NOT NULL
+        """)
 
-    def full_text_search(self, query: str, limit: int = 10) -> List[Memory]:
-        """
-        Full-text search using FTS5.
-        
-        Args:
-            query: Search query text
-            limit: Max results
-            
-        Returns:
-            List of matching memories
-        """
-        memories = []
-        
-        with sqlite3.connect(self.db_path) as conn:
-            # Use FTS5 MATCH via standalone FTS table
-            cursor = conn.execute("""
-                SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
-                FROM memories_fts fts
-                JOIN memories m ON m.id = fts.memory_id
-                WHERE memories_fts MATCH ?
-                ORDER BY rank
-                LIMIT ?
-            """, (query, limit))
-            
-            for row in cursor:
-                embedding = self._blob_to_embed(row[2]) if row[2] else None
+        for row in cursor:
+            embedding = self._blob_to_embed(row[2])
+            if not embedding or len(embedding) != len(query_embedding):
+                continue
+
+            # Calculate cosine similarity
+            relevance = self._cosine_similarity(query_embedding, embedding)
+
+            if relevance >= min_relevance:
+                # Calculate recency score
+                last_accessed = datetime.fromisoformat(row[6]) if row[6] else datetime.now()
+                recency = self._calculate_recency_score(last_accessed)
+
+                # Weight: 70% relevance, 30% recency
+                final_score = min((relevance * 0.7) + (recency * 0.3), 1.0)
+
                 memory = Memory(
                     id=row[0],
                     content=row[1],
@@ -443,13 +397,57 @@ class GraphPalace:
                     memory_type=row[3],
                     confidence=row[4],
                     created_at=datetime.fromisoformat(row[5]) if row[5] else None,
-                    last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
+                    last_accessed=last_accessed,
                     access_count=row[7],
                     instance_ids=json.loads(row[8]) if row[8] else [],
                     content_hash=row[9]
                 )
-                memories.append(memory)
-        
+                results.append((memory, final_score))
+
+        # Sort by final score (descending)
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:limit]
+
+    def full_text_search(self, query: str, limit: int = 10) -> List[Memory]:
+        """
+        Full-text search using FTS5.
+
+        Args:
+            query: Search query text
+            limit: Max results
+
+        Returns:
+            List of matching memories
+        """
+        memories = []
+
+        # Use FTS5 MATCH via standalone FTS table
+        cursor = self._conn.execute("""
+            SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
+                   m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+            FROM memories_fts fts
+            JOIN memories m ON m.id = fts.memory_id
+            WHERE memories_fts MATCH ?
+            ORDER BY rank
+            LIMIT ?
+        """, (query, limit))
+
+        for row in cursor:
+            embedding = self._blob_to_embed(row[2]) if row[2] else None
+            memory = Memory(
+                id=row[0],
+                content=row[1],
+                embedding=embedding,
+                memory_type=row[3],
+                confidence=row[4],
+                created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
+                access_count=row[7],
+                instance_ids=json.loads(row[8]) if row[8] else [],
+                content_hash=row[9]
+            )
+            memories.append(memory)
+
         return memories
 
     def create_edge(self, 
