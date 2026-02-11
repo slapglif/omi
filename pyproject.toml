@@ -46,6 +46,18 @@ nim = []
 [project.scripts]
 omi = "omi.cli:main"
 
+[project.entry-points."omi.embedding_providers"]
+# Third-party embedding providers register here
+# Example: my_provider = "my_package:MyEmbedder"
+
+[project.entry-points."omi.storage_backends"]
+# Third-party storage backends register here
+# Example: my_backend = "my_package:MyBackend"
+
+[project.entry-points."omi.event_handlers"]
+# Third-party event handlers register here
+# Example: my_handler = "my_package:MyHandler"
+
 [project.urls]
 Homepage = "https://github.com/slapglif/omi"
 Repository = "https://github.com/slapglif/omi"
