@@ -16,7 +16,7 @@ Usage:
         events.onmessage = (e) => console.log(JSON.parse(e.data));
 """
 
-from fastapi import FastAPI, Query, HTTPException, status, Header
+from fastapi import FastAPI, Query, HTTPException, status, Header, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from typing import Optional, AsyncGenerator, List
@@ -251,12 +251,13 @@ async def health():
 
 
 @app.post("/api/v1/store", response_model=StoreMemoryResponse, status_code=status.HTTP_201_CREATED)
-async def store_memory(request: StoreMemoryRequest):
+async def store_memory(request: StoreMemoryRequest, api_key: str = Depends(verify_api_key)):
     """
     Store a new memory with semantic embedding.
 
     Args:
         request: Memory details (content, type, related_to, confidence)
+        api_key: Validated API key from X-API-Key header
 
     Returns:
         StoreMemoryResponse with memory_id
@@ -264,6 +265,7 @@ async def store_memory(request: StoreMemoryRequest):
     Example:
         curl -X POST http://localhost:8420/api/v1/store \\
             -H "Content-Type: application/json" \\
+            -H "X-API-Key: your-api-key" \\
             -d '{"content": "test memory", "memory_type": "fact"}'
     """
     try:
@@ -288,7 +290,8 @@ async def recall_memory(
     query: str = Query(..., description="Natural language search query"),
     limit: int = Query(10, ge=1, le=100, description="Maximum number of results"),
     min_relevance: float = Query(0.7, ge=0.0, le=1.0, description="Minimum relevance threshold"),
-    memory_type: Optional[str] = Query(None, description="Filter by type: fact|experience|belief|decision")
+    memory_type: Optional[str] = Query(None, description="Filter by type: fact|experience|belief|decision"),
+    api_key: str = Depends(verify_api_key)
 ):
     """
     Recall memories using semantic search with recency weighting.
@@ -298,12 +301,14 @@ async def recall_memory(
         limit: Max results (1-100, default: 10)
         min_relevance: Minimum relevance threshold (0.0-1.0, default: 0.7)
         memory_type: Optional filter by type
+        api_key: Validated API key from X-API-Key header
 
     Returns:
         RecallMemoryResponse with list of memories
 
     Example:
-        curl "http://localhost:8420/api/v1/recall?query=recent%20events&limit=5"
+        curl "http://localhost:8420/api/v1/recall?query=recent%20events&limit=5" \\
+            -H "X-API-Key: your-api-key"
     """
     try:
         tools = get_memory_tools()
@@ -323,12 +328,13 @@ async def recall_memory(
 
 
 @app.post("/api/v1/beliefs", response_model=CreateBeliefResponse, status_code=status.HTTP_201_CREATED)
-async def create_belief(request: CreateBeliefRequest):
+async def create_belief(request: CreateBeliefRequest, api_key: str = Depends(verify_api_key)):
     """
     Create a new belief with initial confidence.
 
     Args:
         request: Belief details (content, initial_confidence)
+        api_key: Validated API key from X-API-Key header
 
     Returns:
         CreateBeliefResponse with belief_id
@@ -336,6 +342,7 @@ async def create_belief(request: CreateBeliefRequest):
     Example:
         curl -X POST http://localhost:8420/api/v1/beliefs \\
             -H "Content-Type: application/json" \\
+            -H "X-API-Key: your-api-key" \\
             -d '{"content": "test belief", "initial_confidence": 0.5}'
     """
     try:
@@ -354,7 +361,7 @@ async def create_belief(request: CreateBeliefRequest):
 
 
 @app.put("/api/v1/beliefs/{id}", response_model=UpdateBeliefResponse)
-async def update_belief(id: str, request: UpdateBeliefRequest):
+async def update_belief(id: str, request: UpdateBeliefRequest, api_key: str = Depends(verify_api_key)):
     """
     Update a belief with new evidence.
 
@@ -365,6 +372,7 @@ async def update_belief(id: str, request: UpdateBeliefRequest):
     Args:
         id: Belief ID to update
         request: Evidence details (evidence_memory_id, supports, strength)
+        api_key: Validated API key from X-API-Key header
 
     Returns:
         UpdateBeliefResponse with new_confidence
@@ -372,6 +380,7 @@ async def update_belief(id: str, request: UpdateBeliefRequest):
     Example:
         curl -X PUT http://localhost:8420/api/v1/beliefs/{belief_id} \\
             -H "Content-Type: application/json" \\
+            -H "X-API-Key: your-api-key" \\
             -d '{"evidence_memory_id": "mem_123", "supports": true, "strength": 0.8}'
     """
     try:
@@ -392,12 +401,13 @@ async def update_belief(id: str, request: UpdateBeliefRequest):
 
 
 @app.post("/api/v1/sessions/start", response_model=StartSessionResponse, status_code=status.HTTP_200_OK)
-async def start_session(request: StartSessionRequest):
+async def start_session(request: StartSessionRequest, api_key: str = Depends(verify_api_key)):
     """
     Start a new session.
 
     Args:
         request: Session details (optional session_id and metadata)
+        api_key: Validated API key from X-API-Key header
 
     Returns:
         StartSessionResponse with session_id
@@ -405,6 +415,7 @@ async def start_session(request: StartSessionRequest):
     Example:
         curl -X POST http://localhost:8420/api/v1/sessions/start \\
             -H "Content-Type: application/json" \\
+            -H "X-API-Key: your-api-key" \\
             -d '{"metadata": {"user": "test_user"}}'
     """
     try:
@@ -430,12 +441,13 @@ async def start_session(request: StartSessionRequest):
 
 
 @app.post("/api/v1/sessions/end", response_model=EndSessionResponse, status_code=status.HTTP_200_OK)
-async def end_session(request: EndSessionRequest):
+async def end_session(request: EndSessionRequest, api_key: str = Depends(verify_api_key)):
     """
     End an existing session.
 
     Args:
         request: Session end details (session_id, optional duration_seconds and metadata)
+        api_key: Validated API key from X-API-Key header
 
     Returns:
         EndSessionResponse with session_id
@@ -443,6 +455,7 @@ async def end_session(request: EndSessionRequest):
     Example:
         curl -X POST http://localhost:8420/api/v1/sessions/end \\
             -H "Content-Type: application/json" \\
+            -H "X-API-Key: your-api-key" \\
             -d '{"session_id": "abc-123", "duration_seconds": 120.5}'
     """
     try:
