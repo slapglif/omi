@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import GraphVisualization from './components/GraphVisualization';
+import BeliefNetwork from './components/BeliefNetwork';
 
 function App() {
   const [activeTab, setActiveTab] = useState('graph');
@@ -24,7 +25,7 @@ function App() {
         return (
           <div className="tab-content">
             <h2>Belief Network</h2>
-            <p>Belief network visualization will be implemented here.</p>
+            <BeliefNetwork />
           </div>
         );
       case 'stats':
