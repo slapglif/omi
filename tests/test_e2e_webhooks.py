@@ -168,7 +168,7 @@ class TestWebhookIntegration:
         5. Verify event payload is correct
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
 
         # Setup
         port = webhook_server
@@ -248,7 +248,7 @@ class TestWebhookIntegration:
         3. Verify webhook includes custom headers
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
 
         # Setup
         port = webhook_server
@@ -311,7 +311,7 @@ class TestWebhookIntegration:
         3. Verify webhook receives all events
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
 
         # Setup
         port = webhook_server
@@ -374,7 +374,7 @@ class TestWebhookIntegration:
         3. Verify webhook only receives memory.stored events
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
 
         # Setup
         port = webhook_server
@@ -435,7 +435,7 @@ class TestWebhookIntegration:
         4. Verify all payloads are correct
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
 
         # Setup
         port = webhook_server
@@ -512,7 +512,7 @@ class TestWebhookRetry:
         so all POST requests will fail and trigger retries.
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         from unittest.mock import patch, MagicMock
 
         # Setup
