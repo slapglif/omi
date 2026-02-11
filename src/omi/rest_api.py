@@ -16,14 +16,18 @@ Usage:
         events.onmessage = (e) => console.log(JSON.parse(e.data));
 """
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException, status, Header, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from typing import Optional, AsyncGenerator, Dict, Any
+from fastapi.security import APIKeyHeader
+from typing import Optional, AsyncGenerator, Dict, Any, List
+from pydantic import BaseModel, Field
+from pathlib import Path
 import json
 import asyncio
 import logging
-from pathlib import Path
+import os
 
 from .event_bus import get_event_bus
 from .events import (
@@ -35,14 +39,230 @@ from .events import (
     SessionEndedEvent
 )
 from .dashboard_api import router as dashboard_router
+from .api import MemoryTools, BeliefTools
+from .storage.graph_palace import GraphPalace
+from .embeddings import OllamaEmbedder, EmbeddingCache
+from .belief import BeliefNetwork, ContradictionDetector
 
 logger = logging.getLogger(__name__)
+
+
+# API Key Authentication
+# API key header security scheme
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")) -> str:
+    """
+    Verify API key from X-API-Key header.
+
+    Args:
+        x_api_key: API key from request header
+
+    Returns:
+        str: Validated API key
+
+    Raises:
+        HTTPException: 401 Unauthorized if API key is missing or invalid
+    """
+    # Get expected API key from environment or config
+    # For now, check environment variable; will be updated to use config.yaml
+    expected_key = os.environ.get("OMI_API_KEY")
+
+    # If no expected key is configured, allow all requests (development mode)
+    if expected_key is None:
+        logger.warning("No OMI_API_KEY configured - authentication disabled (development mode)")
+        return "development"
+
+    # Check if API key was provided
+    if x_api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API key. Provide X-API-Key header.",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Validate API key
+    if x_api_key != expected_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    return x_api_key
+
+
+# Pydantic models for request/response
+class StoreMemoryRequest(BaseModel):
+    """Request body for storing a memory."""
+    content: str = Field(..., description="Memory content to store")
+    memory_type: str = Field(default="experience", description="Type: fact|experience|belief|decision")
+    related_to: Optional[List[str]] = Field(default=None, description="IDs of related memories")
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Confidence score (0.0-1.0)")
+
+
+class StoreMemoryResponse(BaseModel):
+    """Response after storing a memory."""
+    memory_id: str = Field(..., description="UUID of stored memory")
+    message: str = Field(default="Memory stored successfully")
+
+
+class RecallMemoryResponse(BaseModel):
+    """Response containing recalled memories."""
+    memories: List[dict] = Field(..., description="List of recalled memories")
+    count: int = Field(..., description="Number of memories returned")
+
+
+class CreateBeliefRequest(BaseModel):
+    """Request body for creating a belief."""
+    content: str = Field(..., description="Belief statement")
+    initial_confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Starting confidence (0.0-1.0)")
+
+
+class CreateBeliefResponse(BaseModel):
+    """Response after creating a belief."""
+    belief_id: str = Field(..., description="UUID of created belief")
+    message: str = Field(default="Belief created successfully")
+
+
+class UpdateBeliefRequest(BaseModel):
+    """Request body for updating a belief with evidence."""
+    evidence_memory_id: str = Field(..., description="ID of evidence memory")
+    supports: bool = Field(..., description="True if evidence supports the belief, False if contradicts")
+    strength: float = Field(..., ge=0.0, le=1.0, description="Evidence strength (0.0-1.0)")
+
+
+class UpdateBeliefResponse(BaseModel):
+    """Response after updating a belief."""
+    new_confidence: float = Field(..., description="Updated confidence value")
+    message: str = Field(default="Belief updated successfully")
+
+
+class StartSessionRequest(BaseModel):
+    """Request body for starting a session."""
+    session_id: Optional[str] = Field(default=None, description="Optional session ID (auto-generated if not provided)")
+    metadata: Optional[dict] = Field(default=None, description="Optional metadata for the session")
+
+
+class StartSessionResponse(BaseModel):
+    """Response after starting a session."""
+    session_id: str = Field(..., description="Session ID")
+    message: str = Field(default="Session started successfully")
+
+
+class EndSessionRequest(BaseModel):
+    """Request body for ending a session."""
+    session_id: str = Field(..., description="Session ID to end")
+    duration_seconds: Optional[float] = Field(default=None, description="Optional session duration in seconds")
+    metadata: Optional[dict] = Field(default=None, description="Optional metadata for session end")
+
+
+class EndSessionResponse(BaseModel):
+    """Response after ending a session."""
+    session_id: str = Field(..., description="Ended session ID")
+    message: str = Field(default="Session ended successfully")
+
+
+# Initialize components
+_memory_tools_instance = None
+_belief_tools_instance = None
+
+def get_memory_tools() -> MemoryTools:
+    """Initialize and return MemoryTools instance (lazy initialization)."""
+    global _memory_tools_instance
+
+    if _memory_tools_instance is None:
+        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        db_path = base_path / 'palace.sqlite'
+
+        # Initialize components
+        palace = GraphPalace(db_path)
+        # Try nomic-embed-text, fall back to available model
+        try:
+            embedder = OllamaEmbedder(model='nomic-embed-text')
+            # Test if model is available
+            embedder.embed("test")
+        except Exception:
+            # Use available embedding model as fallback
+            embedder = OllamaEmbedder(model='nomic-embed-text-v2-moe')
+        cache_path = base_path / 'embeddings'
+        cache = EmbeddingCache(cache_path, embedder)
+
+        _memory_tools_instance = MemoryTools(palace, embedder, cache)
+
+    return _memory_tools_instance
+
+
+def get_belief_tools() -> BeliefTools:
+    """Initialize and return BeliefTools instance (lazy initialization)."""
+    global _belief_tools_instance
+
+    if _belief_tools_instance is None:
+        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        db_path = base_path / 'palace.sqlite'
+
+        # Initialize components
+        palace = GraphPalace(db_path)
+        belief_network = BeliefNetwork(palace)
+        detector = ContradictionDetector()
+
+        _belief_tools_instance = BeliefTools(belief_network, detector)
+
+    return _belief_tools_instance
+
 
 # Create FastAPI app
 app = FastAPI(
     title="OMI REST API",
-    description="REST API with real-time event streaming (SSE) and dashboard endpoints for memory exploration",
-    version="1.0.0"
+    description="""
+OMI (Open Memory Interface) REST API provides comprehensive memory operations,
+belief management, session lifecycle, real-time event streaming, and a web dashboard.
+
+## Features
+
+* **Memory Operations**: Store and recall memories with semantic search
+* **Belief Management**: Create and update beliefs with evidence-based confidence
+* **Session Lifecycle**: Track sessions with start/end events
+* **Real-time Events**: Server-Sent Events (SSE) for live operation streaming
+* **Web Dashboard**: Interactive memory graph exploration
+* **Authentication**: API key authentication via X-API-Key header
+* **CORS Support**: Configurable cross-origin resource sharing
+
+## Authentication
+
+Protected endpoints require an `X-API-Key` header. Set the `OMI_API_KEY`
+environment variable to enable authentication.
+""",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {
+            "name": "General",
+            "description": "Root and health check endpoints"
+        },
+        {
+            "name": "Memory Operations",
+            "description": "Store and recall memories with semantic search and recency weighting"
+        },
+        {
+            "name": "Belief Management",
+            "description": "Create and update beliefs with evidence-based confidence tracking"
+        },
+        {
+            "name": "Session Lifecycle",
+            "description": "Manage session start and end with event tracking"
+        },
+        {
+            "name": "Events",
+            "description": "Server-Sent Events (SSE) for real-time operation streaming"
+        }
+    ]
 )
 
 # Mount dashboard router
@@ -63,14 +283,38 @@ else:
     logger.warning("Run 'cd src/omi/dashboard && npm run build' to build the dashboard")
 
 
-@app.get("/")
+# Configure CORS
+cors_origins_str = os.environ.get("OMI_CORS_ORIGINS", "*")
+if cors_origins_str == "*":
+    cors_origins = ["*"]
+else:
+    cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logger.info(f"CORS enabled with origins: {cors_origins}")
+
+
+@app.get("/", tags=["General"], summary="API root endpoint")
 async def root() -> Dict[str, Any]:
-    """API root endpoint with service information."""
+    """API root endpoint with service information and available endpoints."""
     return {
         "service": "OMI REST API",
         "version": "1.0.0",
         "endpoints": {
             "/dashboard": "Web dashboard for memory exploration (if built)",
+            "/api/v1/store": "POST - Store a new memory",
+            "/api/v1/recall": "GET - Recall memories by semantic search",
+            "/api/v1/beliefs": "POST - Create a new belief",
+            "/api/v1/beliefs/{id}": "PUT - Update a belief with evidence",
+            "/api/v1/sessions/start": "POST - Start a new session",
+            "/api/v1/sessions/end": "POST - End a session",
             "/api/v1/events": "SSE endpoint for real-time event streaming",
             "/api/v1/dashboard/memories": "Retrieve memories with filters and pagination",
             "/api/v1/dashboard/edges": "Retrieve relationship edges",
@@ -83,10 +327,137 @@ async def root() -> Dict[str, Any]:
     }
 
 
-@app.get("/health")
-async def health() -> Dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "healthy", "service": "omi-event-api"}
+@app.get("/health", tags=["General"], summary="Health check endpoint")
+async def health() -> Dict[str, Any]:
+    """Health check endpoint with version and detailed status."""
+    return {
+        "status": "healthy",
+        "service": "omi-event-api",
+        "version": "1.0.0"
+    }
+
+
+@app.post("/api/v1/store", response_model=StoreMemoryResponse, status_code=status.HTTP_201_CREATED, tags=["Memory Operations"], summary="Store a new memory")
+async def store_memory(request: StoreMemoryRequest, api_key: str = Depends(verify_api_key)):
+    """Store a new memory with semantic embedding."""
+    try:
+        tools = get_memory_tools()
+        memory_id = tools.store(
+            content=request.content,
+            memory_type=request.memory_type,
+            related_to=request.related_to,
+            confidence=request.confidence
+        )
+        return StoreMemoryResponse(memory_id=memory_id)
+    except Exception as e:
+        logger.error(f"Error storing memory: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to store memory: {str(e)}"
+        )
+
+
+@app.get("/api/v1/recall", response_model=RecallMemoryResponse, tags=["Memory Operations"], summary="Recall memories by semantic search")
+async def recall_memory(
+    query: str = Query(..., description="Natural language search query"),
+    limit: int = Query(10, ge=1, le=100, description="Maximum number of results"),
+    min_relevance: float = Query(0.7, ge=0.0, le=1.0, description="Minimum relevance threshold"),
+    memory_type: Optional[str] = Query(None, description="Filter by type: fact|experience|belief|decision"),
+    api_key: str = Depends(verify_api_key)
+):
+    """Recall memories using semantic search with recency weighting."""
+    try:
+        tools = get_memory_tools()
+        memories = tools.recall(
+            query=query,
+            limit=limit,
+            min_relevance=min_relevance,
+            memory_type=memory_type
+        )
+        return RecallMemoryResponse(memories=memories, count=len(memories))
+    except Exception as e:
+        logger.error(f"Error recalling memories: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to recall memories: {str(e)}"
+        )
+
+
+@app.post("/api/v1/beliefs", response_model=CreateBeliefResponse, status_code=status.HTTP_201_CREATED, tags=["Belief Management"], summary="Create a new belief")
+async def create_belief(request: CreateBeliefRequest, api_key: str = Depends(verify_api_key)):
+    """Create a new belief with initial confidence."""
+    try:
+        tools = get_belief_tools()
+        belief_id = tools.create(
+            content=request.content,
+            initial_confidence=request.initial_confidence
+        )
+        return CreateBeliefResponse(belief_id=belief_id)
+    except Exception as e:
+        logger.error(f"Error creating belief: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create belief: {str(e)}"
+        )
+
+
+@app.put("/api/v1/beliefs/{id}", response_model=UpdateBeliefResponse, tags=["Belief Management"], summary="Update belief with evidence")
+async def update_belief(id: str, request: UpdateBeliefRequest, api_key: str = Depends(verify_api_key)):
+    """Update a belief with new evidence using EMA confidence updates."""
+    try:
+        tools = get_belief_tools()
+        new_confidence = tools.update(
+            belief_id=id,
+            evidence_memory_id=request.evidence_memory_id,
+            supports=request.supports,
+            strength=request.strength
+        )
+        return UpdateBeliefResponse(new_confidence=new_confidence)
+    except Exception as e:
+        logger.error(f"Error updating belief: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update belief: {str(e)}"
+        )
+
+
+@app.post("/api/v1/sessions/start", response_model=StartSessionResponse, status_code=status.HTTP_200_OK, tags=["Session Lifecycle"], summary="Start a new session")
+async def start_session(request: StartSessionRequest, api_key: str = Depends(verify_api_key)):
+    """Start a new session."""
+    try:
+        import uuid
+        session_id = request.session_id or str(uuid.uuid4())
+        event = SessionStartedEvent(
+            session_id=session_id,
+            metadata=request.metadata
+        )
+        get_event_bus().publish(event)
+        return StartSessionResponse(session_id=session_id)
+    except Exception as e:
+        logger.error(f"Error starting session: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start session: {str(e)}"
+        )
+
+
+@app.post("/api/v1/sessions/end", response_model=EndSessionResponse, status_code=status.HTTP_200_OK, tags=["Session Lifecycle"], summary="End a session")
+async def end_session(request: EndSessionRequest, api_key: str = Depends(verify_api_key)):
+    """End an existing session."""
+    try:
+        event = SessionEndedEvent(
+            session_id=request.session_id,
+            duration_seconds=request.duration_seconds,
+            metadata=request.metadata
+        )
+        get_event_bus().publish(event)
+        return EndSessionResponse(session_id=request.session_id)
+    except Exception as e:
+        logger.error(f"Error ending session: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to end session: {str(e)}"
+        )
 
 
 async def event_stream(event_type_filter: Optional[str] = None) -> AsyncGenerator[str, None]:
@@ -153,7 +524,7 @@ async def event_stream(event_type_filter: Optional[str] = None) -> AsyncGenerato
         logger.info(f"Client disconnected from SSE stream (filter: {subscription_type})")
 
 
-@app.get("/api/v1/events")
+@app.get("/api/v1/events", tags=["Events"], summary="Real-time event stream (SSE)")
 async def events_sse(
     event_type: Optional[str] = Query(
         None,

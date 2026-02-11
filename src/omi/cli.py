@@ -95,6 +95,7 @@ def cli(ctx: click.Context, data_dir: Optional[str]) -> None:
         check             Pre-compression checkpoint
         status            Show health and size
         audit             Security audit
+        serve             Start REST API server
         config            Configuration management
 
     \b
@@ -105,6 +106,7 @@ def cli(ctx: click.Context, data_dir: Optional[str]) -> None:
         omi recall "session checkpoint"
         omi delete abc123def456...
         omi check
+        omi serve --port 8420
         omi session-end
     """
     ctx.ensure_object(dict)
@@ -138,6 +140,15 @@ def init(ctx: click.Context) -> None:
     # 2. Create config.yaml
     config_template = """# OMI Configuration File
 # OpenClaw Memory Infrastructure
+
+server:
+  host: 0.0.0.0
+  port: 8420
+  # api_key: ${OMI_API_KEY}  # Set via environment variable for REST API authentication
+  cors:
+    # origins: "*"  # Allow all origins (default), or specify comma-separated list
+    # origins: "http://localhost:3000,https://example.com"
+    # Set via OMI_CORS_ORIGINS environment variable
 
 embedding:
   provider: nim  # or ollama
@@ -1817,6 +1828,120 @@ def audit(ctx: click.Context) -> None:
             
     except Exception as e:
         click.echo(click.style(f"Error: Audit failed: {e}", fg="red"))
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--host', default='0.0.0.0', help='Host to bind the server to (default: 0.0.0.0)')
+@click.option('--port', default=8420, type=int, help='Port to bind the server to (default: 8420)')
+@click.pass_context
+def serve(ctx, host: str, port: int) -> None:
+    """Start the OMI REST API server.
+
+    Starts a FastAPI server that provides REST API access to OMI memory operations.
+    The server will use settings from config.yaml if available, or command-line options.
+
+    Examples:
+        omi serve
+        omi serve --port 8080
+        omi serve --host 127.0.0.1 --port 9000
+    """
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    if not base_path.exists():
+        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
+        sys.exit(1)
+
+    # Load config if available to get server settings
+    config_path = base_path / "config.yaml"
+    api_key_configured = False
+    cors_origins_configured = False
+
+    if config_path.exists():
+        try:
+            import yaml
+            config_data = yaml.safe_load(config_path.read_text()) or {}
+            server_config = config_data.get('server', {})
+
+            # Use config values if command-line options are defaults
+            if host == '0.0.0.0' and 'host' in server_config:
+                host = server_config['host']
+            if port == 8420 and 'port' in server_config:
+                port = server_config['port']
+
+            # Set API key from config if not already in environment
+            if 'api_key' in server_config and 'OMI_API_KEY' not in os.environ:
+                api_key_value = server_config['api_key']
+                # Handle environment variable expansion like ${VAR_NAME}
+                if isinstance(api_key_value, str) and api_key_value.startswith('${') and api_key_value.endswith('}'):
+                    env_var_name = api_key_value[2:-1]
+                    api_key_value = os.environ.get(env_var_name)
+                    if api_key_value:
+                        os.environ['OMI_API_KEY'] = api_key_value
+                        api_key_configured = True
+                elif isinstance(api_key_value, str) and api_key_value:
+                    os.environ['OMI_API_KEY'] = api_key_value
+                    api_key_configured = True
+
+            # Set CORS origins from config if not already in environment
+            cors_config = server_config.get('cors', {})
+            if 'origins' in cors_config and 'OMI_CORS_ORIGINS' not in os.environ:
+                origins_value = cors_config['origins']
+                # Handle environment variable expansion
+                if isinstance(origins_value, str) and origins_value.startswith('${') and origins_value.endswith('}'):
+                    env_var_name = origins_value[2:-1]
+                    origins_value = os.environ.get(env_var_name)
+                    if origins_value:
+                        os.environ['OMI_CORS_ORIGINS'] = origins_value
+                        cors_origins_configured = True
+                elif isinstance(origins_value, str) and origins_value:
+                    os.environ['OMI_CORS_ORIGINS'] = origins_value
+                    cors_origins_configured = True
+        except Exception as e:
+            click.echo(click.style(f"Warning: Could not load config: {e}", fg="yellow"))
+
+    click.echo(click.style("Starting OMI REST API Server...", fg="cyan", bold=True))
+    click.echo(f"  Host: {click.style(host, fg='cyan')}")
+    click.echo(f"  Port: {click.style(str(port), fg='cyan')}")
+    click.echo(f"  Base Path: {click.style(str(base_path), fg='cyan')}")
+
+    # Show authentication status
+    if os.environ.get('OMI_API_KEY'):
+        click.echo(f"  Auth: {click.style('Enabled (API key configured)', fg='green')}")
+    else:
+        click.echo(f"  Auth: {click.style('Disabled (development mode)', fg='yellow')}")
+
+    # Show CORS status
+    cors_origins = os.environ.get('OMI_CORS_ORIGINS', '*')
+    if cors_origins == '*':
+        click.echo(f"  CORS: {click.style('All origins allowed', fg='yellow')}")
+    else:
+        click.echo(f"  CORS: {click.style(cors_origins, fg='green')}")
+
+    click.echo()
+
+    try:
+        # Import and start the FastAPI server
+        from .server import start_server
+
+        click.echo(click.style("Server starting...", fg="green"))
+        click.echo(click.style("Press Ctrl+C to stop", fg="yellow"))
+        click.echo()
+
+        # Start the server (this will block)
+        start_server(host=host, port=port, base_path=base_path)
+
+    except ImportError as e:
+        click.echo(click.style(f"Error: FastAPI server dependencies not available: {e}", fg="red"))
+        click.echo("Install with: pip install 'omi[server]'")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        click.echo()
+        click.echo(click.style("\nServer stopped.", fg="cyan"))
+        sys.exit(0)
+    except Exception as e:
+        click.echo(click.style(f"Error: Failed to start server: {e}", fg="red"))
         import traceback
         traceback.print_exc()
         sys.exit(1)

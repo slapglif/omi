@@ -74,6 +74,7 @@ class MemoryTools:
             if memory_type is None or mem_dict.get('memory_type') == memory_type:
                 candidates.append(mem_dict)
 
+
         # Apply recency weighting
         half_life = 30.0  # days
 
