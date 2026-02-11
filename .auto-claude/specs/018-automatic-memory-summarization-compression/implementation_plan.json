@@ -67,8 +67,9 @@
             "command": "python -c \"from omi.summarizer import MemorySummarizer; s = MemorySummarizer(api_key='test'); assert hasattr(s, 'batch_summarize'); print('OK')\"",
             "expected": "OK"
           },
-          "status": "pending",
-          "notes": "Process multiple memories in batch with rate limiting. Follow embed_batch() pattern from NIMEmbedder."
+          "status": "completed",
+          "notes": "Implemented batch_summarize() method following the embed_batch() pattern from embeddings.py. Features: (1) Processes multiple memories efficiently with configurable batch_size (default 8), (2) Handles optional metadata list for each memory, (3) Validates metadata_list length matches memory_contents, (4) Returns list of summaries in same order. Verification passes successfully.",
+          "updated_at": "2026-02-11T00:15:48.596102+00:00"
         }
       ]
     },
@@ -98,8 +99,9 @@
             "command": "python -c \"from omi.storage.graph_palace import GraphPalace; from pathlib import Path; gp = GraphPalace(Path('/tmp/test.db')); assert hasattr(gp, 'get_memories_before'); print('OK')\"",
             "expected": "OK"
           },
-          "status": "pending",
-          "notes": "Query memories WHERE created_at < threshold. Return list of Memory objects with all metadata including edges."
+          "status": "completed",
+          "notes": "Added get_memories_before() method to GraphPalace class. Method queries memories older than a threshold datetime, ordered by created_at ascending (oldest first). Includes optional limit parameter. Verification passed successfully.",
+          "updated_at": "2026-02-11T00:18:14.216391+00:00"
         },
         {
           "id": "subtask-2-2",
@@ -117,8 +119,9 @@
             "command": "python -c \"from omi.storage.graph_palace import GraphPalace; from pathlib import Path; gp = GraphPalace(Path('/tmp/test.db')); assert hasattr(gp, 'update_memory_content'); print('OK')\"",
             "expected": "OK"
           },
-          "status": "pending",
-          "notes": "Update content, recalculate content_hash, preserve all other fields. Also update FTS5 index."
+          "status": "completed",
+          "notes": "Added update_memory_content() method to GraphPalace class. The method updates content, recalculates content_hash, updates last_accessed timestamp, and syncs the FTS index.",
+          "updated_at": "2026-02-11T00:20:13.905747+00:00"
         },
         {
           "id": "subtask-2-3",
@@ -477,6 +480,6 @@
   "qa_signoff": null,
   "status": "in_progress",
   "planStatus": "in_progress",
-  "updated_at": "2026-02-11T00:11:27.514Z",
-  "last_updated": "2026-02-11T00:13:12.436259+00:00"
+  "updated_at": "2026-02-11T00:20:38.867Z",
+  "last_updated": "2026-02-11T00:20:13.905766+00:00"
 }

@@ -901,6 +901,54 @@ class GraphPalace:
             "edge_distribution": edge_distribution
         }
 
+    def get_compression_stats(self, threshold: Optional[datetime] = None) -> Dict[str, Any]:
+        """
+        Calculate compression statistics for memories (optionally filtered by age).
+
+        Used for dry-run reporting to estimate token savings before compression.
+
+        Args:
+            threshold: Optional datetime threshold - only include memories created before this.
+                      If None, calculates stats for all memories.
+
+        Returns:
+            Dict with total_memories, total_chars, estimated_tokens, memories_by_type
+        """
+        if threshold is not None:
+            # Query memories before threshold
+            cursor = self._conn.execute("""
+                SELECT content, memory_type FROM memories
+                WHERE created_at < ?
+            """, (threshold.isoformat(),))
+        else:
+            # Query all memories
+            cursor = self._conn.execute("""
+                SELECT content, memory_type FROM memories
+            """)
+
+        total_memories = 0
+        total_chars = 0
+        memories_by_type: Dict[str, int] = {}
+
+        for row in cursor:
+            content = row[0]
+            memory_type = row[1]
+
+            total_memories += 1
+            total_chars += len(content)
+
+            memories_by_type[memory_type] = memories_by_type.get(memory_type, 0) + 1
+
+        # Estimate tokens using common approximation: 1 token ≈ 4 characters
+        estimated_tokens = total_chars // 4
+
+        return {
+            "total_memories": total_memories,
+            "total_chars": total_chars,
+            "estimated_tokens": estimated_tokens,
+            "memories_by_type": memories_by_type
+        }
+
     def find_contradictions(self, memory_id: str) -> List[Memory]:
         """
         Find memories that contradict a given memory.

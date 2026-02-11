@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "019-cloud-storage-backends-s3-gcs",
+  "spec": "018-automatic-memory-summarization-compression",
   "state": "building",
   "subtasks": {
-    "completed": 19,
-    "total": 21,
+    "completed": 5,
+    "total": 16,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Integration & Documentation",
+    "current": "Storage Layer Compression",
     "id": null,
-    "total": 4
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 21,
-    "started_at": "2026-02-10T17:04:17.412348"
+    "number": 7,
+    "started_at": "2026-02-10T17:04:09.708649"
   },
-  "last_update": "2026-02-10T18:11:47.197943"
+  "last_update": "2026-02-10T17:20:38.901872"
 }
