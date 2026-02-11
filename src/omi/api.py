@@ -10,7 +10,7 @@ import json
 # Storage tier - import from new modular locations
 from .storage.graph_palace import GraphPalace
 from .storage.now import NowStorage
-from .persistence import DailyLogStore, NOWStore, NOWEntry, VaultBackup
+from .persistence import DailyLogStore, NOWEntry
 
 # Belief system - using legacy module for now due to API compatibility
 # TODO: Migrate to .graph.belief_network when API is unified
@@ -22,7 +22,8 @@ from .embeddings import OllamaEmbedder, EmbeddingCache
 # Security
 from .security import IntegrityChecker, TopologyVerifier, ConsensusManager
 
-# Vault (MoltVault is available from .moltvault but VaultBackup API is used here)
+# Vault
+from .moltvault import MoltVault
 # from .moltvault import MoltVault
 
 
@@ -227,8 +228,8 @@ class CheckpointTools:
     Session checkpoint and recovery
     """
     
-    def __init__(self, now_store: NOWStore,
-                 vault: VaultBackup):
+    def __init__(self, now_store: NowStorage,
+                 vault: MoltVault):
         self.now = now_store
         self.vault = vault
     
@@ -416,10 +417,10 @@ def get_all_mcp_tools(config: dict) -> dict:
     db_path = base_path / 'palace.sqlite'
     
     # Initialize stores
-    now_store = NOWStore(base_path)
+    now_store = NowStorage(base_path)
     daily_store = DailyLogStore(base_path)
     palace = GraphPalace(db_path)
-    vault = VaultBackup(api_key=config.get('vault_api_key'), base_path=base_path)
+    vault = MoltVault(api_key=config.get('vault_api_key'), base_path=base_path)
     
     # Initialize embedders
     embedder = OllamaEmbedder(
