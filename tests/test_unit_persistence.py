@@ -1,6 +1,6 @@
 """Unit Tests for Persistence Layer
 
-Tests: NOWStore, DailyLogStore, GraphPalace, VaultBackup
+Tests: NOWStore, DailyLogStore, GraphPalace, MoltVault
 """
 import pytest
 import hashlib
@@ -15,7 +15,8 @@ class TestNOWStore:
     
     def test_read_write_cycle(self, tmp_path):
         """Write NOW.md, read it back and verify."""
-        from omi.persistence import NOWStore, NOWEntry
+        from omi import NOWStore
+        from omi.persistence import NOWEntry
         
         store = NOWStore(tmp_path)
         entry = NOWEntry(
@@ -40,7 +41,8 @@ class TestNOWStore:
     
     def test_read_returns_entry(self, tmp_path):
         """Read returns NOWEntry object."""
-        from omi.persistence import NOWStore, NOWEntry
+        from omi import NOWStore
+        from omi.persistence import NOWEntry
         
         store = NOWStore(tmp_path)
         entry = NOWEntry(
@@ -59,7 +61,8 @@ class TestNOWStore:
     
     def test_integrity_check_detects_tampering(self, tmp_path):
         """Tamper detection works when content changes."""
-        from omi.persistence import NOWStore, NOWEntry
+        from omi import NOWStore
+        from omi.persistence import NOWEntry
         
         store = NOWStore(tmp_path)
         entry = NOWEntry(
@@ -84,7 +87,8 @@ class TestNOWStore:
     
     def test_integrity_check_passes_intact_file(self, tmp_path):
         """Unchanged file passes integrity check."""
-        from omi.persistence import NOWStore, NOWEntry
+        from omi import NOWStore
+        from omi.persistence import NOWEntry
         
         store = NOWStore(tmp_path)
         entry = NOWEntry(
@@ -104,7 +108,7 @@ class TestNOWStore:
     
     def test_missing_file_returns_none(self, tmp_path):
         """Reading missing NOW.md returns None, no error."""
-        from omi.persistence import NOWStore
+        from omi import NOWStore
         
         store = NOWStore(tmp_path)
         result = store.read()
@@ -114,7 +118,8 @@ class TestNOWStore:
     
     def test_write_creates_hash_file(self, tmp_path):
         """Writing NOW.md creates .now.hash file."""
-        from omi.persistence import NOWStore, NOWEntry
+        from omi import NOWStore
+        from omi.persistence import NOWEntry
         
         store = NOWStore(tmp_path)
         entry = NOWEntry(
@@ -155,7 +160,7 @@ class TestDailyLogStore:
     
     def test_append_creates_file(self, tmp_path):
         """Appending creates daily log file."""
-        from omi.persistence import DailyLogStore
+        from omi import DailyLogStore
         
         store = DailyLogStore(tmp_path)
         path = store.append("Test log entry content")
@@ -165,7 +170,7 @@ class TestDailyLogStore:
     
     def test_read_specific_day(self, tmp_path):
         """Can read specific day's log."""
-        from omi.persistence import DailyLogStore
+        from omi import DailyLogStore
         
         store = DailyLogStore(tmp_path)
         today = datetime.now()
@@ -176,7 +181,7 @@ class TestDailyLogStore:
     
     def test_read_missing_day_returns_empty(self, tmp_path):
         """Reading non-existent day returns empty string."""
-        from omi.persistence import DailyLogStore
+        from omi import DailyLogStore
         
         store = DailyLogStore(tmp_path)
         future = datetime.now() + timedelta(days=365)
@@ -186,7 +191,7 @@ class TestDailyLogStore:
     
     def test_list_recent(self, tmp_path):
         """Can list recent log files."""
-        from omi.persistence import DailyLogStore
+        from omi import DailyLogStore
         
         store = DailyLogStore(tmp_path)
         store.append("Entry 1")
@@ -197,7 +202,7 @@ class TestDailyLogStore:
     
     def test_append_includes_timestamp(self, tmp_path):
         """Appended entries include timestamp."""
-        from omi.persistence import DailyLogStore
+        from omi import DailyLogStore
         
         store = DailyLogStore(tmp_path)
         before = datetime.now()
@@ -217,36 +222,36 @@ class TestGraphPalace:
     
     def test_instantiation(self, tmp_path):
         """Can instantiate GraphPalace."""
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         
         palace = GraphPalace(tmp_path / "test.db")
         assert palace is not None
     
     def test_store_memory_returns_id(self, tmp_path):
         """store_memory returns a memory ID."""
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(tmp_path / "test.db")
-        # Currently returns empty string (stub)
-        memory_id = palace.store_memory("Test content", "fact")
+        # Use real implementation signature: content, embedding, memory_type
+        memory_id = palace.store_memory("Test content", memory_type="fact")
         # Should be string
         assert isinstance(memory_id, str)
     
     def test_store_memory_type_filtering_stub(self, tmp_path):
         """store_memory accepts valid types."""
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(tmp_path / "test.db")
-        
-        # These don't raise currently (stubbed)
-        palace.store_memory("Fact", "fact")
-        palace.store_memory("Experience", "experience")
-        palace.store_memory("Belief", "belief", confidence=0.8)
-        palace.store_memory("Decision", "decision")
+
+        # Use real implementation signature: content, embedding, memory_type
+        palace.store_memory("Fact", memory_type="fact")
+        palace.store_memory("Experience", memory_type="experience")
+        palace.store_memory("Belief", memory_type="belief", confidence=0.8)
+        palace.store_memory("Decision", memory_type="decision")
     
     def test_recall_returns_list(self, tmp_path):
         """recall returns a list."""
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         
         palace = GraphPalace(tmp_path / "test.db")
         # Currently returns empty list
@@ -255,26 +260,26 @@ class TestGraphPalace:
     
     def test_get_centrality_returns_float(self, tmp_path):
         """get_centrality returns a float."""
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         
         palace = GraphPalace(tmp_path / "test.db")
         result = palace.get_centrality("some-id")
         assert isinstance(result, float)
 
 
-class TestVaultBackup:
-    """Tests for VaultBackup (local filesystem backup)."""
+class TestMoltVault:
+    """Tests for MoltVault (local filesystem backup)."""
 
     def test_vault_backup_creates_archive(self, tmp_path):
         """Vault backup creates a .tar.gz archive in vault/ directory."""
-        from omi.persistence import VaultBackup
+        from omi import MoltVault
 
         base = tmp_path / "omi"
         base.mkdir(parents=True)
         (base / "palace.sqlite").write_text("fake db")
         (base / "NOW.md").write_text("# NOW")
 
-        vault = VaultBackup(base_path=base)
+        vault = MoltVault(base_path=base)
         backup_id = vault.backup("memory content")
 
         assert isinstance(backup_id, str)
@@ -284,14 +289,14 @@ class TestVaultBackup:
 
     def test_vault_restore_returns_snapshot(self, tmp_path):
         """Vault restore extracts archive and returns snapshot content."""
-        from omi.persistence import VaultBackup
+        from omi import MoltVault
 
         base = tmp_path / "omi"
         base.mkdir(parents=True)
         (base / "palace.sqlite").write_text("original db")
         (base / "NOW.md").write_text("# NOW original")
 
-        vault = VaultBackup(base_path=base)
+        vault = MoltVault(base_path=base)
         backup_id = vault.backup("session snapshot text")
 
         # Modify files
@@ -305,13 +310,13 @@ class TestVaultBackup:
 
     def test_vault_list_backups(self, tmp_path):
         """Vault list_backups returns metadata sorted newest first."""
-        from omi.persistence import VaultBackup
+        from omi import MoltVault
 
         base = tmp_path / "omi"
         base.mkdir(parents=True)
         (base / "palace.sqlite").write_text("db")
 
-        vault = VaultBackup(base_path=base)
+        vault = MoltVault(base_path=base)
         vault.backup("backup 1")
         vault.backup("backup 2")
 
@@ -321,12 +326,12 @@ class TestVaultBackup:
 
     def test_vault_restore_missing_archive_raises(self, tmp_path):
         """Vault restore raises FileNotFoundError for missing backup."""
-        from omi.persistence import VaultBackup
+        from omi import MoltVault
 
         base = tmp_path / "omi"
         base.mkdir(parents=True)
 
-        vault = VaultBackup(base_path=base)
+        vault = MoltVault(base_path=base)
         with pytest.raises(FileNotFoundError):
             vault.restore("nonexistent_backup_id")
 
@@ -336,8 +341,9 @@ class TestEdgeCases:
     
     def test_now_store_with_special_characters(self, tmp_path):
         """NOWStore handles special characters in content."""
-        from omi.persistence import NOWStore, NOWEntry
-        
+        from omi import NOWStore
+        from omi.persistence import NOWEntry
+
         store = NOWStore(tmp_path)
         entry = NOWEntry(
             current_task="Task with <special> & chars",
@@ -355,8 +361,8 @@ class TestEdgeCases:
     
     def test_daily_log_concurrent_writes(self, tmp_path):
         """Daily log handles concurrent writes (basic test)."""
-        from omi.persistence import DailyLogStore
-        
+        from omi import DailyLogStore
+
         store = DailyLogStore(tmp_path)
         
         store.append("Entry 1")
@@ -372,8 +378,8 @@ class TestEdgeCases:
     
     def test_graph_palace_nonexistent_db(self, tmp_path):
         """GraphPalace works with non-existent DB."""
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         nonexistent = tmp_path / "does_not_exist" / "palace.sqlite"
         # Should either create dir or handle gracefully
         palace = GraphPalace(nonexistent)

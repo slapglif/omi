@@ -10,6 +10,10 @@ from datetime import datetime
 from typing import Optional
 import click
 
+# OMI imports
+from omi import NOWStore, DailyLogStore, GraphPalace
+from omi.security import PoisonDetector
+
 # CLI version - matches project version
 __version__ = "0.1.0"
 
@@ -32,23 +36,6 @@ def get_base_path(ctx_data_dir: Optional[Path] = None) -> Path:
     if env_path:
         return Path(env_path)
     return DEFAULT_BASE_PATH
-
-
-def ensure_imports():
-    """Ensure OMI modules are importable."""
-    try:
-        from .persistence import NOWStore, DailyLogStore, GraphPalace
-        from .security import PoisonDetector
-        return NOWStore, DailyLogStore, GraphPalace, PoisonDetector
-    except ImportError as e:
-        # Try to add src to path
-        cli_path = Path(__file__).resolve()
-        src_path = cli_path.parent.parent
-        if str(src_path) not in sys.path:
-            sys.path.insert(0, str(src_path))
-        from omi.persistence import NOWStore, DailyLogStore, GraphPalace
-        from omi.security import PoisonDetector
-        return NOWStore, DailyLogStore, GraphPalace, PoisonDetector
 
 
 @click.group()
@@ -148,7 +135,6 @@ session:
     # 3. Initialize SQLite database using GraphPalace
     db_path = base_path / "palace.sqlite"
     if not db_path.exists():
-        NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
         try:
             palace = GraphPalace(db_path)
             palace.close()
@@ -237,25 +223,22 @@ def session_start(ctx, show_now: bool) -> None:
     if not base_path.exists():
         click.echo(click.style(f"Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     click.echo(click.style("Starting OMI session...", fg="cyan", bold=True))
     
     # 1. Load NOW.md
-    now_store = NOWStore(base_path)
-    now_entry = now_store.read()
-    if now_entry is None:
+    now_storage = NOWStore(base_path)
+    content = now_storage.read()
+
+    # Check if NOW.md exists and has content
+    if not content or content == now_storage._default_content():
         click.echo(click.style(" ⚠ NOW.md not found, creating default", fg="yellow"))
-        from .persistence import NOWEntry
-        now_entry = NOWEntry(
+        now_storage.update(
             current_task="",
             recent_completions=[],
             pending_decisions=[],
-            key_files=[],
-            timestamp=datetime.now()
+            key_files=[]
         )
-        now_store.write(now_entry)
     
     # 2. Get database stats
     db_path = base_path / "palace.sqlite"
@@ -327,9 +310,7 @@ def store(ctx, content: str, memory_type: str, confidence: Optional[float]) -> N
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     db_path = base_path / "palace.sqlite"
     if not db_path.exists():
         click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
@@ -381,9 +362,7 @@ def recall(ctx, query: str, limit: int, json_output: bool) -> None:
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     db_path = base_path / "palace.sqlite"
     if not db_path.exists():
         click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
@@ -448,19 +427,25 @@ def check(ctx) -> None:
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     click.echo(click.style("Creating checkpoint...", fg="cyan", bold=True))
-    
-    # Update NOW.md
-    now_store = NOWStore(base_path)
-    now_entry = now_store.read()
-    if now_entry:
-        now_entry.timestamp = datetime.now()
-        now_store.write(now_entry)
-        click.echo(f" ✓ Updated NOW.md")
-    
+
+    # Update NOW.md timestamp
+    now_storage = NOWStore(base_path)
+    if now_storage.now_file.exists():
+        content = now_storage.read()
+        if content and content != now_storage._default_content():
+            # Parse existing content and re-write to update timestamp
+            from .persistence import NOWEntry
+            now_entry = NOWEntry.from_markdown(content)
+            now_storage.update(
+                current_task=now_entry.current_task,
+                recent_completions=now_entry.recent_completions,
+                pending_decisions=now_entry.pending_decisions,
+                key_files=now_entry.key_files
+            )
+            click.echo(f" ✓ Updated NOW.md")
+
     # Create state capsule
     capsule = {
         "timestamp": datetime.now().isoformat(),
@@ -512,19 +497,26 @@ def session_end(ctx, no_backup: bool) -> None:
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     click.echo(click.style("Ending OMI session...", fg="cyan", bold=True))
-    
-    # Update NOW.md
-    now_store = NOWStore(base_path)
-    now_entry = now_store.read()
-    if now_entry:
-        now_entry.timestamp = datetime.now()
-        now_store.write(now_entry)
-        click.echo(f" ✓ Updated NOW.md")
-    
+
+    # Update NOW.md timestamp and get current task for log
+    now_storage = NOWStore(base_path)
+    now_entry = None
+    if now_storage.now_file.exists():
+        content = now_storage.read()
+        if content and content != now_storage._default_content():
+            # Parse existing content and re-write to update timestamp
+            from .persistence import NOWEntry
+            now_entry = NOWEntry.from_markdown(content)
+            now_storage.update(
+                current_task=now_entry.current_task,
+                recent_completions=now_entry.recent_completions,
+                pending_decisions=now_entry.pending_decisions,
+                key_files=now_entry.key_files
+            )
+            click.echo(f" ✓ Updated NOW.md")
+
     # Append to daily log
     daily_store = DailyLogStore(base_path)
     entry_content = f"Session ended at {datetime.now().isoformat()}"
@@ -561,9 +553,7 @@ def status(ctx) -> None:
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     click.echo(click.style("OMI Status Report", fg="cyan", bold=True))
     click.echo("=" * 50)
     
@@ -646,9 +636,7 @@ def audit(ctx) -> None:
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-    
+
     click.echo(click.style("Running Security Audit...", fg="cyan", bold=True))
     click.echo("=" * 50)
     

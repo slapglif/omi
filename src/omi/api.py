@@ -7,10 +7,24 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
 
-from .persistence import NOWStore, DailyLogStore, GraphPalace, VaultBackup
-from .belief import BeliefNetwork, Evidence, ContradictionDetector
+# Storage tier - import from new modular locations
+from .storage.graph_palace import GraphPalace
+from .storage.now import NowStorage
+from .persistence import DailyLogStore, NOWEntry
+
+# Belief system - using legacy module for now due to API compatibility
+# TODO: Migrate to .graph.belief_network when API is unified
+from .belief import BeliefNetwork, Evidence, ContradictionDetector, calculate_recency_score
+
+# Embeddings
 from .embeddings import OllamaEmbedder, EmbeddingCache
+
+# Security
 from .security import IntegrityChecker, TopologyVerifier, ConsensusManager
+
+# Vault
+from .moltvault import MoltVault
+# from .moltvault import MoltVault
 
 
 class MemoryTools:
@@ -53,7 +67,7 @@ class MemoryTools:
                          if c.get('memory_type') == memory_type]
         
         # Apply recency weighting
-        from .belief import calculate_recency_score
+        # calculate_recency_score already imported at module level
         half_life = 30.0  # days
         
         weighted = []
@@ -213,28 +227,34 @@ class CheckpointTools:
     """
     Session checkpoint and recovery
     """
-    
-    def __init__(self, now_store: NOWStore,
-                 vault: VaultBackup):
+
+    def __init__(self, now_store,
+                 vault: MoltVault):
+        # NOWStore is now an alias for NowStorage
         self.now = now_store
         self.vault = vault
     
     def now_read(self) -> dict:
         """
         now_read: Load current operational context
-        
+
         Read FIRST on session start
         """
-        entry = self.now.read()
-        
-        if entry:
-            return {
-                'current_task': entry.current_task,
-                'recent_completions': entry.recent_completions,
-                'pending_decisions': entry.pending_decisions,
-                'key_files': entry.key_files,
-                'timestamp': entry.timestamp.isoformat()
-            }
+        content = self.now.read()
+
+        # Check if content exists and is not default
+        if content and content != self.now._default_content():
+            try:
+                entry = NOWEntry.from_markdown(content)
+                return {
+                    'current_task': entry.current_task,
+                    'recent_completions': entry.recent_completions,
+                    'pending_decisions': entry.pending_decisions,
+                    'key_files': entry.key_files,
+                    'timestamp': entry.timestamp.isoformat()
+                }
+            except Exception:
+                pass
         return {}
     
     def now_update(self,
@@ -244,20 +264,16 @@ class CheckpointTools:
                   key_files: Optional[List[str]] = None) -> None:
         """
         now_update: Update operational state
-        
+
         Trigger: 70% context threshold, task completion
         """
-        from .persistence import NOWEntry
-        
-        entry = NOWEntry(
-            current_task=current_task or "",
-            recent_completions=recent_completions or [],
-            pending_decisions=pending_decisions or [],
-            key_files=key_files or [],
-            timestamp=datetime.now()
+        # Use NowStorage.update() directly
+        self.now.update(
+            current_task=current_task,
+            recent_completions=recent_completions,
+            pending_decisions=pending_decisions,
+            key_files=key_files
         )
-        
-        self.now.write(entry)
     
     def create_capsule(self,
                       intent: str,
@@ -403,10 +419,10 @@ def get_all_mcp_tools(config: dict) -> dict:
     db_path = base_path / 'palace.sqlite'
     
     # Initialize stores
-    now_store = NOWStore(base_path)
+    now_store = NowStorage(base_path)
     daily_store = DailyLogStore(base_path)
     palace = GraphPalace(db_path)
-    vault = VaultBackup(api_key=config.get('vault_api_key'), base_path=base_path)
+    vault = MoltVault(api_key=config.get('vault_api_key'), base_path=base_path)
     
     # Initialize embedders
     embedder = OllamaEmbedder(
@@ -416,12 +432,12 @@ def get_all_mcp_tools(config: dict) -> dict:
     cache = EmbeddingCache(cache_path, embedder)
     
     # Initialize belief network
-    from .belief import BeliefNetwork, ContradictionDetector
+    # BeliefNetwork and ContradictionDetector already imported at module level
     belief_net = BeliefNetwork(palace)
     detector = ContradictionDetector()
     
     # Initialize security
-    from .security import IntegrityChecker, TopologyVerifier
+    # IntegrityChecker and TopologyVerifier already imported at module level
     integrity = IntegrityChecker(base_path)
     topology = TopologyVerifier(palace)
     

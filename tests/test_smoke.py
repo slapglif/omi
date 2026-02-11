@@ -24,8 +24,8 @@ class TestImports:
     
     def test_import_persistence(self):
         """Can we import persistence module?"""
-        from omi.persistence import NOWStore, DailyLogStore, GraphPalace
-        assert NOWStore is not None
+        from omi import NowStorage, DailyLogStore, GraphPalace
+        assert NowStorage is not None
         assert DailyLogStore is not None
         assert GraphPalace is not None
     
@@ -65,21 +65,21 @@ class TestBasicInstantiation:
     """Test that core classes can be instantiated."""
     
     def test_now_store_instantiation(self, tmp_path):
-        """Can we create a NOWStore?"""
-        from omi.persistence import NOWStore
-        store = NOWStore(tmp_path)
+        """Can we create a NowStorage?"""
+        from omi import NowStorage
+        store = NowStorage(tmp_path)
         assert store is not None
-        assert store.now_path == tmp_path / "NOW.md"
+        assert store.now_file == tmp_path / "NOW.md"
     
     def test_daily_log_store_instantiation(self, tmp_path):
         """Can we create a DailyLogStore?"""
-        from omi.persistence import DailyLogStore
+        from omi import DailyLogStore
         store = DailyLogStore(tmp_path)
         assert store is not None
     
     def test_graph_palace_instantiation(self, tmp_path):
         """Can we create a GraphPalace?"""
-        from omi.persistence import GraphPalace
+        from omi import GraphPalace
         db_path = tmp_path / "test.db"
         palace = GraphPalace(db_path)
         assert palace is not None

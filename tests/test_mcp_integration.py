@@ -27,8 +27,8 @@ class TestMemoryTools:
         Assert: Returns Python memories, not JS
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         memory_tools = MemoryTools(palace, mock_embedder, mock_embedding_cache)
         
@@ -67,8 +67,8 @@ class TestMemoryTools:
     def test_memory_recall_limit(self, temp_omi_setup, mock_embedder, mock_embedding_cache):
         """Verify limit parameter works"""
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         memory_tools = MemoryTools(palace, mock_embedder, mock_embedding_cache)
         
@@ -93,8 +93,8 @@ class TestMemoryTools:
         - Can be recalled with query "SQLAlchemy"
         """
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         memory_tools = MemoryTools(palace, mock_embedder, mock_embedding_cache)
         
@@ -125,8 +125,8 @@ class TestBeliefTools:
         Verify: confidence = 0.5 in database
         """
         from omi.belief import BeliefNetwork
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         belief_network = BeliefNetwork(palace)
         
@@ -148,11 +148,11 @@ class TestBeliefTools:
         Verify: confidence > 0.5 (EMA increased it)
         """
         from omi.belief import BeliefNetwork, Evidence
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         belief_network = BeliefNetwork(palace)
-        
+
         # Create belief with initial confidence
         content = "X works"
         initial_confidence = 0.5
@@ -182,8 +182,8 @@ class TestBeliefTools:
         Assert: "A" ranks higher than "B"
         """
         from omi.belief import BeliefNetwork
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         belief_network = BeliefNetwork(palace)
         
@@ -217,8 +217,8 @@ class TestCheckpointTools:
         Assert: Returns what we wrote
         """
         from omi.api import CheckpointTools
-        from omi.persistence import NOWStore, VaultBackup
-        
+        from omi import NowStorage, MoltVault
+
         # Create initial NOW.md
         now_path = temp_omi_setup["now_path"]
         initial_content = """# NOW - 2024-01-01T00:00:00
@@ -233,8 +233,8 @@ Test task
 ## Key Files
 """
         now_path.write_text(initial_content)
-        
-        now_store = NOWStore(temp_omi_setup["base_path"])
+
+        now_store = NowStorage(temp_omi_setup["base_path"])
         vault = MagicMock()
         checkpoint_tools = CheckpointTools(now_store, vault)
         
@@ -252,9 +252,9 @@ Test task
         Assert: pending contains "new task"
         """
         from omi.api import CheckpointTools
-        from omi.persistence import NOWStore, VaultBackup
-        
-        now_store = NOWStore(temp_omi_setup["base_path"])
+        from omi import NowStorage, MoltVault
+
+        now_store = NowStorage(temp_omi_setup["base_path"])
         vault = MagicMock()
         checkpoint_tools = CheckpointTools(now_store, vault)
         
@@ -325,8 +325,8 @@ class TestSecurityTools:
         Test that topology_audit detects orphan nodes
         """
         from omi.security import TopologyVerifier
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         topology = TopologyVerifier(palace)
         
@@ -354,15 +354,14 @@ class TestOpenClawIntegration:
         Verify: All calls succeed
         """
         from omi.api import (
-            CheckpointTools, MemoryTools, 
+            CheckpointTools, MemoryTools,
             get_all_mcp_tools
         )
-        from omi.persistence import (
-            NOWStore, DailyLogStore, GraphPalace, VaultBackup
-        )
-        
+        from omi.persistence import DailyLogStore
+        from omi import NowStorage, GraphPalace, MoltVault
+
         # Initialize stores
-        now_store = NOWStore(temp_omi_setup["base_path"])
+        now_store = NowStorage(temp_omi_setup["base_path"])
         daily_store = DailyLogStore(temp_omi_setup["base_path"])
         palace = GraphPalace(temp_omi_setup["db_path"])
         vault = MagicMock()
@@ -415,8 +414,8 @@ class TestToolEdgeCases:
     def test_memory_store_empty_content(self, temp_omi_setup, mock_embedder, mock_embedding_cache):
         """Test storing empty content"""
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         memory_tools = MemoryTools(palace, mock_embedder, mock_embedding_cache)
         
@@ -427,8 +426,8 @@ class TestToolEdgeCases:
     def test_memory_recall_empty_database(self, temp_omi_setup, mock_embedder, mock_embedding_cache):
         """Test recall on empty database"""
         from omi.api import MemoryTools
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         memory_tools = MemoryTools(palace, mock_embedder, mock_embedding_cache)
         
@@ -440,11 +439,11 @@ class TestToolEdgeCases:
     def test_belief_update_with_contradicting_evidence(self, temp_omi_setup):
         """Test that contradicting evidence decreases confidence"""
         from omi.belief import BeliefNetwork, Evidence
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         belief_network = BeliefNetwork(palace)
-        
+
         # Create belief
         belief_id = belief_network.create_belief("X works", 0.8)
         
@@ -464,8 +463,8 @@ class TestToolEdgeCases:
     def test_capsule_create_includes_checksum(self, temp_omi_setup):
         """Test that capsule_create generates valid checksum"""
         from omi.api import CheckpointTools
-        from omi.persistence import NOWStore
-        
+        from omi import NowStorage
+
         now_store = MagicMock()
         vault = MagicMock()
         checkpoint_tools = CheckpointTools(now_store, vault)
@@ -502,8 +501,8 @@ class TestToolEdgeCases:
     def test_topology_audit_empty_graph(self, temp_omi_setup):
         """Test topology audit on empty graph"""
         from omi.security import TopologyVerifier
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         topology = TopologyVerifier(palace)
         
@@ -665,8 +664,8 @@ class TestEvidenceChain:
         """Test that evidence chain returns supporting and contradicting evidence"""
         from omi.belief import BeliefNetwork, Evidence
         from omi.belief import ContradictionDetector
-        from omi.persistence import GraphPalace
-        
+        from omi import GraphPalace
+
         palace = GraphPalace(temp_omi_setup["db_path"])
         belief_network = BeliefNetwork(palace)
         
@@ -703,7 +702,7 @@ class TestNOWEntry:
     def test_now_entry_to_markdown(self):
         """Test NOWEntry serialization to markdown"""
         from omi.persistence import NOWEntry
-        
+
         entry = NOWEntry(
             current_task="Test task",
             recent_completions=["Task 1", "Task 2"],

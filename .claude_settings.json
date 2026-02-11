@@ -1,0 +1,39 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(./**)",
+      "Write(./**)",
+      "Edit(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Read(/home/mikeb/work/omi/.auto-claude/worktrees/tasks/002-import-architecture-module-cleanup/**)",
+      "Write(/home/mikeb/work/omi/.auto-claude/worktrees/tasks/002-import-architecture-module-cleanup/**)",
+      "Edit(/home/mikeb/work/omi/.auto-claude/worktrees/tasks/002-import-architecture-module-cleanup/**)",
+      "Glob(/home/mikeb/work/omi/.auto-claude/worktrees/tasks/002-import-architecture-module-cleanup/**)",
+      "Grep(/home/mikeb/work/omi/.auto-claude/worktrees/tasks/002-import-architecture-module-cleanup/**)",
+      "Read(/home/mikeb/work/omi/.auto-claude/worktrees/tasks/002-import-architecture-module-cleanup/.auto-claude/specs/002-import-architecture-module-cleanup/**)",
+      "Write(/home/mikeb/work/omi/.auto-claude/worktrees/tasks/002-import-architecture-module-cleanup/.auto-claude/specs/002-import-architecture-module-cleanup/**)",
+      "Edit(/home/mikeb/work/omi/.auto-claude/worktrees/tasks/002-import-architecture-module-cleanup/.auto-claude/specs/002-import-architecture-module-cleanup/**)",
+      "Read(/home/mikeb/work/omi/.auto-claude/**)",
+      "Write(/home/mikeb/work/omi/.auto-claude/**)",
+      "Edit(/home/mikeb/work/omi/.auto-claude/**)",
+      "Glob(/home/mikeb/work/omi/.auto-claude/**)",
+      "Grep(/home/mikeb/work/omi/.auto-claude/**)",
+      "Bash(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__get-library-docs(*)",
+      "mcp__graphiti-memory__search_nodes(*)",
+      "mcp__graphiti-memory__search_facts(*)",
+      "mcp__graphiti-memory__add_episode(*)",
+      "mcp__graphiti-memory__get_episodes(*)",
+      "mcp__graphiti-memory__get_entity_edge(*)"
+    ]
+  }
+}

@@ -73,7 +73,7 @@ def mock_embedding_cache(tmp_path, mock_embedder):
 @pytest.fixture
 def persistence_stores(temp_omi_setup):
     """Create persistence stores for testing."""
-    from omi.persistence import NOWStore, DailyLogStore, GraphPalace
+    from omi import NOWStore, DailyLogStore, GraphPalace
     
     now_store = NOWStore(temp_omi_setup["base_path"])
     daily_store = DailyLogStore(temp_omi_setup["base_path"])
@@ -100,7 +100,7 @@ def mock_vault():
 @pytest.fixture
 def belief_network_setup(temp_omi_setup, mock_embedder, mock_embedding_cache):
     """Setup for belief network tests."""
-    from omi.persistence import GraphPalace
+    from omi import GraphPalace
     from omi.belief import BeliefNetwork, ContradictionDetector
     
     palace = GraphPalace(temp_omi_setup["db_path"])
