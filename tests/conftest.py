@@ -1,8 +1,15 @@
 """Pytest fixtures for OMI MCP integration tests"""
+import sys
+from pathlib import Path
+
+# Add src directory to Python path for test imports
+src_path = Path(__file__).parent.parent / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
 import pytest
 import tempfile
 import shutil
-from pathlib import Path
 from datetime import datetime
 
 
@@ -149,3 +156,41 @@ def sample_beliefs():
         "high_confidence": "Python is the best language for data science",
         "low_confidence": "Maybe JavaScript will replace Python someday",
     }
+
+
+@pytest.fixture
+def clean_event_bus():
+    """Provide a clean EventBus for testing.
+
+    Resets the global event bus before each test to ensure isolation.
+    """
+    from omi.event_bus import reset_event_bus, get_event_bus
+
+    reset_event_bus()
+    bus = get_event_bus()
+
+    yield bus
+
+    # Clean up after test
+    bus.clear()
+
+
+@pytest.fixture
+def mock_webhook_server():
+    """Mock HTTP server for webhook testing.
+
+    Returns a mock requests module configured for successful responses.
+    Use mock_webhook_server.post.call_count to verify deliveries.
+    """
+    from unittest.mock import MagicMock
+
+    mock_requests = MagicMock()
+
+    # Configure successful response
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+
+    mock_requests.post.return_value = mock_response
+
+    return mock_requests

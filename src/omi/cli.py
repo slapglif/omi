@@ -13,6 +13,8 @@ import click
 # OMI imports
 from omi import NOWStore, DailyLogStore, GraphPalace
 from omi.security import PoisonDetector
+from .event_bus import get_event_bus
+from .events import SessionStartedEvent, SessionEndedEvent
 
 # CLI version - matches project version
 __version__ = "0.1.0"
@@ -125,11 +127,14 @@ session:
   auto_check_interval: 300  # seconds
   max_hot_tokens: 1000
 
-compression:
-  provider: anthropic  # or openai
-  # api_key: ${ANTHROPIC_API_KEY}  # Set via environment variable
-  age_threshold_days: 30  # Compress memories older than N days
-  batch_size: 8  # Number of memories to process at once
+events:
+  webhooks:
+    enabled: false
+    # endpoints:
+    #   - url: https://example.com/webhook
+    #     events: ["memory.stored", "session.started", "session.ended"]
+    #     # headers:
+    #     #   Authorization: Bearer ${WEBHOOK_TOKEN}
 """
     config_path = base_path / "config.yaml"
     if not config_path.exists():
@@ -287,8 +292,21 @@ def session_start(ctx, show_now: bool) -> None:
     
     status_color = "green" if now_integrity else "red"
     click.echo(f"\n NOW.md integrity: {click.style('✓' if now_integrity else '✗', fg=status_color)}")
-    click.echo(f" Session started: {click.style(datetime.now().isoformat(), fg='cyan')}")
+
+    session_timestamp = datetime.now()
+    click.echo(f" Session started: {click.style(session_timestamp.isoformat(), fg='cyan')}")
     click.echo(click.style("\n✓ Session ready!", fg="green", bold=True))
+
+    # Emit session started event
+    event = SessionStartedEvent(
+        session_id=session_timestamp.isoformat(),
+        timestamp=session_timestamp,
+        metadata={
+            "memory_count": mem_count,
+            "now_integrity": now_integrity
+        }
+    )
+    get_event_bus().publish(event)
 
 
 @cli.command()
@@ -488,340 +506,6 @@ def check(ctx) -> None:
     click.echo(click.style("\n✓ Checkpoint complete", fg="green", bold=True))
 
 
-@cli.command()
-@click.option('--dry-run', is_flag=True, help='Preview compression without executing')
-@click.option('--before', type=str, default=None, help='Only compress memories before this date (YYYY-MM-DD)')
-@click.option('--age-days', type=int, default=None, help='Only compress memories older than N days')
-@click.option('--llm-provider', type=click.Choice(['openai', 'anthropic'], case_sensitive=False), default='anthropic', help='LLM provider to use for compression (default: anthropic)')
-@click.pass_context
-def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int], llm_provider: str) -> None:
-    """Compress and summarize memory data.
-
-    Performs:
-    - Analyzes memory database for compression candidates
-    - Summarizes old memories while preserving key information
-    - Updates Graph Palace with compressed representations
-    - Reduces storage size while maintaining semantic relationships
-
-    Use --dry-run to preview what would be compressed without making changes.
-    Use --before to specify a date cutoff for compression (e.g., --before 2024-01-01).
-    Use --age-days to specify memories older than N days (e.g., --age-days 30).
-    Use --llm-provider to choose between 'openai' or 'anthropic' for compression (default: anthropic).
-    """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
-    if not base_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
-        sys.exit(1)
-
-    NOWStore, DailyLogStore, GraphPalace, PoisonDetector = ensure_imports()
-
-    mode_label = "DRY RUN" if dry_run else "LIVE"
-    mode_color = "yellow" if dry_run else "cyan"
-    click.echo(click.style(f"Memory Compression [{mode_label}]", fg=mode_color, bold=True))
-
-    if dry_run:
-        click.echo(click.style("  Preview mode - no changes will be made", fg="yellow"))
-
-    click.echo(f"  LLM Provider: {click.style(llm_provider, fg='cyan')}")
-
-    click.echo("=" * 50)
-
-    # Check database exists
-    db_path = base_path / "palace.sqlite"
-    if not db_path.exists():
-        click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
-        sys.exit(1)
-
-    try:
-        # Validate and parse the before date if provided
-        from datetime import timedelta
-        date_filter = None
-        threshold_datetime = None
-
-        if before and age_days:
-            click.echo(click.style(f"Error: Cannot use both --before and --age-days. Choose one.", fg="red"))
-            sys.exit(1)
-
-        if before:
-            try:
-                # Validate date format
-                threshold_datetime = datetime.strptime(before, '%Y-%m-%d')
-                date_filter = before
-                click.echo(f"  Using date filter: before {click.style(before, fg='cyan')}")
-            except ValueError:
-                click.echo(click.style(f"Error: Invalid date format. Use YYYY-MM-DD (e.g., 2024-01-01)", fg="red"))
-                sys.exit(1)
-        elif age_days:
-            if age_days < 1:
-                click.echo(click.style(f"Error: --age-days must be a positive integer", fg="red"))
-                sys.exit(1)
-            # Calculate the date from age_days
-            threshold_datetime = datetime.now() - timedelta(days=age_days)
-            date_filter = threshold_datetime.strftime('%Y-%m-%d')
-            click.echo(f"  Using date filter: older than {click.style(str(age_days) + ' days', fg='cyan')} (before {click.style(date_filter, fg='cyan')})")
-        else:
-            # Default: 30 days
-            threshold_datetime = datetime.now() - timedelta(days=30)
-            date_filter = threshold_datetime.strftime('%Y-%m-%d')
-            click.echo(f"  Using default filter: older than {click.style('30 days', fg='cyan')} (before {click.style(date_filter, fg='cyan')})")
-
-        # Query database directly (works with existing schema)
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
-        # Get total memories count
-        cursor.execute("SELECT COUNT(*) FROM memories")
-        total_memories = cursor.fetchone()[0]
-
-        # Get old memories data
-        cursor.execute("""
-            SELECT id, content, memory_type, confidence, created_at
-            FROM memories
-            WHERE datetime(created_at) < datetime(?)
-            ORDER BY created_at ASC
-        """, (threshold_datetime.isoformat(),))
-
-        old_memories_data = cursor.fetchall()
-        old_memories_count = len(old_memories_data)
-
-        # Calculate token estimates
-        total_chars = sum(len(row[1]) for row in old_memories_data)
-        estimated_tokens = total_chars // 4
-
-        # Get memory type distribution
-        cursor.execute("""
-            SELECT memory_type, COUNT(*)
-            FROM memories
-            WHERE datetime(created_at) < datetime(?)
-            GROUP BY memory_type
-        """, (threshold_datetime.isoformat(),))
-        memories_by_type = dict(cursor.fetchall())
-
-        click.echo(f"\n{click.style('Current State:', bold=True)}")
-        click.echo(f"  Total memories: {click.style(str(total_memories), fg='cyan')}")
-        click.echo(f"  Old memories (before {date_filter}): {click.style(str(old_memories_count), fg='cyan')}")
-        estimated_tokens_str = f"{estimated_tokens:,}"
-        click.echo(f"  Estimated tokens: {click.style(estimated_tokens_str, fg='cyan')}")
-
-        if memories_by_type:
-            click.echo(f"\n  Memory types:")
-            for mem_type, count in memories_by_type.items():
-                click.echo(f"    {mem_type}: {count}")
-
-        if not old_memories_data:
-            click.echo(click.style(f"\n✓ No memories to compress", fg="green", bold=True))
-            conn.close()
-            return
-
-        click.echo(f"\n{click.style('Compression Analysis:', bold=True)}")
-        click.echo(f"  Memories to compress: {click.style(str(old_memories_count), fg='cyan')}")
-
-        # Calculate token estimates
-        original_tokens = estimated_tokens
-        estimated_compressed_tokens = int(original_tokens * 0.4)  # ~60% compression
-        estimated_savings = original_tokens - estimated_compressed_tokens
-        savings_percent = (estimated_savings / original_tokens * 100) if original_tokens > 0 else 0
-
-        click.echo(f"  Original tokens: {click.style(f'{original_tokens:,}', fg='cyan')}")
-        click.echo(f"  Estimated compressed tokens: {click.style(f'{estimated_compressed_tokens:,}', fg='cyan')}")
-        click.echo(f"  Estimated savings: {click.style(f'{estimated_savings:,} tokens ({savings_percent:.1f}%)', fg='green')}")
-
-        # DRY RUN: stop here
-        if dry_run:
-            click.echo(f"\n{click.style('Would perform:', bold=True)}")
-            click.echo(f"  • Create MoltVault backup (full)")
-            click.echo(f"  • Summarize {old_memories_count} memories using {llm_provider}")
-            click.echo(f"  • Regenerate embeddings for summarized content")
-            click.echo(f"  • Update Graph Palace with compressed memories")
-            click.echo(f"  • Save ~{estimated_savings:,} tokens ({savings_percent:.1f}%)")
-            click.echo(click.style("\n✓ Dry run complete - no changes made", fg="yellow", bold=True))
-            conn.close()
-            return
-
-        # LIVE MODE: proceed with compression
-        click.echo(f"\n{click.style('Starting compression workflow...', bold=True)}")
-
-        # Step 1: Create backup FIRST
-        click.echo(f"\n{click.style('[1/4]', fg='cyan')} Creating backup...")
-        backup_success = False
-        try:
-            from .moltvault import MoltVault
-            vault = MoltVault(base_path)
-            metadata = vault.backup(full=True)
-            click.echo(f"  ✓ Backup created: {click.style(metadata.backup_id, fg='green')}")
-            click.echo(f"    Size: {metadata.file_size / 1024:.1f} KB")
-            backup_success = True
-        except ImportError:
-            click.echo(click.style(f"  ⚠ MoltVault not available, creating local backup...", fg="yellow"))
-            # Fallback: create local backup
-            import shutil
-            backup_dir = base_path / "backups"
-            backup_dir.mkdir(exist_ok=True)
-            backup_file = backup_dir / f"pre_compress_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-            shutil.copy2(db_path, backup_file)
-            click.echo(f"  ✓ Local backup created: {click.style(str(backup_file.name), fg='green')}")
-            backup_success = True
-        except Exception as e:
-            click.echo(click.style(f"  ✗ Backup failed: {e}", fg="red"))
-            click.echo(click.style(f"  Aborting compression to protect data", fg="red"))
-            palace.close()
-            sys.exit(1)
-
-        if not backup_success:
-            click.echo(click.style(f"  Aborting: backup required before compression", fg="red"))
-            palace.close()
-            sys.exit(1)
-
-        # Step 2: Summarize memories
-        click.echo(f"\n{click.style('[2/4]', fg='cyan')} Summarizing memories...")
-        try:
-            from .summarizer import MemorySummarizer
-
-            # Get API key from environment
-            api_key_env = "OPENAI_API_KEY" if llm_provider == "openai" else "ANTHROPIC_API_KEY"
-            api_key = os.getenv(api_key_env)
-
-            if not api_key:
-                click.echo(click.style(f"  ✗ Missing {api_key_env} environment variable", fg="red"))
-                click.echo(f"    Set it with: export {api_key_env}=your-key-here")
-                conn.close()
-                sys.exit(1)
-
-            summarizer = MemorySummarizer(provider=llm_provider, api_key=api_key)
-
-            # Batch summarize (8 at a time)
-            batch_size = 8
-            summaries = []
-
-            # Build metadata from cursor data
-            # old_memories_data format: (id, content, memory_type, confidence, created_at)
-            metadata_list = [{
-                "memory_type": row[2],
-                "confidence": row[3],
-                "created_at": row[4]
-            } for row in old_memories_data]
-
-            # Extract contents
-            contents = [row[1] for row in old_memories_data]
-
-            for i in range(0, len(contents), batch_size):
-                batch_contents = contents[i:i+batch_size]
-                batch_metadata = metadata_list[i:i+batch_size]
-
-                batch_summaries = summarizer.batch_summarize(batch_contents, metadata_list=batch_metadata)
-                summaries.extend(batch_summaries)
-                click.echo(f"  Processed {min(i+batch_size, len(contents))}/{len(contents)}...")
-
-            click.echo(f"  ✓ Summarized {len(summaries)} memories")
-
-        except Exception as e:
-            click.echo(click.style(f"  ✗ Summarization failed: {e}", fg="red"))
-            import traceback
-            traceback.print_exc()
-            conn.close()
-            sys.exit(1)
-
-        # Step 3: Regenerate embeddings
-        click.echo(f"\n{click.style('[3/4]', fg='cyan')} Regenerating embeddings...")
-        try:
-            from .embeddings import NIMEmbedder
-
-            # Try to get embedder config from config.yaml
-            config_path = base_path / "config.yaml"
-            embedder = None
-
-            if config_path.exists():
-                try:
-                    import yaml
-                    config = yaml.safe_load(config_path.read_text())
-                    embed_config = config.get('embedding', {})
-                    provider = embed_config.get('provider', 'nim')
-
-                    if provider == 'nim':
-                        embedder = NIMEmbedder(
-                            model=embed_config.get('model', 'baai/bge-m3'),
-                            api_key=os.getenv('NIM_API_KEY')
-                        )
-                except Exception:
-                    pass
-
-            # Fallback to NIM with defaults
-            if embedder is None:
-                embedder = NIMEmbedder(api_key=os.getenv('NIM_API_KEY'))
-
-            # Generate embeddings for summaries
-            new_embeddings = embedder.embed_batch(summaries)
-            click.echo(f"  ✓ Generated {len(new_embeddings)} embeddings")
-
-        except Exception as e:
-            click.echo(click.style(f"  ⚠ Embedding generation failed: {e}", fg="yellow"))
-            click.echo(f"    Continuing without embeddings (will need regeneration later)")
-            new_embeddings = [None] * len(summaries)
-
-        # Step 4: Update Graph Palace
-        click.echo(f"\n{click.style('[4/4]', fg='cyan')} Updating Graph Palace...")
-        updated_count = 0
-        actual_original_tokens = 0
-        actual_compressed_tokens = 0
-
-        for memory_row, summary, embedding in zip(old_memories_data, summaries, new_embeddings):
-            memory_id = memory_row[0]
-            original_content = memory_row[1]
-
-            try:
-                # Track token counts
-                actual_original_tokens += len(original_content) // 4
-                actual_compressed_tokens += len(summary) // 4
-
-                # Update content with timestamp
-                cursor.execute("""
-                    UPDATE memories
-                    SET content = ?, updated_at = ?
-                    WHERE id = ?
-                """, (summary, datetime.now().isoformat(), memory_id))
-
-                # Update embedding if available
-                if embedding is not None:
-                    # Convert embedding list to blob
-                    import struct
-                    embedding_blob = struct.pack(f'{len(embedding)}f', *embedding)
-
-                    cursor.execute("""
-                        UPDATE memories
-                        SET embedding = ?
-                        WHERE id = ?
-                    """, (embedding_blob, memory_id))
-
-                updated_count += 1
-            except Exception as e:
-                click.echo(click.style(f"  ⚠ Failed to update memory {memory_id}: {e}", fg="yellow"))
-
-        conn.commit()
-        conn.close()
-
-        # Calculate actual savings
-        actual_savings = actual_original_tokens - actual_compressed_tokens
-        actual_savings_percent = (actual_savings / actual_original_tokens * 100) if actual_original_tokens > 0 else 0
-
-        # Final report
-        click.echo(f"\n{click.style('Compression Complete!', fg='green', bold=True)}")
-        click.echo(f"\n{click.style('Results:', bold=True)}")
-        click.echo(f"  Memories compressed: {click.style(str(updated_count), fg='cyan')}")
-        click.echo(f"  Original tokens: {click.style(f'{actual_original_tokens:,}', fg='cyan')}")
-        click.echo(f"  Compressed tokens: {click.style(f'{actual_compressed_tokens:,}', fg='cyan')}")
-        click.echo(f"  Savings: {click.style(f'{actual_savings:,} tokens ({actual_savings_percent:.1f}%)', fg='green', bold=True)}")
-
-        db_size_after = db_path.stat().st_size / 1024  # KB
-        click.echo(f"\n  Database size: {click.style(f'{db_size_after:.1f} KB', fg='cyan')}")
-
-    except Exception as e:
-        click.echo(click.style(f"Error: Compression failed: {e}", fg="red"))
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-
-
 @cli.command("session-end")
 @click.option('--no-backup', is_flag=True, help="Skip vault backup")
 @click.pass_context
@@ -880,9 +564,20 @@ def session_end(ctx, no_backup: bool) -> None:
             click.echo(click.style(" ✓ Vault backup triggered", fg="cyan"))
         else:
             click.echo(click.style(" ⚠ Vault backup disabled (see config.yaml)", fg="yellow"))
-    
+
     click.echo(click.style("\n✓ Session ended", fg="green", bold=True))
     click.echo("Remember: The seeking is the continuity.")
+
+    # Emit session ended event
+    session_timestamp = datetime.now()
+    event = SessionEndedEvent(
+        session_id=session_timestamp.isoformat(),
+        timestamp=session_timestamp,
+        metadata={
+            "vault_backup": not no_backup and vault_enabled if 'vault_enabled' in locals() else False
+        }
+    )
+    get_event_bus().publish(event)
 
 
 @cli.command()
@@ -1058,6 +753,7 @@ def config_set(ctx, key: str, value: str) -> None:
         omi config set embedding.provider ollama
         omi config set embedding.model nomic-embed-text
         omi config set vault.enabled true
+        omi config set events.webhook https://example.com/hook
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
@@ -1127,33 +823,17 @@ def config_get(ctx, key: str) -> None:
         sys.exit(1)
 
 
-@config.command('list')
-@click.pass_context
-def config_list(ctx) -> None:
-    """List all configuration values."""
-    base_path = get_base_path(ctx.obj.get('data_dir'))
-    config_path = base_path / "config.yaml"
-
-    if not config_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
-        sys.exit(1)
-
-    content = config_path.read_text()
-    click.echo(click.style("Current configuration:", fg="cyan", bold=True))
-    click.echo(content)
-
-
 @config.command('show')
 @click.pass_context
 def config_show(ctx) -> None:
-    """Display full configuration (alias for list)."""
+    """Display full configuration."""
     base_path = get_base_path(ctx.obj.get('data_dir'))
     config_path = base_path / "config.yaml"
-
+    
     if not config_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-
+    
     content = config_path.read_text()
     click.echo(click.style("Current configuration:", fg="cyan", bold=True))
     click.echo(content)
@@ -1161,323 +841,216 @@ def config_show(ctx) -> None:
 
 @cli.group()
 @click.pass_context
-def sync(ctx):
-    """Cloud storage synchronization commands.
-
-    Sync your OMI data with cloud storage backends (S3, GCS).
-
-    \b
-    Commands:
-        push      Upload local data to cloud storage
-        pull      Download data from cloud storage
-        status    Show sync status and differences
-
-    \b
-    Examples:
-        omi sync push
-        omi sync pull
-        omi sync status
-    """
+def events(ctx):
+    """Event history commands."""
     ctx.ensure_object(dict)
 
 
-@sync.command('push')
-@click.option('--force', is_flag=True, help='Force push even if cloud has newer data')
+@events.command('list')
+@click.option('--type', '-t', 'event_type', default=None, help='Filter by event type')
+@click.option('--since', default=None, help='Filter events after this timestamp (ISO format)')
+@click.option('--until', default=None, help='Filter events before this timestamp (ISO format)')
+@click.option('--limit', '-l', default=100, help='Maximum number of results (default: 100)')
+@click.option('--json-output', is_flag=True, help='Output as JSON')
 @click.pass_context
-def sync_push(ctx, force: bool) -> None:
-    """Upload local data to cloud storage.
-
-    Pushes the following to configured cloud backend:
-    - NOW.md and daily logs
-    - Graph Palace database
-    - Configuration files
+def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Optional[str],
+                limit: int, json_output: bool) -> None:
+    """List events from history with filters.
 
     Args:
-        --force: Force push even if cloud has newer data
+        --type: Filter by event type (e.g., 'memory.stored', 'session.started')
+        --since: Filter events after this timestamp (ISO format)
+        --until: Filter events before this timestamp (ISO format)
+        --limit: Maximum number of results (default: 100)
+        --json-output: Output as JSON (for scripts)
 
     Examples:
-        omi sync push
-        omi sync push --force
+        omi events list
+        omi events list --type memory.stored --limit 10
+        omi events list --since 2024-01-01T00:00:00 --json-output
     """
+    from .event_history import EventHistory
+
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
 
-    click.echo(click.style("Pushing to cloud storage...", fg="cyan", bold=True))
+    # Event history database path
+    events_db_path = base_path / "events.sqlite"
+    if not events_db_path.exists():
+        if json_output:
+            click.echo(json.dumps([], indent=2))
+        else:
+            click.echo(click.style("No events found. Event history is empty.", fg="yellow"))
+        return
 
-    # Check for cloud configuration
-    config_path = base_path / "config.yaml"
-    if not config_path.exists():
-        click.echo(click.style("Error: Config not found. Run 'omi init' first.", fg="red"))
-        sys.exit(1)
+    # Parse timestamps if provided
+    since_dt = None
+    until_dt = None
 
-    try:
-        import yaml
-        from .moltvault import create_backend_from_config
-        from .storage_backends import StorageError
-
-        config_data = yaml.safe_load(config_path.read_text()) or {}
-
-        # Check for backup configuration (used by create_backend_from_config)
-        if 'backup' not in config_data:
-            click.echo(click.style("Error: Cloud storage not configured.", fg="red"))
-            click.echo("Configure cloud storage:")
-            click.echo("  omi config set backup.backend s3")
-            click.echo("  omi config set backup.bucket my-bucket")
-            sys.exit(1)
-
-        backup_config = config_data['backup']
-        backend_type = backup_config.get('backend', 'none')
-        bucket = backup_config.get('bucket', 'unknown')
-
-        click.echo(f" ✓ Backend: {click.style(backend_type, fg='cyan')}")
-        click.echo(f" ✓ Bucket: {click.style(bucket, fg='cyan')}")
-
-        # Create backend from config
-        backend = create_backend_from_config(config_data)
-
-        # Files to sync
-        files_to_sync = []
-
-        # Add NOW.md if it exists
-        now_md = base_path / "NOW.md"
-        if now_md.exists():
-            files_to_sync.append(('NOW.md', now_md))
-
-        # Add daily logs directory
-        daily_logs_dir = base_path / "daily"
-        if daily_logs_dir.exists():
-            for log_file in daily_logs_dir.glob("*.md"):
-                rel_path = f"daily/{log_file.name}"
-                files_to_sync.append((rel_path, log_file))
-
-        # Add MEMORY.md if it exists
-        memory_md = base_path / "MEMORY.md"
-        if memory_md.exists():
-            files_to_sync.append(('MEMORY.md', memory_md))
-
-        # Add palace database
-        palace_db = base_path / "palace.sqlite"
-        if palace_db.exists():
-            files_to_sync.append(('palace.sqlite', palace_db))
-
-        # Add config (but be careful with credentials)
-        files_to_sync.append(('config.yaml', config_path))
-
-        if not files_to_sync:
-            click.echo(click.style("Warning: No files to sync", fg="yellow"))
-            sys.exit(0)
-
-        click.echo(f"\nUploading {len(files_to_sync)} file(s)...")
-
-        if force:
-            click.echo(click.style(" ⚠ Force mode: will overwrite cloud data", fg="yellow"))
-
-        # Upload each file
-        uploaded = 0
-        for remote_key, local_path in files_to_sync:
-            try:
-                backend.upload(local_path, remote_key)
-                click.echo(f"   {click.style('✓', fg='green')} {remote_key}")
-                uploaded += 1
-            except StorageError as e:
-                click.echo(f"   {click.style('✗', fg='red')} {remote_key}: {e}")
-
-        click.echo(click.style(f"\n✓ Push complete: {uploaded}/{len(files_to_sync)} files uploaded", fg="green", bold=True))
-
-    except ImportError as e:
-        click.echo(click.style(f"Error: Missing required package: {e}", fg="red"))
-        click.echo("Install with: pip install boto3  # for S3")
-        sys.exit(1)
-    except Exception as e:
-        click.echo(click.style(f"Error: Push failed: {e}", fg="red"))
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-
-
-@sync.command('pull')
-@click.option('--force', is_flag=True, help='Force pull even if local has newer data')
-@click.pass_context
-def sync_pull(ctx, force: bool) -> None:
-    """Download data from cloud storage.
-
-    Pulls the following from configured cloud backend:
-    - NOW.md and daily logs
-    - Graph Palace database
-    - Configuration files
-
-    Args:
-        --force: Force pull even if local has newer data
-
-    Examples:
-        omi sync pull
-        omi sync pull --force
-    """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
-    if not base_path.exists():
-        click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
-        sys.exit(1)
-
-    click.echo(click.style("Pulling from cloud storage...", fg="cyan", bold=True))
-
-    # Check for cloud configuration
-    config_path = base_path / "config.yaml"
-    if not config_path.exists():
-        click.echo(click.style("Error: Config not found. Run 'omi init' first.", fg="red"))
-        sys.exit(1)
-
-    try:
-        import yaml
-        from .moltvault import create_backend_from_config
-        from .storage_backends import StorageError
-
-        config_data = yaml.safe_load(config_path.read_text()) or {}
-
-        # Check for backup configuration
-        if 'backup' not in config_data:
-            click.echo(click.style("Error: Cloud storage not configured.", fg="red"))
-            click.echo("Configure cloud storage:")
-            click.echo("  omi config set backup.backend s3")
-            click.echo("  omi config set backup.bucket my-bucket")
-            sys.exit(1)
-
-        backup_config = config_data['backup']
-        backend_type = backup_config.get('backend', 'none')
-        bucket = backup_config.get('bucket', 'unknown')
-
-        click.echo(f" ✓ Backend: {click.style(backend_type, fg='cyan')}")
-        click.echo(f" ✓ Bucket: {click.style(bucket, fg='cyan')}")
-
-        # Create backend from config
-        backend = create_backend_from_config(config_data)
-
-        if force:
-            click.echo(click.style(" ⚠ Force mode: will overwrite local data", fg="yellow"))
-
-        # List all files in cloud storage
-        click.echo("\nListing remote files...")
+    if since:
         try:
-            remote_objects = backend.list(prefix="")
-            if not remote_objects:
-                click.echo(click.style("Warning: No files found in cloud storage", fg="yellow"))
-                sys.exit(0)
-
-            click.echo(f"Found {len(remote_objects)} file(s) in cloud storage")
-
-            # Download each file
-            downloaded = 0
-            for obj in remote_objects:
-                remote_key = obj.key
-                local_path = base_path / remote_key
-
-                # Ensure parent directory exists
-                local_path.parent.mkdir(parents=True, exist_ok=True)
-
-                try:
-                    backend.download(remote_key, local_path)
-                    click.echo(f"   {click.style('✓', fg='green')} {remote_key}")
-                    downloaded += 1
-                except StorageError as e:
-                    click.echo(f"   {click.style('✗', fg='red')} {remote_key}: {e}")
-
-            click.echo(click.style(f"\n✓ Pull complete: {downloaded}/{len(remote_objects)} files downloaded", fg="green", bold=True))
-
-        except StorageError as e:
-            click.echo(click.style(f"Error: Failed to list remote files: {e}", fg="red"))
+            since_dt = datetime.fromisoformat(since)
+        except ValueError:
+            click.echo(click.style(f"Error: Invalid --since timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)", fg="red"))
             sys.exit(1)
 
-    except ImportError as e:
-        click.echo(click.style(f"Error: Missing required package: {e}", fg="red"))
-        click.echo("Install with: pip install boto3  # for S3")
-        sys.exit(1)
+    if until:
+        try:
+            until_dt = datetime.fromisoformat(until)
+        except ValueError:
+            click.echo(click.style(f"Error: Invalid --until timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)", fg="red"))
+            sys.exit(1)
+
+    try:
+        history = EventHistory(events_db_path)
+        events_list = history.query_events(
+            event_type=event_type,
+            since=since_dt,
+            until=until_dt,
+            limit=limit
+        )
+
+        if json_output:
+            output = [event.to_dict() for event in events_list]
+            click.echo(json.dumps(output, indent=2))
+        else:
+            if not events_list:
+                click.echo(click.style("No events found matching filters.", fg="yellow"))
+                return
+
+            # Display header
+            filter_info = []
+            if event_type:
+                filter_info.append(f"type={event_type}")
+            if since:
+                filter_info.append(f"since={since}")
+            if until:
+                filter_info.append(f"until={until}")
+            filter_str = f" ({', '.join(filter_info)})" if filter_info else ""
+
+            click.echo(click.style(f"Event History ({len(events_list)} found{filter_str})", fg="cyan", bold=True))
+            click.echo()
+
+            # Display events
+            for event in events_list:
+                # Event header
+                timestamp_str = event.timestamp.strftime('%Y-%m-%d %H:%M:%S') if event.timestamp else 'N/A'
+                click.echo(click.style(f"[{timestamp_str}] ", fg="blue") +
+                          click.style(event.event_type, fg="green", bold=True))
+
+                # Event ID
+                click.echo(f"  ID: {click.style(event.id[:16] + '...', fg='cyan')}")
+
+                # Payload (truncated if too long)
+                payload_str = json.dumps(event.payload, indent=2)
+                if len(payload_str) > 200:
+                    # Truncate long payloads
+                    lines = payload_str.split('\n')
+                    if len(lines) > 5:
+                        payload_str = '\n'.join(lines[:5]) + '\n  ...'
+
+                click.echo(f"  Payload: {payload_str}")
+
+                # Metadata if present
+                if event.metadata:
+                    click.echo(f"  Metadata: {json.dumps(event.metadata)}")
+
+                click.echo()  # Blank line between events
+
     except Exception as e:
-        click.echo(click.style(f"Error: Pull failed: {e}", fg="red"))
-        import traceback
-        traceback.print_exc()
+        click.echo(click.style(f"Error: Failed to query events: {e}", fg="red"))
         sys.exit(1)
 
 
-@sync.command('status')
+@events.command('subscribe')
+@click.option('--type', '-t', 'event_type', default=None, help='Filter by event type (default: all events)')
 @click.pass_context
-def sync_status(ctx) -> None:
-    """Show sync status and differences.
+def subscribe_events(ctx, event_type: Optional[str]) -> None:
+    """Subscribe to live event stream.
 
-    Displays:
-    - Cloud backend configuration
-    - Last sync timestamp
-    - Files that differ between local and cloud
-    - Sync health status
+    Connects to the EventBus and prints events in real-time as they occur.
+    Press Ctrl+C to exit.
+
+    Args:
+        --type: Filter by event type (e.g., 'memory.stored', 'session.started')
+                If not specified, subscribes to all events
 
     Examples:
-        omi sync status
+        omi events subscribe
+        omi events subscribe --type memory.stored
+        omi events subscribe -t belief.contradiction_detected
     """
+    from .event_bus import get_event_bus
+    import time
+
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
 
-    click.echo(click.style("Cloud Sync Status", fg="cyan", bold=True))
-    click.echo("=" * 50)
+    # Get the global event bus
+    bus = get_event_bus()
 
-    # Check for cloud configuration
-    config_path = base_path / "config.yaml"
-    if not config_path.exists():
-        click.echo(click.style("Error: Config not found. Run 'omi init' first.", fg="red"))
-        sys.exit(1)
+    # Determine subscription type
+    subscription_type = event_type if event_type else '*'
+
+    # Display subscription info
+    if event_type:
+        click.echo(click.style(f"Subscribing to events: {event_type}", fg="cyan", bold=True))
+    else:
+        click.echo(click.style("Subscribing to all events", fg="cyan", bold=True))
+    click.echo(click.style("Press Ctrl+C to exit", fg="yellow"))
+    click.echo()
+
+    # Event handler callback
+    def print_event(event):
+        """Print event to stdout when received."""
+        try:
+            # Format timestamp
+            timestamp_str = event.timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(event, 'timestamp') and event.timestamp else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            # Print event header
+            click.echo(click.style(f"[{timestamp_str}] ", fg="blue") +
+                      click.style(event.event_type, fg="green", bold=True))
+
+            # Print event details (convert to dict for pretty printing)
+            if hasattr(event, 'to_dict'):
+                event_dict = event.to_dict()
+                # Remove redundant fields for cleaner output
+                event_dict.pop('event_type', None)
+                event_dict.pop('timestamp', None)
+
+                # Print each field
+                for key, value in event_dict.items():
+                    if value is not None:  # Skip None values
+                        if isinstance(value, (dict, list)):
+                            value_str = json.dumps(value, indent=2)
+                        else:
+                            value_str = str(value)
+                        click.echo(f"  {key}: {value_str}")
+
+            click.echo()  # Blank line between events
+
+        except Exception as e:
+            click.echo(click.style(f"Error formatting event: {e}", fg="red"))
+
+    # Subscribe to event bus
+    bus.subscribe(subscription_type, print_event)
 
     try:
-        import yaml
-        config_data = yaml.safe_load(config_path.read_text()) or {}
-        backup_config = config_data.get('backup', {})
-
-        # Configuration status
-        click.echo(f"\nConfiguration:")
-
-        if not backup_config:
-            click.echo(click.style("  Cloud storage not configured", fg="yellow"))
-            click.echo("\nTo configure cloud storage:")
-            click.echo("  omi config set backup.backend s3")
-            click.echo("  omi config set backup.bucket my-bucket")
-            sys.exit(0)
-
-        backend = backup_config.get('backend', 'none')
-        bucket = backup_config.get('bucket', 'not configured')
-
-        click.echo(f"  Backend: {click.style(backend, fg='cyan')}")
-        click.echo(f"  Bucket: {click.style(bucket, fg='cyan')}")
-
-        if 'region' in backup_config:
-            click.echo(f"  Region: {click.style(backup_config['region'], fg='cyan')}")
-
-        if 'endpoint' in backup_config:
-            click.echo(f"  Endpoint: {click.style(backup_config['endpoint'], fg='cyan')}")
-
-        # Sync status
-        click.echo(f"\nSync Status:")
-        click.echo(f"  Last Sync: {click.style('Never', fg='yellow')}")
-
-        # Count local files
-        local_files = 0
-        if (base_path / "NOW.md").exists():
-            local_files += 1
-        if (base_path / "MEMORY.md").exists():
-            local_files += 1
-        if (base_path / "palace.sqlite").exists():
-            local_files += 1
-        daily_dir = base_path / "daily"
-        if daily_dir.exists():
-            local_files += len(list(daily_dir.glob("*.md")))
-
-        click.echo(f"  Local Files: {click.style(str(local_files), fg='cyan')}")
-        click.echo(f"  Cloud Files: {click.style('Unknown', fg='yellow')}")
-
-        click.echo(f"\n{click.style('Status:', bold=True)} {click.style('Ready for sync', fg='green')}")
-
-    except Exception as e:
-        click.echo(click.style(f"Error: Failed to check status: {e}", fg="red"))
-        sys.exit(1)
+        # Keep the process running and listening for events
+        click.echo(click.style("Listening for events...", fg="green"))
+        while True:
+            time.sleep(0.1)  # Sleep briefly to keep CPU usage low
+    except KeyboardInterrupt:
+        # Graceful shutdown on Ctrl+C
+        click.echo()
+        click.echo(click.style("Unsubscribing from events...", fg="yellow"))
+        bus.unsubscribe(subscription_type, print_event)
+        click.echo(click.style("Disconnected.", fg="cyan"))
+        sys.exit(0)
 
 
 # Main entry point

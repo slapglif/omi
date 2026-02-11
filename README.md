@@ -96,48 +96,21 @@ omi check
 # End session
 omi session-end
 
-# Memory compression (reduce token costs)
-omi compress --dry-run                   # Preview what would be compressed
-omi compress --before 2024-06-01         # Compress memories older than date
-omi compress --threshold 30              # Compress memories older than 30 days
-
 # Verify integrity
 omi audit
 ```
 
-## Memory Compression
-
-OMI automatically compresses old memories to reduce token costs while preserving originals in cold storage.
-
-### How It Works
-
-1. **Automatic**: Memories older than configurable threshold are summarized (default: 30 days)
-2. **Preserves**: Original memories backed up to MoltVault before compression
-3. **Smart**: Retains key facts, confidence levels, and relationship links
-4. **Transparent**: Regenerates embeddings for summaries to maintain search accuracy
-
-### Compression Commands
+### API Server
 
 ```bash
-# Preview compression impact
-omi compress --dry-run                   # Shows what would be compressed + token savings
+# Start the REST API with Server-Sent Events (SSE) support
+uvicorn omi.rest_api:app --reload
 
-# Manual compression
-omi compress --before 2024-06-01         # Compress memories before specific date
-omi compress --threshold 30              # Compress memories older than 30 days
-omi compress --force                     # Compress all eligible memories now
+# Access the interactive docs
+# Open http://localhost:8000/docs in your browser
 
-# Configuration
-omi config --set compression.auto=true   # Enable automatic compression
-omi config --set compression.age_days=30 # Set compression threshold
-```
-
-### Token Savings Example
-
-```
-Before:  1,247 memories × 450 tokens avg = 561,150 tokens
-After:   1,247 memories × 120 tokens avg = 149,640 tokens
-Savings: 411,510 tokens (73% reduction)
+# Connect to real-time memory event stream
+# GET http://localhost:8000/events/stream
 ```
 
 ## Embeddings: NIM vs Ollama
@@ -173,7 +146,6 @@ OMI combines the best patterns from 50+ working agent implementations:
 ## Features
 
 - **NVIDIA NIM Integration**: baai/bge-m3 embeddings, highest quality
-- **Automatic Memory Compression**: LLM-powered summarization reduces token costs while preserving originals
 - **Belief Networks**: Track confidence with EMA updates
 - **Security by Architecture**: Byzantine verification, tamper detection
 - **MCP Integration**: Native OpenClaw tools

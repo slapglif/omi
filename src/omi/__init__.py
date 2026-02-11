@@ -21,6 +21,15 @@ from .persistence import DailyLogStore
 from .embeddings import OllamaEmbedder, EmbeddingCache
 from .security import IntegrityChecker, ConsensusManager
 from .api import MemoryTools, BeliefTools, CheckpointTools
+from .event_bus import EventBus, get_event_bus, reset_event_bus
+from .events import (
+    MemoryStoredEvent,
+    MemoryRecalledEvent,
+    BeliefUpdatedEvent,
+    ContradictionDetectedEvent,
+    SessionStartedEvent,
+    SessionEndedEvent,
+)
 
 # Backward compatibility wrapper (deprecated, will be removed in v0.2.0)
 class NOWStore:
@@ -94,4 +103,14 @@ __all__ = [
     "CheckpointTools",
     # Backward compatibility (deprecated)
     "NOWStore",
+    # Event streaming (pub/sub)
+    "EventBus",
+    "get_event_bus",
+    "reset_event_bus",
+    "MemoryStoredEvent",
+    "MemoryRecalledEvent",
+    "BeliefUpdatedEvent",
+    "ContradictionDetectedEvent",
+    "SessionStartedEvent",
+    "SessionEndedEvent",
 ]
