@@ -227,19 +227,18 @@ def session_start(ctx, show_now: bool) -> None:
     click.echo(click.style("Starting OMI session...", fg="cyan", bold=True))
     
     # 1. Load NOW.md
-    now_store = NOWStore(base_path)
-    now_entry = now_store.read()
-    if now_entry is None:
+    now_storage = NOWStore(base_path)
+    content = now_storage.read()
+
+    # Check if NOW.md exists and has content
+    if not content or content == now_storage._default_content():
         click.echo(click.style(" ⚠ NOW.md not found, creating default", fg="yellow"))
-        from .persistence import NOWEntry
-        now_entry = NOWEntry(
+        now_storage.update(
             current_task="",
             recent_completions=[],
             pending_decisions=[],
-            key_files=[],
-            timestamp=datetime.now()
+            key_files=[]
         )
-        now_store.write(now_entry)
     
     # 2. Get database stats
     db_path = base_path / "palace.sqlite"
@@ -430,15 +429,23 @@ def check(ctx) -> None:
         sys.exit(1)
 
     click.echo(click.style("Creating checkpoint...", fg="cyan", bold=True))
-    
-    # Update NOW.md
-    now_store = NOWStore(base_path)
-    now_entry = now_store.read()
-    if now_entry:
-        now_entry.timestamp = datetime.now()
-        now_store.write(now_entry)
-        click.echo(f" ✓ Updated NOW.md")
-    
+
+    # Update NOW.md timestamp
+    now_storage = NOWStore(base_path)
+    if now_storage.now_file.exists():
+        content = now_storage.read()
+        if content and content != now_storage._default_content():
+            # Parse existing content and re-write to update timestamp
+            from .persistence import NOWEntry
+            now_entry = NOWEntry.from_markdown(content)
+            now_storage.update(
+                current_task=now_entry.current_task,
+                recent_completions=now_entry.recent_completions,
+                pending_decisions=now_entry.pending_decisions,
+                key_files=now_entry.key_files
+            )
+            click.echo(f" ✓ Updated NOW.md")
+
     # Create state capsule
     capsule = {
         "timestamp": datetime.now().isoformat(),
@@ -492,15 +499,24 @@ def session_end(ctx, no_backup: bool) -> None:
         sys.exit(1)
 
     click.echo(click.style("Ending OMI session...", fg="cyan", bold=True))
-    
-    # Update NOW.md
-    now_store = NOWStore(base_path)
-    now_entry = now_store.read()
-    if now_entry:
-        now_entry.timestamp = datetime.now()
-        now_store.write(now_entry)
-        click.echo(f" ✓ Updated NOW.md")
-    
+
+    # Update NOW.md timestamp and get current task for log
+    now_storage = NOWStore(base_path)
+    now_entry = None
+    if now_storage.now_file.exists():
+        content = now_storage.read()
+        if content and content != now_storage._default_content():
+            # Parse existing content and re-write to update timestamp
+            from .persistence import NOWEntry
+            now_entry = NOWEntry.from_markdown(content)
+            now_storage.update(
+                current_task=now_entry.current_task,
+                recent_completions=now_entry.recent_completions,
+                pending_decisions=now_entry.pending_decisions,
+                key_files=now_entry.key_files
+            )
+            click.echo(f" ✓ Updated NOW.md")
+
     # Append to daily log
     daily_store = DailyLogStore(base_path)
     entry_content = f"Session ended at {datetime.now().isoformat()}"

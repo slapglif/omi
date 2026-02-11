@@ -230,33 +230,31 @@ class CheckpointTools:
 
     def __init__(self, now_store,
                  vault: MoltVault):
-        # Accept either NowStorage or NOWStore for backward compatibility
-        # If given NowStorage, wrap it with NOWStore for the old API
-        from . import NOWStore
-        if hasattr(now_store, 'write') and hasattr(now_store, 'read'):
-            # Already has the old API (NOWStore wrapper)
-            self.now = now_store
-        else:
-            # New NowStorage, need to wrap it
-            self.now = NOWStore(now_store.base_path)
+        # NOWStore is now an alias for NowStorage
+        self.now = now_store
         self.vault = vault
     
     def now_read(self) -> dict:
         """
         now_read: Load current operational context
-        
+
         Read FIRST on session start
         """
-        entry = self.now.read()
-        
-        if entry:
-            return {
-                'current_task': entry.current_task,
-                'recent_completions': entry.recent_completions,
-                'pending_decisions': entry.pending_decisions,
-                'key_files': entry.key_files,
-                'timestamp': entry.timestamp.isoformat()
-            }
+        content = self.now.read()
+
+        # Check if content exists and is not default
+        if content and content != self.now._default_content():
+            try:
+                entry = NOWEntry.from_markdown(content)
+                return {
+                    'current_task': entry.current_task,
+                    'recent_completions': entry.recent_completions,
+                    'pending_decisions': entry.pending_decisions,
+                    'key_files': entry.key_files,
+                    'timestamp': entry.timestamp.isoformat()
+                }
+            except Exception:
+                pass
         return {}
     
     def now_update(self,
@@ -269,17 +267,13 @@ class CheckpointTools:
 
         Trigger: 70% context threshold, task completion
         """
-        # NOWEntry already imported at module level
-
-        entry = NOWEntry(
-            current_task=current_task or "",
-            recent_completions=recent_completions or [],
-            pending_decisions=pending_decisions or [],
-            key_files=key_files or [],
-            timestamp=datetime.now()
+        # Use NowStorage.update() directly
+        self.now.update(
+            current_task=current_task,
+            recent_completions=recent_completions,
+            pending_decisions=pending_decisions,
+            key_files=key_files
         )
-        
-        self.now.write(entry)
     
     def create_capsule(self,
                       intent: str,
