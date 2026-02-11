@@ -353,6 +353,49 @@ class GraphPalace:
 
         return memory
 
+    def get_belief(self, belief_id: str) -> Optional[dict]:
+        """
+        Retrieve a belief by ID (beliefs are memories with type='belief').
+
+        Args:
+            belief_id: UUID of the belief
+
+        Returns:
+            Dictionary with belief data or None if not found or not a belief
+        """
+        memory = self.get_memory(belief_id)
+        if memory and memory.memory_type == 'belief':
+            return {
+                'id': memory.id,
+                'content': memory.content,
+                'confidence': memory.confidence,
+                'memory_type': memory.memory_type,
+                'created_at': memory.created_at.isoformat() if memory.created_at else None,
+                'last_accessed': memory.last_accessed.isoformat() if memory.last_accessed else None,
+                'access_count': memory.access_count
+            }
+        return None
+
+    def update_belief_confidence(self, belief_id: str, new_confidence: float) -> None:
+        """
+        Update the confidence value of a belief.
+
+        Args:
+            belief_id: UUID of the belief
+            new_confidence: New confidence value (0.0-1.0)
+        """
+        # Validate confidence range
+        if not 0.0 <= new_confidence <= 1.0:
+            raise ValueError(f"Confidence must be between 0.0 and 1.0, got {new_confidence}")
+
+        # Update the confidence field
+        self._conn.execute("""
+            UPDATE memories
+            SET confidence = ?
+            WHERE id = ? AND memory_type = 'belief'
+        """, (new_confidence, belief_id))
+        self._conn.commit()
+
     def recall(self,
                query_embedding: List[float],
                limit: int = 10,
