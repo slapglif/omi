@@ -527,4 +527,64 @@ async def get_graph(
         )
 
 
+@router.get("/stats")
+async def get_stats() -> Dict[str, Any]:
+    """
+    Get database storage statistics.
+
+    Returns aggregate counts and distributions for memories and edges,
+    providing an overview of the knowledge graph structure.
+
+    Returns:
+        Dict containing:
+            - memory_count: Total number of memories in database
+            - edge_count: Total number of edges in database
+            - type_distribution: Dict mapping memory_type to count
+            - edge_distribution: Dict mapping edge_type to count
+
+    Raises:
+        HTTPException: If database access fails
+    """
+    try:
+        palace = get_palace_instance()
+
+        with palace._db_lock:
+            # Get total memory count
+            cursor = palace._conn.execute("SELECT COUNT(*) FROM memories")
+            memory_count = cursor.fetchone()[0]
+
+            # Get total edge count
+            cursor = palace._conn.execute("SELECT COUNT(*) FROM edges")
+            edge_count = cursor.fetchone()[0]
+
+            # Get memory type distribution
+            cursor = palace._conn.execute("""
+                SELECT memory_type, COUNT(*) FROM memories GROUP BY memory_type
+            """)
+            type_distribution = {row[0]: row[1] for row in cursor}
+
+            # Get edge type distribution
+            cursor = palace._conn.execute("""
+                SELECT edge_type, COUNT(*) FROM edges GROUP BY edge_type
+            """)
+            edge_distribution = {row[0]: row[1] for row in cursor}
+
+        return {
+            "memory_count": memory_count,
+            "edge_count": edge_count,
+            "type_distribution": type_distribution,
+            "edge_distribution": edge_distribution
+        }
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve stats: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve database stats: {str(e)}"
+        )
+
+
 __all__ = ['router', 'get_palace_instance']
