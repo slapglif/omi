@@ -574,134 +574,131 @@ class GraphPalace:
     def get_centrality(self, memory_id: str) -> float:
         """
         Calculate centrality score for a memory.
-        
+
         Combined score based on:
         - Degree centrality (number of edges) - weight: 40%
         - Access frequency (access_count) - weight: 35%
         - Recency (last_accessed) - weight: 25%
-        
+
         Hub memories = high centrality, many connections
-        
+
         Args:
             memory_id: The memory ID
-            
+
         Returns:
             Centrality score (0.0-1.0)
         """
-        with sqlite3.connect(self.db_path) as conn:
-            # Get memory stats
-            cursor = conn.execute("""
-                SELECT access_count, last_accessed, created_at
-                FROM memories WHERE id = ?
-            """, (memory_id,))
-            row = cursor.fetchone()
-            if not row:
-                return 0.0
-            
-            access_count = row[0] or 0
-            last_accessed = datetime.fromisoformat(row[1]) if row[1] else datetime.now()
-            
-            # Count edges (degree centrality)
-            cursor = conn.execute("""
-                SELECT COUNT(*) FROM edges WHERE source_id = ? OR target_id = ?
-            """, (memory_id, memory_id))
-            edge_count = cursor.fetchone()[0]
-        
+        # Get memory stats
+        cursor = self._conn.execute("""
+            SELECT access_count, last_accessed, created_at
+            FROM memories WHERE id = ?
+        """, (memory_id,))
+        row = cursor.fetchone()
+        if not row:
+            return 0.0
+
+        access_count = row[0] or 0
+        last_accessed = datetime.fromisoformat(row[1]) if row[1] else datetime.now()
+
+        # Count edges (degree centrality)
+        cursor = self._conn.execute("""
+            SELECT COUNT(*) FROM edges WHERE source_id = ? OR target_id = ?
+        """, (memory_id, memory_id))
+        edge_count = cursor.fetchone()[0]
+
         # Normalize metrics (0-1 scale)
         # Assume max 100 edges for normalization
         degree_score = min(edge_count / 100.0, 1.0)
-        
+
         # Access frequency (log scale to reduce dominance of very high counts)
         access_score = min(math.log1p(access_count) / math.log1p(100), 1.0)
-        
+
         # Recency decay
         recency_score = self._calculate_recency_score(last_accessed)
-        
+
         # Weighted combination
         centrality = (degree_score * 0.40) + (access_score * 0.35) + (recency_score * 0.25)
-        
+
         return round(centrality, 4)
 
     def get_connected(self, memory_id: str, depth: int = 2) -> List[Memory]:
         """
         BFS traversal to get all memories connected up to N hops.
-        
+
         Used for: loading context around a memory
-        
+
         Args:
             memory_id: Starting memory ID
             depth: Maximum traversal depth (default: 2)
-            
+
         Returns:
             List of Memory objects (excluding starting memory)
         """
         visited = {memory_id}
         result = []
         queue = deque([(memory_id, 0)])
-        
-        with sqlite3.connect(self.db_path) as conn:
-            while queue:
-                current_id, current_depth = queue.popleft()
-                
-                if current_depth >= depth:
-                    continue
-                
-                # Get neighbors
-                cursor = conn.execute("""
-                    SELECT DISTINCT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                           m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
-                    FROM memories m
-                    JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
-                    WHERE (e.source_id = ? OR e.target_id = ?)
-                    AND m.id != ?
-                """, (current_id, current_id, current_id))
-                
-                for row in cursor:
-                    neighbor_id = row[0]
-                    if neighbor_id not in visited:
-                        visited.add(neighbor_id)
-                        
-                        embedding = self._blob_to_embed(row[2]) if row[2] else None
-                        memory = Memory(
-                            id=neighbor_id,
-                            content=row[1],
-                            embedding=embedding,
-                            memory_type=row[3],
-                            confidence=row[4],
-                            created_at=datetime.fromisoformat(row[5]) if row[5] else None,
-                            last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
-                            access_count=row[7],
-                            instance_ids=json.loads(row[8]) if row[8] else [],
-                            content_hash=row[9]
-                        )
-                        result.append(memory)
-                        queue.append((neighbor_id, current_depth + 1))
-        
+
+        while queue:
+            current_id, current_depth = queue.popleft()
+
+            if current_depth >= depth:
+                continue
+
+            # Get neighbors
+            cursor = self._conn.execute("""
+                SELECT DISTINCT m.id, m.content, m.embedding, m.memory_type, m.confidence,
+                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                FROM memories m
+                JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
+                WHERE (e.source_id = ? OR e.target_id = ?)
+                AND m.id != ?
+            """, (current_id, current_id, current_id))
+
+            for row in cursor:
+                neighbor_id = row[0]
+                if neighbor_id not in visited:
+                    visited.add(neighbor_id)
+
+                    embedding = self._blob_to_embed(row[2]) if row[2] else None
+                    memory = Memory(
+                        id=neighbor_id,
+                        content=row[1],
+                        embedding=embedding,
+                        memory_type=row[3],
+                        confidence=row[4],
+                        created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                        last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
+                        access_count=row[7],
+                        instance_ids=json.loads(row[8]) if row[8] else [],
+                        content_hash=row[9]
+                    )
+                    result.append(memory)
+                    queue.append((neighbor_id, current_depth + 1))
+
         return result
 
     def get_top_central(self, limit: int = 10) -> List[Tuple[Memory, float]]:
         """
         Get the most central (hub) memories.
-        
+
         Args:
             limit: Number of results
-            
+
         Returns:
             List of (Memory, centrality_score) tuples
         """
         memories = []
-        
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("SELECT id FROM memories")
-            memory_ids = [row[0] for row in cursor]
-        
+
+        cursor = self._conn.execute("SELECT id FROM memories")
+        memory_ids = [row[0] for row in cursor]
+
         # Calculate centrality for each
         for memory_id in memory_ids:
             centrality = self.get_centrality(memory_id)
             memory = self.get_memory(memory_id)
             if memory:
                 memories.append((memory, centrality))
-        
+
         # Sort by centrality
         memories.sort(key=lambda x: x[1], reverse=True)
         return memories[:limit]
