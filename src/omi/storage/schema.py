@@ -2,11 +2,12 @@
 Database schema management for Graph Palace.
 
 This module handles:
-- Table creation (memories, edges)
+- Table creation (memories, edges, users, roles, permissions, api_keys, audit_log)
 - Index creation for performance
 - FTS5 virtual table setup
 - WAL mode configuration
 - Foreign key constraints
+- Multi-user access control (RBAC)
 """
 
 import sqlite3
@@ -74,6 +75,72 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
             memory_id,
             content
         )
+    """)
+
+    # Create RBAC tables for multi-user access control
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS roles (
+            id TEXT PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL CHECK(name IN ('admin','developer','reader','auditor')),
+            description TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS user_roles (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            role_id TEXT NOT NULL,
+            namespace TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS permissions (
+            id TEXT PRIMARY KEY,
+            role_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            resource TEXT NOT NULL,
+            FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id TEXT PRIMARY KEY,
+            key_hash TEXT UNIQUE NOT NULL,
+            user_id TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_used TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            action TEXT NOT NULL,
+            resource TEXT,
+            namespace TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            metadata TEXT,  -- JSON for additional context
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+
+        -- Indexes for RBAC performance
+        CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+        CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role_id);
+        CREATE INDEX IF NOT EXISTS idx_user_roles_namespace ON user_roles(namespace);
+        CREATE INDEX IF NOT EXISTS idx_permissions_role ON permissions(role_id);
+        CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+        CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
     """)
 
     conn.commit()
