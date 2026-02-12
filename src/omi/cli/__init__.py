@@ -26,6 +26,7 @@ from .sync import sync_group
 from .plugins import plugins_group
 from .serve import serve_group
 from .namespace import namespace_group
+from .subscribe import subscribe_group
 
 # CLI version - matches project version
 __version__ = "0.2.0"
@@ -118,6 +119,9 @@ cli.add_command(plugins_group, name='plugins')
 
 # Register namespace command group (namespace commands)
 cli.add_command(namespace_group, name='namespace')
+
+# Register subscribe command
+cli.add_command(subscribe_group.commands['subscribe'])
 
 
 @cli.command()
