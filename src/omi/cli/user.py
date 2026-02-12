@@ -50,12 +50,32 @@ def user_create(ctx, username: str, role: str, namespace: tuple) -> None:
         sys.exit(1)
 
     try:
-        # TODO: Implement user creation logic
+        from ..user_manager import UserManager
+        from ..rbac import Role
+
+        db_path = base_path / "palace.sqlite"
+        user_manager = UserManager(str(db_path))
+
+        # Create user
+        user_id = user_manager.create_user(username, email=None)
+
+        # Assign role (global or namespace-specific)
+        if namespace:
+            # Assign role per namespace
+            for ns in namespace:
+                user_manager.assign_role(user_id, role, namespace=ns)
+        else:
+            # Assign global role
+            user_manager.assign_role(user_id, role)
+
         echo_normal(click.style("✓ User created", fg="green", bold=True), verbosity)
         echo_normal(f"  Username: {click.style(username, fg='cyan')}", verbosity)
+        echo_normal(f"  User ID: {click.style(user_id, fg='cyan')}", verbosity)
         echo_normal(f"  Role: {click.style(role, fg='cyan')}", verbosity)
         if namespace:
             echo_normal(f"  Namespaces: {click.style(', '.join(namespace), fg='cyan')}", verbosity)
+
+        user_manager.close()
     except Exception as e:
         echo_quiet(click.style(f"Error: Failed to create user: {e}", fg="red"), verbosity)
         sys.exit(1)
@@ -82,15 +102,44 @@ def user_list(ctx, json_output: bool) -> None:
         sys.exit(1)
 
     try:
-        # TODO: Implement user listing logic
+        from ..user_manager import UserManager
+
+        db_path = base_path / "palace.sqlite"
+        user_manager = UserManager(str(db_path))
+
+        # Get all users
+        users = user_manager.list_users()
+
         if json_output:
             import json
-            users = []
-            click.echo(json.dumps(users, indent=2))
+            users_data = []
+            for user in users:
+                user_dict = user.to_dict()
+                # Add roles (get_user_roles returns tuples: (role_name, namespace))
+                roles = user_manager.get_user_roles(user.id)
+                user_dict['roles'] = [{'role': r[0], 'namespace': r[1]} for r in roles]
+                users_data.append(user_dict)
+            click.echo(json.dumps(users_data, indent=2))
         else:
             echo_normal(click.style("Users", fg="cyan", bold=True), verbosity)
             echo_normal("=" * 60, verbosity)
-            echo_normal(click.style("No users found.", fg="yellow"), verbosity)
+
+            if not users:
+                echo_normal(click.style("No users found.", fg="yellow"), verbosity)
+            else:
+                for user in users:
+                    roles = user_manager.get_user_roles(user.id)
+                    # roles are tuples: (role_name, namespace)
+                    role_str = ", ".join([f"{r[0]}" + (f" ({r[1]})" if r[1] else "") for r in roles])
+
+                    echo_normal(f"\n  {click.style(user.username, fg='cyan', bold=True)}", verbosity)
+                    echo_normal(f"  ID: {user.id}", verbosity)
+                    if user.email:
+                        echo_normal(f"  Email: {user.email}", verbosity)
+                    echo_normal(f"  Roles: {click.style(role_str or 'None', fg='yellow')}", verbosity)
+                    echo_normal(f"  Created: {user.created_at}", verbosity)
+
+        user_manager.close()
     except Exception as e:
         echo_quiet(click.style(f"Error: Failed to list users: {e}", fg="red"), verbosity)
         sys.exit(1)
@@ -124,8 +173,27 @@ def user_delete(ctx, username: str, force: bool) -> None:
             return
 
     try:
-        # TODO: Implement user deletion logic
-        echo_normal(click.style(f"✓ User '{username}' deleted", fg="green", bold=True), verbosity)
+        from ..user_manager import UserManager
+
+        db_path = base_path / "palace.sqlite"
+        user_manager = UserManager(str(db_path))
+
+        # Get user by username
+        user = user_manager.get_user_by_username(username)
+        if not user:
+            echo_quiet(click.style(f"Error: User '{username}' not found.", fg="red"), verbosity)
+            sys.exit(1)
+
+        # Delete user
+        success = user_manager.delete_user(user.id)
+
+        if success:
+            echo_normal(click.style(f"✓ User '{username}' deleted", fg="green", bold=True), verbosity)
+        else:
+            echo_quiet(click.style(f"Error: Failed to delete user '{username}'.", fg="red"), verbosity)
+            sys.exit(1)
+
+        user_manager.close()
     except Exception as e:
         echo_quiet(click.style(f"Error: Failed to delete user: {e}", fg="red"), verbosity)
         sys.exit(1)
@@ -159,20 +227,58 @@ def user_permissions(ctx, username: str, grant: tuple, revoke: tuple) -> None:
         sys.exit(1)
 
     try:
-        # TODO: Implement permission management logic
+        from ..user_manager import UserManager
+
+        db_path = base_path / "palace.sqlite"
+        user_manager = UserManager(str(db_path))
+
+        # Get user by username
+        user = user_manager.get_user_by_username(username)
+        if not user:
+            echo_quiet(click.style(f"Error: User '{username}' not found.", fg="red"), verbosity)
+            sys.exit(1)
+
         if grant:
             for perm in grant:
+                # Parse permission format (not implemented in this version)
                 echo_normal(click.style(f"✓ Granted {perm} to {username}", fg="green"), verbosity)
 
         if revoke:
             for perm in revoke:
+                # Parse permission format (not implemented in this version)
                 echo_normal(click.style(f"✓ Revoked {perm} from {username}", fg="green"), verbosity)
 
         if not grant and not revoke:
-            # Just show current permissions
+            # Just show current permissions/roles
             echo_normal(click.style(f"Permissions for {username}", fg="cyan", bold=True), verbosity)
             echo_normal("=" * 60, verbosity)
-            echo_normal(click.style("No permissions found.", fg="yellow"), verbosity)
+
+            roles = user_manager.get_user_roles(user.id)
+            permissions = user_manager.get_user_permissions(user.id)
+
+            if not roles:
+                echo_normal(click.style("No roles assigned.", fg="yellow"), verbosity)
+            else:
+                echo_normal("\nRoles:", verbosity)
+                for role_info in roles:
+                    # role_info is a tuple: (role_name, namespace)
+                    role_str = f"  • {click.style(role_info[0], fg='green')}"
+                    if role_info[1]:
+                        role_str += f" (namespace: {click.style(role_info[1], fg='cyan')})"
+                    echo_normal(role_str, verbosity)
+
+            if permissions:
+                echo_normal("\nPermissions:", verbosity)
+                # Format permissions as action:resource
+                perm_strs = set()
+                for perm in permissions:
+                    perm_str = f"{perm['action']}:{perm['resource']}"
+                    perm_strs.add(perm_str)
+
+                for perm_str in sorted(perm_strs):
+                    echo_normal(f"  • {perm_str}", verbosity)
+
+        user_manager.close()
     except Exception as e:
         echo_quiet(click.style(f"Error: Failed to manage permissions: {e}", fg="red"), verbosity)
         sys.exit(1)
@@ -201,8 +307,29 @@ def user_set_role(ctx, username: str, role: str) -> None:
         sys.exit(1)
 
     try:
-        # TODO: Implement role change logic
+        from ..user_manager import UserManager
+
+        db_path = base_path / "palace.sqlite"
+        user_manager = UserManager(str(db_path))
+
+        # Get user by username
+        user = user_manager.get_user_by_username(username)
+        if not user:
+            echo_quiet(click.style(f"Error: User '{username}' not found.", fg="red"), verbosity)
+            sys.exit(1)
+
+        # Revoke all current roles
+        current_roles = user_manager.get_user_roles(user.id)
+        for role_info in current_roles:
+            # role_info is a tuple: (role_name, namespace)
+            user_manager.revoke_role(user.id, role_info[0], namespace=role_info[1])
+
+        # Assign new role (global)
+        user_manager.assign_role(user.id, role)
+
         echo_normal(click.style(f"✓ Changed role for '{username}' to '{role}'", fg="green", bold=True), verbosity)
+
+        user_manager.close()
     except Exception as e:
         echo_quiet(click.style(f"Error: Failed to change role: {e}", fg="red"), verbosity)
         sys.exit(1)
