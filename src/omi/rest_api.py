@@ -359,17 +359,22 @@ async def store_memory(request: StoreMemoryRequest, api_key: str = Depends(verif
         )
 
 
-@app.get("/api/v1/recall", response_model=RecallMemoryResponse, tags=["Memory Operations"], summary="Recall memories by semantic search")
+@app.get("/api/v1/recall", tags=["Memory Operations"], summary="Recall memories by semantic search")
 async def recall_memory(
     query: str = Query(..., description="Natural language search query"),
     limit: int = Query(10, ge=1, le=500, description="Maximum number of results per page"),
     min_relevance: float = Query(0.7, ge=0.0, le=1.0, description="Minimum relevance threshold"),
     memory_type: Optional[str] = Query(None, description="Filter by type: fact|experience|belief|decision"),
     cursor: Optional[str] = Query(None, description="Pagination cursor from previous response"),
+    accept: Optional[str] = Header(None, alias="Accept"),
     api_key: str = Depends(verify_api_key)
 ):
     """
     Recall memories using semantic search with recency weighting and pagination.
+
+    Supports both JSON and Server-Sent Events (SSE) streaming responses:
+    - JSON: Default response format with full pagination metadata
+    - SSE: Real-time streaming with Accept: text/event-stream header
 
     Query Parameters:
         query: Natural language search query
@@ -378,13 +383,40 @@ async def recall_memory(
         memory_type: Filter by type (fact, experience, belief, decision)
         cursor: Pagination cursor from previous response (for next page)
 
+    Headers:
+        Accept: Set to 'text/event-stream' for SSE streaming mode
+
     Returns:
-        Dict containing:
-            - memories: List of recalled memories for this page
-            - count: Number of memories returned in this page
-            - next_cursor: Cursor for next page (empty if no more results)
-            - has_more: Boolean indicating if more results exist
+        - JSON mode: RecallMemoryResponse with memories, count, next_cursor, has_more
+        - SSE mode: StreamingResponse with event stream
+
+    Examples:
+        JSON mode:
+            curl http://localhost:8000/api/v1/recall?query=test&limit=10
+
+        SSE streaming mode:
+            curl -N -H "Accept: text/event-stream" http://localhost:8000/api/v1/recall?query=test
     """
+    # Check if client requested SSE streaming
+    if accept and "text/event-stream" in accept:
+        # Return SSE streaming response
+        return StreamingResponse(
+            recall_stream(
+                query=query,
+                limit=limit,
+                min_relevance=min_relevance,
+                memory_type=memory_type,
+                cursor=cursor
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"  # Disable buffering in nginx
+            }
+        )
+
+    # Default JSON response
     try:
         tools = get_memory_tools()
         result = tools.recall(
