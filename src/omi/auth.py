@@ -15,10 +15,12 @@ import sqlite3
 import hashlib
 import secrets
 import threading
+import time
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass
+from collections import deque
 
 
 @dataclass
@@ -314,3 +316,121 @@ class APIKeyManager:
         """Close the database connection."""
         with self._db_lock:
             self._conn.close()
+
+
+class RateLimiter:
+    """
+    Sliding window rate limiter for API requests.
+
+    Features:
+    - In-memory storage using deque for efficient FIFO operations
+    - Sliding window algorithm (60 second window)
+    - Thread-safe operations
+    - Automatic cleanup of expired timestamps
+    - Per-API-key rate limiting
+
+    Usage:
+        limiter = RateLimiter()
+        allowed, retry_after = limiter.check_rate_limit("api_key_123", limit=100)
+        if not allowed:
+            # Return 429 with Retry-After header
+            pass
+    """
+
+    def __init__(self, window_seconds: int = 60):
+        """
+        Initialize the rate limiter.
+
+        Args:
+            window_seconds: Size of the sliding window in seconds (default: 60)
+        """
+        self.window_seconds = window_seconds
+        # Map of api_key -> deque of timestamps (float from time.time())
+        self._requests: Dict[str, deque] = {}
+        # Thread lock for thread-safe operations
+        self._lock = threading.Lock()
+
+    def check_rate_limit(self, api_key: str, limit: int) -> Tuple[bool, int]:
+        """
+        Check if a request is allowed under the rate limit.
+
+        Implements a sliding window algorithm:
+        1. Remove timestamps older than window_seconds
+        2. Check if number of remaining timestamps < limit
+        3. If allowed, add current timestamp
+        4. Return (allowed, retry_after)
+
+        Args:
+            api_key: The API key making the request
+            limit: Maximum requests allowed per window
+
+        Returns:
+            Tuple of (allowed: bool, retry_after: int):
+            - allowed: True if request is within rate limit
+            - retry_after: Seconds until rate limit resets (0 if allowed, >0 if denied)
+        """
+        with self._lock:
+            current_time = time.time()
+            cutoff_time = current_time - self.window_seconds
+
+            # Initialize deque for new API keys
+            if api_key not in self._requests:
+                self._requests[api_key] = deque()
+
+            request_times = self._requests[api_key]
+
+            # Remove timestamps outside the sliding window
+            while request_times and request_times[0] < cutoff_time:
+                request_times.popleft()
+
+            # Check if under rate limit
+            if len(request_times) < limit:
+                # Allow the request and record timestamp
+                request_times.append(current_time)
+                return (True, 0)
+            else:
+                # Rate limit exceeded - calculate retry_after
+                # The oldest request in the window will expire at: oldest_time + window_seconds
+                # So retry_after = (oldest_time + window_seconds) - current_time
+                oldest_time = request_times[0]
+                retry_after = int(oldest_time + self.window_seconds - current_time) + 1
+                return (False, retry_after)
+
+    def reset(self, api_key: Optional[str] = None) -> None:
+        """
+        Reset rate limit tracking for an API key or all keys.
+
+        Args:
+            api_key: Specific API key to reset, or None to reset all keys
+        """
+        with self._lock:
+            if api_key is None:
+                self._requests.clear()
+            elif api_key in self._requests:
+                del self._requests[api_key]
+
+    def get_remaining(self, api_key: str, limit: int) -> int:
+        """
+        Get the number of remaining requests for an API key.
+
+        Args:
+            api_key: The API key to check
+            limit: Maximum requests allowed per window
+
+        Returns:
+            int: Number of requests remaining before hitting rate limit
+        """
+        with self._lock:
+            current_time = time.time()
+            cutoff_time = current_time - self.window_seconds
+
+            if api_key not in self._requests:
+                return limit
+
+            request_times = self._requests[api_key]
+
+            # Remove expired timestamps
+            while request_times and request_times[0] < cutoff_time:
+                request_times.popleft()
+
+            return max(0, limit - len(request_times))
