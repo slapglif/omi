@@ -163,7 +163,8 @@ class GraphPalace:
                 last_accessed TIMESTAMP,
                 access_count INTEGER DEFAULT 0,
                 instance_ids TEXT,  -- JSON array
-                content_hash TEXT  -- SHA-256 for integrity
+                content_hash TEXT,  -- SHA-256 for integrity
+                is_foundational INTEGER DEFAULT 0  -- Boolean flag for foundational memories
             );
 
             CREATE TABLE IF NOT EXISTS edges (
@@ -177,16 +178,27 @@ class GraphPalace:
                 FOREIGN KEY (target_id) REFERENCES memories(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS consensus_votes (
+                memory_id TEXT NOT NULL,
+                instance_id TEXT NOT NULL,
+                vote INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (memory_id, instance_id),
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+            );
+
             -- Indexes for performance
             CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
             CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
             CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed);
             CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
             CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
+            CREATE INDEX IF NOT EXISTS idx_memories_is_foundational ON memories(is_foundational);
             CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
             CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
             CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
             CREATE INDEX IF NOT EXISTS idx_edges_bidirectional ON edges(source_id, target_id);
+            CREATE INDEX IF NOT EXISTS idx_consensus_votes_memory ON consensus_votes(memory_id);
         """)
 
         # Create standalone FTS5 virtual table for full-text search
@@ -244,16 +256,16 @@ class GraphPalace:
 
     def store_memory(self,
                    content: str,
-                   embedding: Optional[List[float]] = None,
                    memory_type: str = "experience",
+                   embedding: Optional[List[float]] = None,
                    confidence: Optional[float] = None) -> str:
         """
         Store a memory in the palace.
 
         Args:
             content: The memory content text
-            embedding: Vector embedding (1024-dim for bge-m3)
             memory_type: One of (fact, experience, belief, decision)
+            embedding: Vector embedding (1024-dim for bge-m3)
             confidence: 0.0-1.0 for beliefs
 
         Returns:
@@ -1071,6 +1083,58 @@ class GraphPalace:
                 memories.append(memory)
 
         return memories
+
+    def add_consensus_vote(self, memory_id: str, instance_id: str, vote: int) -> None:
+        """
+        Add or update a consensus vote for a memory from an instance.
+
+        Args:
+            memory_id: Memory UUID
+            instance_id: Instance identifier
+            vote: Vote value (typically 1 for support, -1 for oppose, 0 for neutral)
+        """
+        with self._db_lock:
+            self._conn.execute("""
+                INSERT INTO consensus_votes (memory_id, instance_id, vote)
+                VALUES (?, ?, ?)
+                ON CONFLICT(memory_id, instance_id)
+                DO UPDATE SET vote=excluded.vote, created_at=CURRENT_TIMESTAMP
+            """, (memory_id, instance_id, vote))
+            self._conn.commit()
+
+    def get_consensus_votes(self, memory_id: str) -> int:
+        """
+        Get the total consensus vote count for a memory.
+
+        Args:
+            memory_id: Memory UUID
+
+        Returns:
+            Total sum of all votes for this memory
+        """
+        cursor = self._conn.execute("""
+            SELECT COALESCE(SUM(vote), 0) FROM consensus_votes
+            WHERE memory_id = ?
+        """, (memory_id,))
+        result = cursor.fetchone()
+        return int(result[0]) if result else 0
+
+    def mark_as_foundational(self, memory_id: str) -> None:
+        """
+        Mark a memory as foundational (protected/trusted).
+
+        Foundational memories have achieved multi-instance consensus
+        and are considered core/trusted memories.
+
+        Args:
+            memory_id: Memory UUID
+        """
+        with self._db_lock:
+            self._conn.execute("""
+                UPDATE memories SET is_foundational = 1
+                WHERE id = ?
+            """, (memory_id,))
+            self._conn.commit()
 
     def vacuum(self) -> None:
         """Optimize database ( reclaim space )."""
