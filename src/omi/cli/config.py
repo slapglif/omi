@@ -126,20 +126,21 @@ def api_key_group():
 
 @api_key_group.command('generate')
 @click.option('--name', required=True, help='Name for the API key (must be unique)')
-@click.option('--rate-limit', type=int, default=100, help='Requests per minute (default: 100)')
+@click.option('--rate-limit', type=int, default=None, help='Requests per minute (default: from config or 100)')
 @click.pass_context
 def api_key_generate(ctx, name: str, rate_limit: int) -> None:
     """Generate a new API key.
 
     Args:
         --name: Human-readable name for the key (must be unique)
-        --rate-limit: Requests per minute allowed (default: 100)
+        --rate-limit: Requests per minute allowed (default: from config or 100)
 
     Examples:
         omi config api-key generate --name production-agent
         omi config api-key generate --name dev-bot --rate-limit 50
     """
     from omi.auth import APIKeyManager
+    import yaml
 
     base_path = get_base_path(ctx.obj.get('data_dir'))
     verbosity = ctx.obj.get('verbosity', 1)
@@ -147,6 +148,22 @@ def api_key_generate(ctx, name: str, rate_limit: int) -> None:
     if not base_path.exists():
         echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
+
+    # Read default rate limit from config if not specified
+    if rate_limit is None:
+        config_path = base_path / "config.yaml"
+        default_rate_limit = 100  # Fallback default
+
+        if config_path.exists():
+            try:
+                config_data = yaml.safe_load(config_path.read_text()) or {}
+                # Read from security.default_rate_limit
+                default_rate_limit = config_data.get('security', {}).get('default_rate_limit', 100)
+            except Exception:
+                # If config reading fails, use hardcoded default
+                default_rate_limit = 100
+
+        rate_limit = default_rate_limit
 
     db_path = base_path / "palace.sqlite"
 
