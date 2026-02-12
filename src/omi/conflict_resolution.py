@@ -705,3 +705,245 @@ class ConflictDetector:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.close()
+
+
+@dataclass
+class ResolutionResult:
+    """
+    Result of a conflict resolution operation
+    """
+    winner_intent_id: Optional[str]
+    strategy: ConflictResolutionStrategy
+    merged_content: Optional[str] = None  # For merge strategy
+    reason: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            "winner_intent_id": self.winner_intent_id,
+            "strategy": self.strategy.value,
+            "merged_content": self.merged_content,
+            "reason": self.reason,
+            "metadata": self.metadata or {}
+        }
+
+
+class LastWriterWinsResolver:
+    """
+    Last-writer-wins conflict resolution strategy
+
+    Resolves conflicts by accepting the most recent write intent
+    and discarding all others.
+
+    Pattern: Simple timestamp-based resolution
+    - Find the intent with the most recent created_at timestamp
+    - Mark it as the winner
+    - Discard all other conflicting intents
+
+    Usage:
+        resolver = LastWriterWinsResolver()
+        result = resolver.resolve(conflict, intents)
+
+        if result.winner_intent_id:
+            # Apply the winning write
+            apply_write(result.winner_intent_id)
+    """
+
+    def resolve(
+        self,
+        conflict: Conflict,
+        intents: List[WriteIntent]
+    ) -> ResolutionResult:
+        """
+        Resolve conflict using last-writer-wins strategy.
+
+        Args:
+            conflict: Conflict to resolve
+            intents: List of conflicting WriteIntent objects
+
+        Returns:
+            ResolutionResult with winner_intent_id set to most recent intent
+
+        Raises:
+            ValueError: If no intents provided
+        """
+        if not intents:
+            raise ValueError("No write intents provided for resolution")
+
+        # Sort by timestamp, most recent first
+        sorted_intents = sorted(intents, key=lambda i: i.created_at, reverse=True)
+        winner = sorted_intents[0]
+
+        return ResolutionResult(
+            winner_intent_id=winner.id,
+            strategy=ConflictResolutionStrategy.LAST_WRITER_WINS,
+            reason=f"Most recent write at {winner.created_at.isoformat()}",
+            metadata={
+                "winner_agent": winner.agent_id,
+                "winner_timestamp": winner.created_at.isoformat(),
+                "discarded_intents": [i.id for i in sorted_intents[1:]]
+            }
+        )
+
+
+class MergeResolver:
+    """
+    Merge conflict resolution strategy
+
+    Attempts to merge conflicting changes intelligently.
+
+    Pattern: Content-aware merging
+    - If content_hash is identical, accept any write (they're the same)
+    - If base_version differs, attempt three-way merge
+    - If merge fails, fall back to last-writer-wins
+
+    Merge strategies:
+    1. Identical content: Accept any (no conflict)
+    2. Non-overlapping changes: Combine both changes
+    3. Overlapping changes: Fall back to last-writer-wins
+
+    Usage:
+        resolver = MergeResolver()
+        result = resolver.resolve(conflict, intents, get_content_func)
+
+        if result.merged_content:
+            # Apply the merged content
+            apply_merged_write(result.merged_content)
+        elif result.winner_intent_id:
+            # Merge failed, use winner
+            apply_write(result.winner_intent_id)
+    """
+
+    def resolve(
+        self,
+        conflict: Conflict,
+        intents: List[WriteIntent]
+    ) -> ResolutionResult:
+        """
+        Resolve conflict using merge strategy.
+
+        Args:
+            conflict: Conflict to resolve
+            intents: List of conflicting WriteIntent objects
+
+        Returns:
+            ResolutionResult with merged_content or winner_intent_id
+
+        Raises:
+            ValueError: If no intents provided
+        """
+        if not intents:
+            raise ValueError("No write intents provided for resolution")
+
+        # Check if all content hashes are identical
+        unique_hashes = set(i.content_hash for i in intents)
+
+        if len(unique_hashes) == 1:
+            # All writes are identical - accept any
+            winner = intents[0]
+            return ResolutionResult(
+                winner_intent_id=winner.id,
+                strategy=ConflictResolutionStrategy.MERGE,
+                reason="All write intents have identical content",
+                metadata={
+                    "merge_type": "identical",
+                    "content_hash": winner.content_hash
+                }
+            )
+
+        # Check if all intents have same base_version
+        # If base_versions match, changes are based on same state
+        base_versions = [i.base_version for i in intents if i.base_version is not None]
+
+        if len(base_versions) == len(intents) and len(set(base_versions)) == 1:
+            # Same base version - attempt merge
+            # For now, fall back to last-writer-wins
+            # TODO: Implement content-aware merging
+            sorted_intents = sorted(intents, key=lambda i: i.created_at, reverse=True)
+            winner = sorted_intents[0]
+
+            return ResolutionResult(
+                winner_intent_id=winner.id,
+                strategy=ConflictResolutionStrategy.MERGE,
+                reason="Content-aware merge not yet implemented, using last-writer-wins",
+                metadata={
+                    "merge_type": "fallback_lww",
+                    "base_version": base_versions[0],
+                    "conflicting_agents": [i.agent_id for i in intents]
+                }
+            )
+
+        # Different base versions or missing base_version - cannot merge safely
+        # Fall back to last-writer-wins
+        sorted_intents = sorted(intents, key=lambda i: i.created_at, reverse=True)
+        winner = sorted_intents[0]
+
+        return ResolutionResult(
+            winner_intent_id=winner.id,
+            strategy=ConflictResolutionStrategy.MERGE,
+            reason="Cannot merge writes with different base versions, using last-writer-wins",
+            metadata={
+                "merge_type": "fallback_lww",
+                "reason": "incompatible_base_versions"
+            }
+        )
+
+
+class RejectResolver:
+    """
+    Reject conflict resolution strategy
+
+    Rejects conflicting writes and returns an error.
+
+    Pattern: Conservative conflict handling
+    - Detect conflict
+    - Reject all writes
+    - Return error to agents
+    - Require manual resolution
+
+    This strategy ensures no data loss but requires human/agent intervention.
+
+    Usage:
+        resolver = RejectResolver()
+        result = resolver.resolve(conflict, intents)
+
+        if not result.winner_intent_id:
+            # All writes rejected - notify agents
+            notify_conflict(conflict, result.reason)
+    """
+
+    def resolve(
+        self,
+        conflict: Conflict,
+        intents: List[WriteIntent]
+    ) -> ResolutionResult:
+        """
+        Resolve conflict by rejecting all writes.
+
+        Args:
+            conflict: Conflict to resolve
+            intents: List of conflicting WriteIntent objects
+
+        Returns:
+            ResolutionResult with winner_intent_id=None (rejected)
+
+        Raises:
+            ValueError: If no intents provided
+        """
+        if not intents:
+            raise ValueError("No write intents provided for resolution")
+
+        agent_ids = list(set(i.agent_id for i in intents))
+
+        return ResolutionResult(
+            winner_intent_id=None,
+            strategy=ConflictResolutionStrategy.REJECT,
+            reason=f"Concurrent writes rejected - manual resolution required",
+            metadata={
+                "conflicting_agents": agent_ids,
+                "conflicting_intents": [i.id for i in intents],
+                "conflict_id": conflict.id,
+                "memory_id": conflict.memory_id
+            }
+        )
