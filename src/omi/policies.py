@@ -103,6 +103,32 @@ class Policy:
         }
 
 
+@dataclass
+class PolicyExecutionLog:
+    """Audit trail record for policy execution."""
+    policy_name: str
+    action: str  # PolicyAction value or string
+    memory_ids: List[str]
+    dry_run: bool
+    timestamp: datetime = field(default_factory=datetime.now)
+    result: Optional[str] = None  # "success", "failure", "partial"
+    error: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "policy_name": self.policy_name,
+            "action": self.action,
+            "memory_ids": self.memory_ids,
+            "dry_run": self.dry_run,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "result": self.result,
+            "error": self.error,
+            "metadata": self.metadata or {}
+        }
+
+
 class RetentionPolicy:
     """
     Age-based retention policy for memory lifecycle management.
