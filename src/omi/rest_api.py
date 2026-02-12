@@ -588,7 +588,8 @@ async def events_sse(
     event_type: Optional[str] = Query(
         None,
         description="Filter by event type (e.g., 'memory.stored', 'belief.updated'). Omit for all events."
-    )
+    ),
+    api_key: str = Depends(verify_api_key)
 ) -> StreamingResponse:
     """
     Server-Sent Events (SSE) endpoint for real-time event streaming.
