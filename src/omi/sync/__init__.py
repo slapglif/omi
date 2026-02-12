@@ -42,6 +42,7 @@ from .protocol import (
     SyncOperation,
 )
 from .topology import TopologyManager, InstanceMetadata
+from .sync_manager import SyncManager
 
 __all__ = [
     "SyncProtocol",
@@ -52,4 +53,5 @@ __all__ = [
     "SyncOperation",
     "TopologyManager",
     "InstanceMetadata",
+    "SyncManager",
 ]
