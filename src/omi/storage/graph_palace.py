@@ -15,6 +15,7 @@ import hashlib
 import uuid
 import math
 import threading
+import base64
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, Tuple
@@ -141,6 +142,54 @@ class GraphPalace:
         # In-memory embedding cache for fast access
         self._embedding_cache: Dict[str, List[float]] = {}
         self._cache_loaded = False
+
+    @staticmethod
+    def _encode_cursor(cursor_data: Dict[str, Any]) -> str:
+        """
+        Encode cursor data to a base64 string for pagination.
+
+        Args:
+            cursor_data: Dictionary containing cursor state (last_id, order_by, etc.)
+
+        Returns:
+            Base64-encoded cursor string
+
+        Example:
+            >>> GraphPalace._encode_cursor({"last_id": "abc123", "order_by": "created_at"})
+            'eyJsYXN0X2lkIjogImFiYzEyMyIsICJvcmRlcl9ieSI6ICJjcmVhdGVkX2F0In0='
+        """
+        if not cursor_data:
+            return ""
+
+        # Serialize to JSON and encode to base64
+        json_bytes = json.dumps(cursor_data, sort_keys=True).encode('utf-8')
+        return base64.urlsafe_b64encode(json_bytes).decode('utf-8')
+
+    @staticmethod
+    def _decode_cursor(cursor: Optional[str]) -> Dict[str, Any]:
+        """
+        Decode a base64 cursor string to cursor data.
+
+        Args:
+            cursor: Base64-encoded cursor string (or None/empty for first page)
+
+        Returns:
+            Dictionary containing cursor state, or empty dict if cursor is invalid/empty
+
+        Example:
+            >>> GraphPalace._decode_cursor('eyJsYXN0X2lkIjogImFiYzEyMyJ9')
+            {'last_id': 'abc123'}
+        """
+        if not cursor:
+            return {}
+
+        try:
+            # Decode from base64 and parse JSON
+            json_bytes = base64.urlsafe_b64decode(cursor.encode('utf-8'))
+            return json.loads(json_bytes.decode('utf-8'))
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as e:
+            # Invalid cursor - return empty dict to start from beginning
+            return {}
 
     def _init_db(self) -> None:
         """Initialize database schema with indexes and FTS5."""
