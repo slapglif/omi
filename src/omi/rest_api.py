@@ -457,6 +457,7 @@ async def root() -> Dict[str, Any]:
             "/api/v1/namespaces/shared/{namespace}/permissions": "POST/GET - Grant or list permissions",
             "/api/v1/namespaces/shared/{namespace}/permissions/{agent_id}": "DELETE/GET - Revoke or check permissions",
             "/api/v1/subscriptions": "POST/GET/DELETE - Subscribe, list, or unsubscribe from events",
+            "/api/v1/subscriptions/stream": "SSE endpoint for subscription notifications",
             "/api/v1/events": "SSE endpoint for real-time event streaming",
             "/api/v1/dashboard/memories": "Retrieve memories with filters and pagination",
             "/api/v1/dashboard/edges": "Retrieve relationship edges",
@@ -1015,6 +1016,133 @@ async def events_sse(
     """
     return StreamingResponse(
         event_stream(event_type_filter=event_type),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable buffering in nginx
+        }
+    )
+
+
+async def subscription_stream(agent_id: str) -> AsyncGenerator[str, None]:
+    """
+    Generate SSE stream of subscription notifications for a specific agent.
+
+    Args:
+        agent_id: Agent ID to stream notifications for
+
+    Yields:
+        SSE-formatted notification data
+    """
+    # Queue to hold events from EventBus
+    event_queue: asyncio.Queue[Any] = asyncio.Queue()
+
+    def event_callback(event: Any) -> None:
+        """Callback to receive events from EventBus and put them in queue."""
+        try:
+            # Put event in queue (non-blocking)
+            asyncio.run_coroutine_threadsafe(event_queue.put(event), asyncio.get_event_loop())
+        except Exception as e:
+            logger.error(f"Error queuing event: {e}", exc_info=True)
+
+    # Subscribe to EventBus for all events
+    bus = get_event_bus()
+    bus.subscribe('*', event_callback)
+
+    # Get subscription manager to filter events
+    tools = get_shared_namespace_tools()
+    subscriptions_mgr = tools.subscriptions
+
+    try:
+        # Send initial connection message
+        yield f"data: {json.dumps({'type': 'connected', 'message': f'Subscription stream connected for agent {agent_id}'})}\n\n"
+
+        # Stream events as they arrive
+        while True:
+            try:
+                # Wait for event with timeout to allow for graceful shutdown
+                event = await asyncio.wait_for(event_queue.get(), timeout=30.0)
+
+                # Serialize event to dict
+                if hasattr(event, 'to_dict'):
+                    event_data = event.to_dict()
+                else:
+                    # Fallback for events without to_dict method
+                    event_data = {
+                        'event_type': getattr(event, 'event_type', 'unknown'),
+                        'timestamp': getattr(event, 'timestamp', None)
+                    }
+
+                # Check if this event matches any of the agent's subscriptions
+                event_type = event_data.get('event_type', '')
+                namespace = event_data.get('namespace')
+                memory_id = event_data.get('memory_id')
+
+                # Get agent's subscriptions
+                agent_subscriptions = subscriptions_mgr.list_for_agent(agent_id)
+
+                # Check if event matches any subscription
+                should_send = False
+                for sub in agent_subscriptions:
+                    # Check event type filter
+                    if sub.event_types and event_type not in sub.event_types and "*" not in sub.event_types:
+                        continue
+
+                    # Check namespace filter
+                    if sub.namespace and sub.namespace != namespace:
+                        continue
+
+                    # Check memory_id filter
+                    if sub.memory_id and sub.memory_id != memory_id:
+                        continue
+
+                    # If we got here, this subscription matches
+                    should_send = True
+                    break
+
+                # Send event if it matches any subscription
+                if should_send:
+                    # Format as SSE (Server-Sent Events)
+                    # SSE format: "data: {json}\n\n"
+                    sse_data = f"data: {json.dumps(event_data)}\n\n"
+                    yield sse_data
+
+            except asyncio.TimeoutError:
+                # Send keepalive ping every 30 seconds
+                yield f": keepalive\n\n"
+
+    except asyncio.CancelledError:
+        logger.info(f"Subscription stream cancelled for agent {agent_id}")
+        raise
+    finally:
+        # Unsubscribe when client disconnects
+        bus.unsubscribe('*', event_callback)
+        logger.info(f"Agent {agent_id} disconnected from subscription stream")
+
+
+@app.get("/api/v1/subscriptions/stream", tags=["Subscriptions"], summary="Subscription notifications stream (SSE)")
+async def subscriptions_sse(
+    agent_id: str = Query(..., description="Agent ID to receive subscription notifications for")
+) -> StreamingResponse:
+    """
+    Server-Sent Events (SSE) endpoint for subscription notifications.
+
+    Streams events that match the agent's active subscriptions. Only events
+    matching the agent's subscription filters (namespace, memory_id, event_types)
+    will be sent.
+
+    Query Parameters:
+        agent_id: Agent ID to stream notifications for (required)
+
+    Returns:
+        StreamingResponse with text/event-stream content type
+
+    Example:
+        curl -N "http://localhost:8000/api/v1/subscriptions/stream?agent_id=test-agent"
+    """
+    return StreamingResponse(
+        subscription_stream(agent_id=agent_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
