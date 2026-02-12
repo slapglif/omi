@@ -1160,6 +1160,153 @@ def load_policies_from_config(config_path) -> List[Policy]:
     return policies
 
 
+def get_default_policies() -> List[Policy]:
+    """
+    Get default policy set with sensible memory lifecycle management defaults.
+
+    Creates a baseline set of policies for automatic memory management that:
+    - Archives old, unused memories to reduce clutter in search results
+    - Deletes very old memories for compliance with data retention requirements
+    - Removes low-confidence beliefs to maintain memory quality
+
+    Default Policies:
+        1. Archive Old Memories (180 days):
+           - Archives memories older than 180 days to reduce search clutter
+           - Applies to all memory types (facts, experiences, beliefs, decisions)
+
+        2. Archive Unused Memories (90 days):
+           - Archives memories not recalled in 90 days with <3 total accesses
+           - Focuses on memories that are not actively being used
+
+        3. Delete Low-Confidence Beliefs:
+           - Permanently removes beliefs with confidence < 0.2
+           - Only applies to belief-type memories to maintain quality
+
+        4. Compliance Deletion (365 days):
+           - Permanently deletes memories older than 365 days for data retention
+           - Ensures compliance with typical data retention policies
+
+    Returns:
+        List of Policy objects with default rules configured
+
+    Example:
+        from omi.policies import get_default_policies
+
+        # Get default policies for new installations
+        policies = get_default_policies()
+
+        # Apply to policy engine
+        engine = PolicyEngine(graph_palace)
+        for policy in policies:
+            result = engine.execute(policy)
+            print(f"Executed {policy.name}: {result.summary}")
+
+    Note:
+        These policies provide sensible defaults but can be overridden by
+        defining custom policies in config.yaml. Locked memories are always
+        exempt from all policy actions.
+    """
+    now = datetime.now()
+
+    # Policy 1: Archive old memories (180 days)
+    archive_old_policy = Policy(
+        name="archive-old-memories",
+        description="Archive memories older than 180 days to reduce search clutter",
+        enabled=True,
+        priority=1,
+        schedule="daily",
+        created_at=now,
+        rules=[
+            PolicyRule(
+                name="archive-old-all-types",
+                policy_type=PolicyType.RETENTION,
+                action=PolicyAction.ARCHIVE,
+                conditions={"max_age_days": 180},
+                enabled=True,
+                description="Archive all memory types older than 180 days",
+                memory_type_filter=None,  # Apply to all types
+                created_at=now
+            )
+        ]
+    )
+
+    # Policy 2: Archive unused memories (90 days, <3 accesses)
+    archive_unused_policy = Policy(
+        name="archive-unused-memories",
+        description="Archive memories not recalled in 90 days with low access counts",
+        enabled=True,
+        priority=2,
+        schedule="daily",
+        created_at=now,
+        rules=[
+            PolicyRule(
+                name="archive-unused-low-access",
+                policy_type=PolicyType.USAGE,
+                action=PolicyAction.ARCHIVE,
+                conditions={
+                    "max_days_since_last_access": 90,
+                    "min_access_count": 3
+                },
+                enabled=True,
+                description="Archive memories not accessed in 90 days with <3 total accesses",
+                memory_type_filter=None,  # Apply to all types
+                created_at=now
+            )
+        ]
+    )
+
+    # Policy 3: Delete low-confidence beliefs
+    delete_low_confidence_policy = Policy(
+        name="delete-low-confidence-beliefs",
+        description="Delete beliefs with confidence below 0.2 to maintain quality",
+        enabled=True,
+        priority=3,
+        schedule="weekly",
+        created_at=now,
+        rules=[
+            PolicyRule(
+                name="delete-weak-beliefs",
+                policy_type=PolicyType.CONFIDENCE,
+                action=PolicyAction.DELETE,
+                conditions={"min_confidence": 0.2},
+                enabled=True,
+                description="Delete beliefs with confidence < 0.2",
+                memory_type_filter="belief",  # Only beliefs
+                created_at=now
+            )
+        ]
+    )
+
+    # Policy 4: Compliance deletion (365 days)
+    compliance_deletion_policy = Policy(
+        name="compliance-deletion",
+        description="Delete memories older than 365 days for data retention compliance",
+        enabled=True,
+        priority=4,
+        schedule="weekly",
+        created_at=now,
+        rules=[
+            PolicyRule(
+                name="delete-very-old-memories",
+                policy_type=PolicyType.RETENTION,
+                action=PolicyAction.DELETE,
+                conditions={"max_age_days": 365},
+                enabled=True,
+                description="Delete all memory types older than 365 days",
+                memory_type_filter=None,  # Apply to all types
+                created_at=now
+            )
+        ]
+    )
+
+    return [
+        archive_old_policy,
+        archive_unused_policy,
+        delete_low_confidence_policy,
+        compliance_deletion_policy
+    ]
+
+
 # Export all policy types, actions, and classes
 __all__ = [
     "PolicyType",
@@ -1176,4 +1323,5 @@ __all__ = [
     "delete_memories",
     "is_memory_locked",
     "load_policies_from_config",
+    "get_default_policies",
 ]
