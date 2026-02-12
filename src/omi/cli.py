@@ -6,8 +6,8 @@ import os
 import sys
 import json
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, Any, Dict, cast
+from datetime import datetime, timedelta
+from typing import Optional, Any, Dict, cast, List
 import click
 
 # OMI imports
@@ -1238,6 +1238,46 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
         sys.exit(1)
 
     click.echo(click.style("Ending OMI session...", fg="cyan", bold=True))
+
+    # Query recent session memories from Graph Palace
+    session_memories: List[Dict[str, Any]] = []
+    db_path = base_path / "palace.sqlite"
+    if db_path.exists():
+        try:
+            palace = GraphPalace(db_path)
+
+            # Query memories from the last 24 hours (session window)
+            # This captures all memories created/updated during the session
+            session_start_threshold = datetime.now() - timedelta(hours=24)
+
+            # Get all memories and filter by timestamp
+            import sqlite3
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.execute("""
+                    SELECT id, content, memory_type, confidence, created_at
+                    FROM memories
+                    WHERE created_at >= ?
+                    ORDER BY created_at DESC
+                """, (session_start_threshold.isoformat(),))
+
+                rows = cursor.fetchall()
+                for row in rows:
+                    session_memories.append({
+                        'id': row[0],
+                        'content': row[1],
+                        'memory_type': row[2],
+                        'confidence': row[3],
+                        'created_at': row[4]
+                    })
+
+            palace.close()
+
+            if session_memories:
+                click.echo(f" ✓ Retrieved {len(session_memories)} session memories")
+            else:
+                click.echo(" ⚠ No session memories found")
+        except Exception as e:
+            click.echo(click.style(f" ⚠ Failed to retrieve session memories: {e}", fg="yellow"))
 
     # Update NOW.md timestamp and get current task for log
     from .persistence import NOWEntry
