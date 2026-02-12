@@ -26,7 +26,10 @@ from .event_bus import get_event_bus
 
 # Vault
 from .moltvault import MoltVault
-# from .moltvault import MoltVault
+
+# Sync
+from .sync.sync_manager import SyncManager
+from .sync.protocol import TopologyType, SyncState
 
 
 class MemoryTools:
@@ -469,6 +472,148 @@ class DailyLogTools:
         return [str(p) for p in self.daily.list_days(days)]
 
 
+class SyncTools:
+    """
+    Distributed synchronization operations (MCP tools)
+
+    Enables multi-instance memory sync with leader-follower
+    and multi-leader topologies, conflict resolution, and
+    network partition handling.
+    """
+
+    def __init__(self, sync_manager: SyncManager) -> None:
+        self.sync: SyncManager = sync_manager
+
+    def status(self) -> Dict[str, Any]:
+        """
+        sync_status: Get comprehensive sync status
+
+        Returns:
+            Sync state, topology info, lag metrics, instance list
+        """
+        return self.sync.get_sync_status()
+
+    def start_incremental(self) -> Dict[str, str]:
+        """
+        sync_start_incremental: Begin real-time event-based sync
+
+        Subscribes to memory events for low-latency propagation
+
+        Returns:
+            Status message
+        """
+        from .event_bus import get_event_bus
+
+        self.sync.start_incremental_sync(get_event_bus())
+        return {
+            'status': 'started',
+            'message': f'Incremental sync started for instance {self.sync.instance_id}'
+        }
+
+    def stop_incremental(self) -> Dict[str, str]:
+        """
+        sync_stop_incremental: Stop real-time sync
+
+        Unsubscribes from event bus
+
+        Returns:
+            Status message
+        """
+        self.sync.stop_incremental_sync()
+        return {
+            'status': 'stopped',
+            'message': f'Incremental sync stopped for instance {self.sync.instance_id}'
+        }
+
+    def bulk_from(self, source_instance_id: str, source_endpoint: str) -> Dict[str, Any]:
+        """
+        sync_bulk_from: Import full memory snapshot from another instance
+
+        Args:
+            source_instance_id: ID of source instance
+            source_endpoint: Network endpoint (URL) of source
+
+        Returns:
+            Success status and sync details
+        """
+        success = self.sync.bulk_sync_from(source_instance_id, source_endpoint)
+        return {
+            'success': success,
+            'source_instance': source_instance_id,
+            'endpoint': source_endpoint,
+            'message': 'Bulk sync completed' if success else 'Bulk sync failed'
+        }
+
+    def bulk_to(self, target_instance_id: str, target_endpoint: str) -> Dict[str, Any]:
+        """
+        sync_bulk_to: Export full memory snapshot to another instance
+
+        Args:
+            target_instance_id: ID of target instance
+            target_endpoint: Network endpoint (URL) of target
+
+        Returns:
+            Success status and sync details
+        """
+        success = self.sync.bulk_sync_to(target_instance_id, target_endpoint)
+        return {
+            'success': success,
+            'target_instance': target_instance_id,
+            'endpoint': target_endpoint,
+            'message': 'Bulk sync completed' if success else 'Bulk sync failed'
+        }
+
+    def register_instance(self, instance_id: str, endpoint: Optional[str] = None) -> Dict[str, str]:
+        """
+        sync_register_instance: Add instance to sync cluster
+
+        Args:
+            instance_id: Unique identifier for instance
+            endpoint: Network endpoint (optional)
+
+        Returns:
+            Status message
+        """
+        self.sync.register_instance(instance_id, endpoint)
+        return {
+            'status': 'registered',
+            'instance_id': instance_id,
+            'endpoint': endpoint or 'not specified'
+        }
+
+    def unregister_instance(self, instance_id: str) -> Dict[str, Any]:
+        """
+        sync_unregister_instance: Remove instance from sync cluster
+
+        Args:
+            instance_id: ID of instance to remove
+
+        Returns:
+            Success status
+        """
+        removed = self.sync.unregister_instance(instance_id)
+        return {
+            'success': removed,
+            'instance_id': instance_id,
+            'message': 'Instance removed' if removed else 'Instance not found'
+        }
+
+    def reconcile_partition(self, instance_id: str) -> Dict[str, Any]:
+        """
+        sync_reconcile_partition: Reconcile after network partition
+
+        Resolves conflicts accumulated during network split
+
+        Args:
+            instance_id: ID of instance to reconcile with
+
+        Returns:
+            Reconciliation results with conflict resolution details
+        """
+        result = self.sync.reconcile_partition(instance_id)
+        return result
+
+
 def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Initialize all MCP tools with configuration
@@ -503,7 +648,24 @@ def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
     # IntegrityChecker and TopologyVerifier already imported at module level
     integrity = IntegrityChecker(base_path)
     topology = TopologyVerifier(palace)
-    
+
+    # Initialize sync manager
+    sync_config = config.get('sync', {})
+    instance_id = sync_config.get('instance_id', 'default-instance')
+    topology_type_str = sync_config.get('topology', 'leader_follower')
+
+    # Convert topology string to enum
+    topology_type = TopologyType.LEADER_FOLLOWER
+    if topology_type_str == 'multi_leader':
+        topology_type = TopologyType.MULTI_LEADER
+
+    sync_manager = SyncManager(
+        data_dir=base_path,
+        instance_id=instance_id,
+        topology=topology_type,
+        leader_instance_id=sync_config.get('leader_instance_id')
+    )
+
     # Create tool instances
     return {
         'memory_recall': MemoryTools(palace, embedder, cache).recall,
@@ -519,5 +681,13 @@ def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
         'integrity_check': SecurityTools(integrity, topology).integrity_check,
         'topology_audit': SecurityTools(integrity, topology).topology_audit,
         'daily_log_append': DailyLogTools(daily_store).append,
-        'capsule_create': CheckpointTools(now_store, vault).create_capsule
+        'capsule_create': CheckpointTools(now_store, vault).create_capsule,
+        'sync_status': SyncTools(sync_manager).status,
+        'sync_start_incremental': SyncTools(sync_manager).start_incremental,
+        'sync_stop_incremental': SyncTools(sync_manager).stop_incremental,
+        'sync_bulk_from': SyncTools(sync_manager).bulk_from,
+        'sync_bulk_to': SyncTools(sync_manager).bulk_to,
+        'sync_register_instance': SyncTools(sync_manager).register_instance,
+        'sync_unregister_instance': SyncTools(sync_manager).unregister_instance,
+        'sync_reconcile_partition': SyncTools(sync_manager).reconcile_partition
     }
