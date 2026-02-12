@@ -39,10 +39,14 @@ from .events import (
     SessionEndedEvent
 )
 from .dashboard_api import router as dashboard_router
-from .api import MemoryTools, BeliefTools
+from .api import MemoryTools, BeliefTools, SharedNamespaceTools
 from .storage.graph_palace import GraphPalace
 from .embeddings import OllamaEmbedder, EmbeddingCache
 from .belief import BeliefNetwork, ContradictionDetector
+from .shared_namespace import SharedNamespace
+from .permissions import PermissionManager
+from .subscriptions import SubscriptionManager
+from .audit_log import AuditLogger
 
 logger = logging.getLogger(__name__)
 
@@ -164,9 +168,111 @@ class EndSessionResponse(BaseModel):
     message: str = Field(default="Session ended successfully")
 
 
+class CreateNamespaceRequest(BaseModel):
+    """Request body for creating a shared namespace."""
+    namespace: str = Field(..., description="Namespace identifier (e.g., 'team-alpha/research')")
+    created_by: str = Field(default="api-user", description="Agent ID creating the namespace")
+    metadata: Optional[dict] = Field(default=None, description="Optional metadata for the namespace")
+
+
+class CreateNamespaceResponse(BaseModel):
+    """Response after creating a shared namespace."""
+    namespace: str = Field(..., description="Created namespace identifier")
+    created_by: str = Field(..., description="Agent ID that created the namespace")
+    created_at: str = Field(..., description="Creation timestamp")
+    message: str = Field(default="Namespace created successfully")
+
+
+class NamespaceInfoResponse(BaseModel):
+    """Response containing namespace information."""
+    namespace: str = Field(..., description="Namespace identifier")
+    created_by: str = Field(..., description="Agent ID that created the namespace")
+    created_at: str = Field(..., description="Creation timestamp")
+    metadata: Optional[dict] = Field(default=None, description="Namespace metadata")
+
+
+class ListNamespacesResponse(BaseModel):
+    """Response containing list of namespaces."""
+    namespaces: List[dict] = Field(..., description="List of namespace information")
+    count: int = Field(..., description="Number of namespaces returned")
+
+
+class DeleteNamespaceResponse(BaseModel):
+    """Response after deleting a namespace."""
+    success: bool = Field(..., description="Whether deletion was successful")
+    message: str = Field(default="Namespace deleted successfully")
+
+
+class GrantPermissionRequest(BaseModel):
+    """Request body for granting permissions."""
+    agent_id: str = Field(..., description="Agent ID granting permission (must have ADMIN)")
+    target_agent_id: str = Field(..., description="Agent ID to grant permission to")
+    permission_level: str = Field(..., description="Permission level: read|write|admin")
+
+
+class GrantPermissionResponse(BaseModel):
+    """Response after granting permission."""
+    namespace: str = Field(..., description="Namespace identifier")
+    agent_id: str = Field(..., description="Agent ID that received permission")
+    permission_level: str = Field(..., description="Granted permission level")
+    message: str = Field(default="Permission granted successfully")
+
+
+class RevokePermissionResponse(BaseModel):
+    """Response after revoking permission."""
+    success: bool = Field(..., description="Whether revocation was successful")
+    message: str = Field(default="Permission revoked successfully")
+
+
+class ListPermissionsResponse(BaseModel):
+    """Response containing list of permissions."""
+    permissions: List[dict] = Field(..., description="List of permission information")
+    count: int = Field(..., description="Number of permissions returned")
+
+
+class CheckPermissionResponse(BaseModel):
+    """Response after checking permission."""
+    namespace: str = Field(..., description="Namespace identifier")
+    agent_id: str = Field(..., description="Agent ID checked")
+    can_read: bool = Field(..., description="Whether agent has read permission")
+    can_write: bool = Field(..., description="Whether agent has write permission")
+    can_admin: bool = Field(..., description="Whether agent has admin permission")
+
+
+class SubscribeRequest(BaseModel):
+    """Request body for subscribing to events."""
+    agent_id: str = Field(..., description="Agent ID subscribing")
+    namespace: Optional[str] = Field(default=None, description="Namespace to subscribe to (global if omitted)")
+    memory_id: Optional[str] = Field(default=None, description="Specific memory ID to subscribe to")
+    event_types: Optional[List[str]] = Field(default=None, description="Event types to subscribe to")
+
+
+class SubscribeResponse(BaseModel):
+    """Response after subscribing."""
+    message: str = Field(default="Subscription created successfully")
+
+
+class UnsubscribeRequest(BaseModel):
+    """Request body for unsubscribing from events."""
+    agent_id: str = Field(..., description="Agent ID unsubscribing")
+    subscription_id: str = Field(..., description="Subscription ID to remove")
+
+
+class UnsubscribeResponse(BaseModel):
+    """Response after unsubscribing."""
+    message: str = Field(default="Subscription removed successfully")
+
+
+class ListSubscriptionsResponse(BaseModel):
+    """Response containing list of subscriptions."""
+    subscriptions: List[dict] = Field(..., description="List of subscription information")
+    count: int = Field(..., description="Number of subscriptions returned")
+
+
 # Initialize components
 _memory_tools_instance = None
 _belief_tools_instance = None
+_shared_namespace_tools_instance = None
 
 def get_memory_tools() -> MemoryTools:
     """Initialize and return MemoryTools instance (lazy initialization)."""
@@ -216,6 +322,29 @@ def get_belief_tools() -> BeliefTools:
     return _belief_tools_instance
 
 
+def get_shared_namespace_tools() -> SharedNamespaceTools:
+    """Initialize and return SharedNamespaceTools instance (lazy initialization)."""
+    global _shared_namespace_tools_instance
+
+    if _shared_namespace_tools_instance is None:
+        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        db_path = base_path / 'palace.sqlite'
+
+        # Initialize components
+        shared_namespace = SharedNamespace(db_path)
+        permissions = PermissionManager(db_path)
+        subscriptions = SubscriptionManager(db_path)
+        audit_logger = AuditLogger(db_path)
+
+        _shared_namespace_tools_instance = SharedNamespaceTools(
+            shared_namespace, permissions, subscriptions, audit_logger
+        )
+
+    return _shared_namespace_tools_instance
+
+
 # Create FastAPI app
 app = FastAPI(
     title="OMI REST API",
@@ -257,6 +386,14 @@ environment variable to enable authentication.
         {
             "name": "Session Lifecycle",
             "description": "Manage session start and end with event tracking"
+        },
+        {
+            "name": "Shared Namespaces",
+            "description": "Multi-agent shared namespace management and permissions"
+        },
+        {
+            "name": "Subscriptions",
+            "description": "Event subscription management for multi-agent coordination"
         },
         {
             "name": "Events",
@@ -315,6 +452,11 @@ async def root() -> Dict[str, Any]:
             "/api/v1/beliefs/{id}": "PUT - Update a belief with evidence",
             "/api/v1/sessions/start": "POST - Start a new session",
             "/api/v1/sessions/end": "POST - End a session",
+            "/api/v1/namespaces/shared": "POST/GET - Create or list shared namespaces",
+            "/api/v1/namespaces/shared/{namespace}": "GET/DELETE - Get or delete a namespace",
+            "/api/v1/namespaces/shared/{namespace}/permissions": "POST/GET - Grant or list permissions",
+            "/api/v1/namespaces/shared/{namespace}/permissions/{agent_id}": "DELETE/GET - Revoke or check permissions",
+            "/api/v1/subscriptions": "POST/GET/DELETE - Subscribe, list, or unsubscribe from events",
             "/api/v1/events": "SSE endpoint for real-time event streaming",
             "/api/v1/dashboard/memories": "Retrieve memories with filters and pagination",
             "/api/v1/dashboard/edges": "Retrieve relationship edges",
@@ -457,6 +599,325 @@ async def end_session(request: EndSessionRequest, api_key: str = Depends(verify_
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to end session: {str(e)}"
+        )
+
+
+# Shared Namespace Endpoints
+
+@app.post("/api/v1/namespaces/shared", response_model=CreateNamespaceResponse, status_code=status.HTTP_201_CREATED, tags=["Shared Namespaces"], summary="Create a shared namespace")
+async def create_shared_namespace(request: CreateNamespaceRequest, api_key: str = Depends(verify_api_key)):
+    """Create a new shared namespace for multi-agent coordination."""
+    try:
+        tools = get_shared_namespace_tools()
+        result = tools.create_namespace(
+            namespace=request.namespace,
+            created_by=request.created_by,
+            metadata=request.metadata
+        )
+
+        if 'error' in result:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result['error']
+            )
+
+        return CreateNamespaceResponse(
+            namespace=result['namespace'],
+            created_by=result['created_by'],
+            created_at=result['created_at']
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating shared namespace: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create shared namespace: {str(e)}"
+        )
+
+
+@app.get("/api/v1/namespaces/shared", response_model=ListNamespacesResponse, tags=["Shared Namespaces"], summary="List shared namespaces")
+async def list_shared_namespaces(
+    agent_id: Optional[str] = Query(None, description="Filter by creator agent ID"),
+    api_key: str = Depends(verify_api_key)
+):
+    """List all shared namespaces, optionally filtered by creator."""
+    try:
+        tools = get_shared_namespace_tools()
+        namespaces = tools.list_namespaces(agent_id=agent_id)
+        return ListNamespacesResponse(namespaces=namespaces, count=len(namespaces))
+    except Exception as e:
+        logger.error(f"Error listing shared namespaces: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list shared namespaces: {str(e)}"
+        )
+
+
+@app.get("/api/v1/namespaces/shared/{namespace}", response_model=NamespaceInfoResponse, tags=["Shared Namespaces"], summary="Get namespace information")
+async def get_shared_namespace(namespace: str, api_key: str = Depends(verify_api_key)):
+    """Get information about a specific shared namespace."""
+    try:
+        tools = get_shared_namespace_tools()
+        ns_info = tools.get_namespace(namespace)
+
+        if ns_info is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Namespace '{namespace}' not found"
+            )
+
+        return NamespaceInfoResponse(**ns_info)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting shared namespace: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get shared namespace: {str(e)}"
+        )
+
+
+@app.delete("/api/v1/namespaces/shared/{namespace}", response_model=DeleteNamespaceResponse, tags=["Shared Namespaces"], summary="Delete a shared namespace")
+async def delete_shared_namespace(
+    namespace: str,
+    agent_id: str = Query(..., description="Agent ID attempting deletion (must have ADMIN)"),
+    api_key: str = Depends(verify_api_key)
+):
+    """Delete a shared namespace (requires ADMIN permission)."""
+    try:
+        tools = get_shared_namespace_tools()
+        result = tools.delete_namespace(namespace=namespace, agent_id=agent_id)
+
+        if 'error' in result:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=result['error']
+            )
+
+        if not result.get('success', False):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Namespace '{namespace}' not found"
+            )
+
+        return DeleteNamespaceResponse(success=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting shared namespace: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete shared namespace: {str(e)}"
+        )
+
+
+@app.post("/api/v1/namespaces/shared/{namespace}/permissions", response_model=GrantPermissionResponse, status_code=status.HTTP_201_CREATED, tags=["Shared Namespaces"], summary="Grant permission")
+async def grant_namespace_permission(
+    namespace: str,
+    request: GrantPermissionRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """Grant permission to an agent for a shared namespace (requires ADMIN)."""
+    try:
+        tools = get_shared_namespace_tools()
+        result = tools.grant_permission(
+            namespace=namespace,
+            agent_id=request.agent_id,
+            target_agent_id=request.target_agent_id,
+            permission_level=request.permission_level
+        )
+
+        if 'error' in result:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=result['error']
+            )
+
+        return GrantPermissionResponse(
+            namespace=result['namespace'],
+            agent_id=result['agent_id'],
+            permission_level=result['permission_level']
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error granting permission: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to grant permission: {str(e)}"
+        )
+
+
+@app.delete("/api/v1/namespaces/shared/{namespace}/permissions/{target_agent_id}", response_model=RevokePermissionResponse, tags=["Shared Namespaces"], summary="Revoke permission")
+async def revoke_namespace_permission(
+    namespace: str,
+    target_agent_id: str,
+    agent_id: str = Query(..., description="Agent ID revoking permission (must have ADMIN)"),
+    api_key: str = Depends(verify_api_key)
+):
+    """Revoke an agent's permission from a shared namespace (requires ADMIN)."""
+    try:
+        tools = get_shared_namespace_tools()
+        result = tools.revoke_permission(
+            namespace=namespace,
+            agent_id=agent_id,
+            target_agent_id=target_agent_id
+        )
+
+        if 'error' in result:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=result['error']
+            )
+
+        if not result.get('success', False):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Permission not found for agent '{target_agent_id}'"
+            )
+
+        return RevokePermissionResponse(success=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error revoking permission: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to revoke permission: {str(e)}"
+        )
+
+
+@app.get("/api/v1/namespaces/shared/{namespace}/permissions", response_model=ListPermissionsResponse, tags=["Shared Namespaces"], summary="List permissions")
+async def list_namespace_permissions(
+    namespace: str,
+    api_key: str = Depends(verify_api_key)
+):
+    """List all permissions for a shared namespace."""
+    try:
+        tools = get_shared_namespace_tools()
+        permissions = tools.list_permissions(namespace=namespace)
+        return ListPermissionsResponse(permissions=permissions, count=len(permissions))
+    except Exception as e:
+        logger.error(f"Error listing permissions: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list permissions: {str(e)}"
+        )
+
+
+@app.get("/api/v1/namespaces/shared/{namespace}/permissions/{agent_id}/check", response_model=CheckPermissionResponse, tags=["Shared Namespaces"], summary="Check permission")
+async def check_namespace_permission(
+    namespace: str,
+    agent_id: str,
+    api_key: str = Depends(verify_api_key)
+):
+    """Check an agent's permissions for a shared namespace."""
+    try:
+        tools = get_shared_namespace_tools()
+        # Check each permission level directly using PermissionManager methods
+        can_read = tools.permissions.can_read(namespace, agent_id)
+        can_write = tools.permissions.can_write(namespace, agent_id)
+        can_admin = tools.permissions.can_admin(namespace, agent_id)
+
+        return CheckPermissionResponse(
+            namespace=namespace,
+            agent_id=agent_id,
+            can_read=can_read,
+            can_write=can_write,
+            can_admin=can_admin
+        )
+    except Exception as e:
+        logger.error(f"Error checking permission: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check permission: {str(e)}"
+        )
+
+
+# Subscription Endpoints
+
+@app.post("/api/v1/subscriptions", response_model=SubscribeResponse, status_code=status.HTTP_201_CREATED, tags=["Subscriptions"], summary="Subscribe to events")
+async def subscribe_to_events(request: SubscribeRequest, api_key: str = Depends(verify_api_key)):
+    """Subscribe to events for a namespace or memory."""
+    try:
+        tools = get_shared_namespace_tools()
+        # Use default event_types if not provided
+        event_types = request.event_types or []
+
+        result = tools.subscribe(
+            agent_id=request.agent_id,
+            event_types=event_types,
+            namespace=request.namespace,
+            memory_id=request.memory_id
+        )
+
+        if 'error' in result:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result['error']
+            )
+
+        return SubscribeResponse()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error subscribing to events: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to subscribe to events: {str(e)}"
+        )
+
+
+@app.delete("/api/v1/subscriptions", response_model=UnsubscribeResponse, tags=["Subscriptions"], summary="Unsubscribe from events")
+async def unsubscribe_from_events(request: UnsubscribeRequest, api_key: str = Depends(verify_api_key)):
+    """Unsubscribe from events by removing a specific subscription."""
+    try:
+        tools = get_shared_namespace_tools()
+        result = tools.unsubscribe(
+            agent_id=request.agent_id,
+            subscription_id=request.subscription_id
+        )
+
+        if 'error' in result:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result['error']
+            )
+
+        if not result.get('success', False):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Subscription not found or unauthorized"
+            )
+
+        return UnsubscribeResponse()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error unsubscribing from events: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unsubscribe from events: {str(e)}"
+        )
+
+
+@app.get("/api/v1/subscriptions", response_model=ListSubscriptionsResponse, tags=["Subscriptions"], summary="List subscriptions")
+async def list_event_subscriptions(
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID"),
+    namespace: Optional[str] = Query(None, description="Filter by namespace"),
+    api_key: str = Depends(verify_api_key)
+):
+    """List subscriptions, optionally filtered by agent or namespace."""
+    try:
+        tools = get_shared_namespace_tools()
+        subscriptions = tools.list_subscriptions(agent_id=agent_id, namespace=namespace)
+        return ListSubscriptionsResponse(subscriptions=subscriptions, count=len(subscriptions))
+    except Exception as e:
+        logger.error(f"Error listing subscriptions: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list subscriptions: {str(e)}"
         )
 
 
