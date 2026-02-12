@@ -43,6 +43,7 @@ from .api import MemoryTools, BeliefTools
 from .storage.graph_palace import GraphPalace
 from .embeddings import OllamaEmbedder, EmbeddingCache
 from .belief import BeliefNetwork, ContradictionDetector
+from .auth import APIKeyManager
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +53,19 @@ logger = logging.getLogger(__name__)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")) -> str:
+async def verify_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    api_key: Optional[str] = Query(None)
+) -> str:
     """
-    Verify API key from X-API-Key header.
+    Verify API key from X-API-Key header or api_key query parameter.
+
+    Checks both header and query parameter for API key.
+    Header takes precedence if both are provided.
 
     Args:
-        x_api_key: API key from request header
+        x_api_key: API key from X-API-Key request header
+        api_key: API key from api_key query parameter
 
     Returns:
         str: Validated API key
@@ -65,32 +73,50 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Ke
     Raises:
         HTTPException: 401 Unauthorized if API key is missing or invalid
     """
-    # Get expected API key from environment or config
-    # For now, check environment variable; will be updated to use config.yaml
-    expected_key = os.environ.get("OMI_API_KEY")
+    # TODO: In subtask-1-4, check config.yaml for auth_required flag
+    # For now, check if any API keys exist in database to determine if auth is required
+    base_path = Path.home() / '.openclaw' / 'omi'
+    db_path = base_path / 'palace.sqlite'
 
-    # If no expected key is configured, allow all requests (development mode)
-    if expected_key is None:
-        logger.warning("No OMI_API_KEY configured - authentication disabled (development mode)")
+    # Check if database exists and has any API keys
+    auth_required = True
+    if not db_path.exists():
+        # No database yet, allow requests (development mode)
+        logger.warning("No database found - authentication disabled (development mode)")
         return "development"
 
+    # Initialize APIKeyManager
+    key_manager = APIKeyManager(db_path)
+
+    # Check if any API keys exist
+    existing_keys = key_manager.list_keys()
+    if len(existing_keys) == 0:
+        # No API keys configured, allow all requests (development mode)
+        logger.warning("No API keys configured - authentication disabled (development mode)")
+        return "development"
+
+    # Determine which key to validate (prefer header over query param)
+    provided_key = x_api_key if x_api_key is not None else api_key
+
     # Check if API key was provided
-    if x_api_key is None:
+    if provided_key is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing API key. Provide X-API-Key header.",
+            detail="Missing API key. Provide X-API-Key header or api_key query parameter.",
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    # Validate API key
-    if x_api_key != expected_key:
+    # Validate API key using APIKeyManager
+    validated_key = key_manager.validate_key(provided_key)
+
+    if validated_key is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key",
+            detail="Invalid or revoked API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    return x_api_key
+    return provided_key
 
 
 # Pydantic models for request/response
