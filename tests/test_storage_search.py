@@ -229,6 +229,149 @@ class TestMemorySearch:
 
         search.close()
 
+    def test_recall_with_ann(self):
+        """Test semantic search uses ANN index when available"""
+        search = MemorySearch(':memory:')
+
+        # Insert memories with embeddings into database AND ANN index
+        # Use vectors with different directions for meaningful similarity differences
+        query_embedding = [1.0] + [0.0] * 1023  # Point in first dimension
+        similar_embedding = [0.9] + [0.1] * 1023  # Close to query
+        different_embedding = [0.0] * 512 + [1.0] * 512  # Orthogonal to query
+
+        memories = [
+            (similar_embedding, "Similar content about AI"),
+            (similar_embedding, "Another similar memory"),
+            (different_embedding, "Completely different content"),
+        ]
+
+        for embedding, content in memories:
+            mem_id = str(uuid.uuid4())
+            embedding_blob = embed_to_blob(embedding)
+
+            # Insert into database
+            search._conn.execute("""
+                INSERT INTO memories (id, content, embedding, memory_type, created_at, last_accessed)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (mem_id, content, embedding_blob, "fact",
+                  datetime.now().isoformat(), datetime.now().isoformat()))
+
+            # Add to ANN index
+            search._ann_index.add(mem_id, embedding)
+
+        # Verify ANN index has entries
+        assert search._ann_index.get_size() == 3
+
+        # Query should use ANN index
+        results = search.recall(query_embedding, limit=10, min_relevance=0.0)
+
+        # Should return all 3 memories
+        assert len(results) == 3
+        assert all(isinstance(item, tuple) for item in results)
+        assert all(len(item) == 2 for item in results)
+
+        # Results should be sorted by score (descending)
+        for i in range(len(results) - 1):
+            assert results[i][1] >= results[i+1][1]
+
+        # Verify similar content appears in results (ANN index was used successfully)
+        content_list = [r[0].content for r in results]
+        assert any("similar" in c.lower() for c in content_list)
+
+        search.close()
+
+    def test_recall_with_ann_fallback(self):
+        """Test fallback to brute-force when ANN index is empty"""
+        search = MemorySearch(':memory:')
+
+        # Insert memories into database but NOT into ANN index
+        query_embedding = [0.1] * 1024
+        similar_embedding = [0.11] * 1024
+
+        mem_id = str(uuid.uuid4())
+        embedding_blob = embed_to_blob(similar_embedding)
+        search._conn.execute("""
+            INSERT INTO memories (id, content, embedding, memory_type, created_at, last_accessed)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (mem_id, "Test memory", embedding_blob, "fact",
+              datetime.now().isoformat(), datetime.now().isoformat()))
+
+        # ANN index should be empty
+        assert search._ann_index.get_size() == 0
+
+        # Query should fall back to brute-force
+        results = search.recall(query_embedding, limit=10, min_relevance=0.0)
+
+        # Should still find the memory via brute-force
+        assert len(results) == 1
+        assert results[0][0].id == mem_id
+
+        search.close()
+
+    def test_recall_with_ann_dimension_mismatch(self):
+        """Test fallback when query dimension doesn't match index"""
+        search = MemorySearch(':memory:')
+
+        # Insert 1024-dim memory
+        embedding_1024 = [0.1] * 1024
+        mem_id = str(uuid.uuid4())
+        embedding_blob = embed_to_blob(embedding_1024)
+
+        search._conn.execute("""
+            INSERT INTO memories (id, content, embedding, memory_type, created_at, last_accessed)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (mem_id, "1024-dim memory", embedding_blob, "fact",
+              datetime.now().isoformat(), datetime.now().isoformat()))
+
+        search._ann_index.add(mem_id, embedding_1024)
+
+        # Query with 768-dim embedding (dimension mismatch)
+        query_768 = [0.1] * 768
+
+        # Should fall back to brute-force (which will filter due to dimension mismatch)
+        results = search.recall(query_768, limit=10, min_relevance=0.0)
+
+        # Should return empty since dimensions don't match
+        assert len(results) == 0
+
+        search.close()
+
+    def test_recall_with_ann_min_relevance_filter(self):
+        """Test min_relevance filtering with ANN index"""
+        search = MemorySearch(':memory:')
+
+        # Insert memories with different similarities
+        query_embedding = [1.0] * 1024
+        very_similar = [0.95] * 1024
+        somewhat_similar = [0.5] * 1024
+        not_similar = [0.0] + [1.0] * 1023
+
+        memories = [
+            (very_similar, "Very similar"),
+            (somewhat_similar, "Somewhat similar"),
+            (not_similar, "Not similar"),
+        ]
+
+        for embedding, content in memories:
+            mem_id = str(uuid.uuid4())
+            embedding_blob = embed_to_blob(embedding)
+            search._conn.execute("""
+                INSERT INTO memories (id, content, embedding, memory_type, created_at, last_accessed)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (mem_id, content, embedding_blob, "fact",
+                  datetime.now().isoformat(), datetime.now().isoformat()))
+            search._ann_index.add(mem_id, embedding)
+
+        # Low threshold should return more results
+        results_low = search.recall(query_embedding, limit=10, min_relevance=0.1)
+        assert len(results_low) >= 2
+
+        # High threshold should filter more aggressively
+        results_high = search.recall(query_embedding, limit=10, min_relevance=0.8)
+        assert len(results_high) <= len(results_low)
+
+        search.close()
+
     def test_full_text_search_basic(self):
         """Test basic full-text search"""
         search = MemorySearch(':memory:')
