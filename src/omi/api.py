@@ -6,6 +6,8 @@ Integrates with OpenClaw
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
+import base64
+import hashlib
 
 # Storage tier - import from new modular locations
 from .storage.graph_palace import GraphPalace
@@ -42,29 +44,92 @@ class MemoryTools:
         self.palace: GraphPalace = palace_store
         self.embedder: OllamaEmbedder = embedder
         self.cache: EmbeddingCache = cache
+
+    @staticmethod
+    def _encode_cursor(cursor_data: Dict[str, Any]) -> str:
+        """
+        Encode cursor data to a base64 string for pagination.
+
+        Args:
+            cursor_data: Dictionary containing cursor state (offset, query_hash, etc.)
+
+        Returns:
+            Base64-encoded cursor string
+        """
+        if not cursor_data:
+            return ""
+
+        # Serialize to JSON and encode to base64
+        json_bytes = json.dumps(cursor_data, sort_keys=True).encode('utf-8')
+        return base64.urlsafe_b64encode(json_bytes).decode('utf-8')
+
+    @staticmethod
+    def _decode_cursor(cursor: Optional[str]) -> Dict[str, Any]:
+        """
+        Decode a base64 cursor string to cursor data.
+
+        Args:
+            cursor: Base64-encoded cursor string (or None/empty for first page)
+
+        Returns:
+            Dictionary containing cursor state, or empty dict if cursor is invalid/empty
+        """
+        if not cursor:
+            return {}
+
+        try:
+            # Decode from base64 and parse JSON
+            json_bytes = base64.urlsafe_b64decode(cursor.encode('utf-8'))
+            return json.loads(json_bytes.decode('utf-8'))
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+            # Invalid cursor - return empty dict to start from beginning
+            return {}
     
     def recall(self,
               query: str,
               limit: int = 10,
               min_relevance: float = 0.7,
-              memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
+              memory_type: Optional[str] = None,
+              cursor: Optional[str] = None) -> Dict[str, Any]:
         """
         memory_recall: Semantic search with recency weighting
 
         Args:
             query: Natural language search query
-            limit: Max results (default: 10)
+            limit: Max results per page (default: 10, max: 500)
             min_relevance: Similarity threshold (default: 0.7)
             memory_type: Filter by type (fact|experience|belief|decision)
+            cursor: Pagination cursor for next page (optional)
 
         Returns:
-            Memories sorted by relevance + recency
+            Dictionary with:
+                - memories: List of memories for this page
+                - next_cursor: Cursor for next page (empty if no more results)
+                - has_more: Boolean indicating if more results exist
         """
+        # Validate and clamp limit
+        limit = max(1, min(limit, 500))
+
+        # Calculate query hash for cursor validation
+        query_params = f"{query}|{min_relevance}|{memory_type or ''}"
+        query_hash = hashlib.sha256(query_params.encode()).hexdigest()[:16]
+
+        # Decode cursor to get offset
+        cursor_data = self._decode_cursor(cursor)
+        offset = cursor_data.get('offset', 0)
+
+        # Validate cursor matches current query
+        if cursor_data and cursor_data.get('query_hash') != query_hash:
+            # Query changed - reset to beginning
+            offset = 0
+
         # Generate embedding for query
         query_embedding = self.cache.get_or_compute(query)
 
-        # Get candidates from palace (returns List[Tuple[Memory, float]])
-        candidate_tuples = self.palace.recall(query_embedding, limit=limit*2, min_relevance=min_relevance)
+        # Get more candidates than needed to ensure we have enough after filtering
+        # Fetch enough to cover offset + limit for this page
+        fetch_limit = (offset + limit) * 2
+        candidate_tuples = self.palace.recall(query_embedding, limit=fetch_limit, min_relevance=min_relevance)
 
         # Convert tuples to dicts and filter by type
         candidates: List[Dict[str, Any]] = []
@@ -73,7 +138,6 @@ class MemoryTools:
             mem_dict['relevance'] = relevance
             if memory_type is None or mem_dict.get('memory_type') == memory_type:
                 candidates.append(mem_dict)
-
 
         # Apply recency weighting
         half_life = 30.0  # days
@@ -97,17 +161,36 @@ class MemoryTools:
 
         # Sort by final score
         weighted.sort(key=lambda x: x.get('final_score', 0.0), reverse=True)
-        results = weighted[:limit]
+
+        # Apply pagination - get slice for this page
+        page_results = weighted[offset:offset + limit]
+
+        # Check if more results exist
+        has_more = len(weighted) > (offset + limit)
+
+        # Generate next cursor if more results exist
+        next_cursor = ""
+        if has_more:
+            next_cursor_data = {
+                'offset': offset + limit,
+                'query_hash': query_hash,
+                'limit': limit
+            }
+            next_cursor = self._encode_cursor(next_cursor_data)
 
         # Emit event
         event = MemoryRecalledEvent(
             query=query,
-            result_count=len(results),
-            top_results=results
+            result_count=len(page_results),
+            top_results=page_results
         )
         get_event_bus().publish(event)
 
-        return results
+        return {
+            'memories': page_results,
+            'next_cursor': next_cursor,
+            'has_more': has_more
+        }
     
     def store(self,
              content: str,
