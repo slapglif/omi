@@ -544,7 +544,7 @@ class TestANNIndex:
         assert index._index is not None
         assert index.M == 16
         assert index.EF_CONSTRUCTION == 200
-        assert index.EF_SEARCH == 50
+        assert index.EF_SEARCH == 200  # Increased for 95%+ recall@10 accuracy
 
     def test_large_batch_performance(self):
         """Test performance with larger batch (1000 embeddings)"""

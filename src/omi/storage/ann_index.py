@@ -35,7 +35,7 @@ class ANNIndex:
     # HNSW parameters for good balance of speed/accuracy/memory
     M = 16  # Number of bi-directional links per element
     EF_CONSTRUCTION = 200  # Size of dynamic candidate list during construction
-    EF_SEARCH = 50  # Size of dynamic candidate list during search
+    EF_SEARCH = 200  # Size of dynamic candidate list during search (higher = better accuracy)
 
     # Initial capacity for the index (will grow as needed)
     INITIAL_CAPACITY = 10000
