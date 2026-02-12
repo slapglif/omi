@@ -169,6 +169,7 @@ security:
   integrity_checks: true
   auto_audit: true
   required_instances: 3
+  default_rate_limit: 100  # Default rate limit for API keys (requests/minute)
 
 session:
   auto_check_interval: 300  # seconds

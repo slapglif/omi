@@ -13,16 +13,29 @@ Usage:
         app.include_router(router)
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Header, Depends, status
+from fastapi.security import APIKeyHeader
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 import os
 import logging
+import yaml
 
 from .storage.graph_palace import GraphPalace, Memory
 from .embeddings import OllamaEmbedder, EmbeddingCache
+from .auth import APIKeyManager, RateLimiter
 
 logger = logging.getLogger(__name__)
+
+
+# Global rate limiter instance (60 second sliding window)
+rate_limiter = RateLimiter(window_seconds=60)
+
+
+# API Key Authentication
+# API key header security scheme
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
 
 # Create FastAPI router with dashboard prefix
 router = APIRouter(
@@ -30,6 +43,100 @@ router = APIRouter(
     tags=["dashboard"],
     responses={404: {"description": "Not found"}}
 )
+
+
+async def verify_dashboard_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    api_key: Optional[str] = Query(None)
+) -> str:
+    """
+    Verify API key from X-API-Key header or api_key query parameter.
+
+    Checks both header and query parameter for API key.
+    Header takes precedence if both are provided.
+
+    Args:
+        x_api_key: API key from X-API-Key request header
+        api_key: API key from api_key query parameter
+
+    Returns:
+        str: Validated API key
+
+    Raises:
+        HTTPException: 401 Unauthorized if API key is missing or invalid
+    """
+    base_path = Path.home() / '.openclaw' / 'omi'
+    db_path = base_path / 'palace.sqlite'
+    config_path = base_path / 'config.yaml'
+
+    # Load config to check auth_required flag
+    auth_required = True  # Default to requiring auth
+    if config_path.exists():
+        try:
+            config_data = yaml.safe_load(config_path.read_text()) or {}
+            # Check security.auth_required (default: true)
+            security_config = config_data.get('security', {})
+            auth_required = security_config.get('auth_required', True)
+        except Exception as e:
+            logger.warning(f"Failed to load config.yaml: {e}. Defaulting to auth_required=True")
+            auth_required = True
+
+    # If auth is disabled in config, allow all requests (development mode)
+    if not auth_required:
+        logger.info("Authentication disabled via config (security.auth_required=false)")
+        return "development"
+
+    # Check if database exists and has any API keys
+    if not db_path.exists():
+        # No database yet, allow requests (development mode)
+        logger.warning("No database found - authentication disabled (development mode)")
+        return "development"
+
+    # Initialize APIKeyManager
+    key_manager = APIKeyManager(db_path)
+
+    # Check if any API keys exist
+    existing_keys = key_manager.list_keys()
+    if len(existing_keys) == 0:
+        # No API keys configured, allow all requests (development mode)
+        logger.warning("No API keys configured - authentication disabled (development mode)")
+        return "development"
+
+    # Determine which key to validate (prefer header over query param)
+    provided_key = x_api_key if x_api_key is not None else api_key
+
+    # Check if API key was provided
+    if provided_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API key. Provide X-API-Key header or api_key query parameter.",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Validate API key using APIKeyManager
+    validated_key = key_manager.validate_key(provided_key)
+
+    if validated_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked API key",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Check rate limit for this API key
+    allowed, retry_after = rate_limiter.check_rate_limit(
+        api_key=provided_key,
+        limit=validated_key.rate_limit
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    return provided_key
 
 
 def get_palace_instance() -> GraphPalace:
@@ -140,7 +247,8 @@ async def get_memories(
     offset: int = Query(default=0, ge=0, description="Number of memories to skip"),
     memory_type: Optional[str] = Query(default=None, description="Filter by memory type (fact, experience, belief, decision)"),
     order_by: str = Query(default="created_at", description="Field to order by (created_at, access_count, last_accessed)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve memories with optional filters.
@@ -261,7 +369,8 @@ async def get_edges(
     offset: int = Query(default=0, ge=0, description="Number of edges to skip"),
     edge_type: Optional[str] = Query(default=None, description="Filter by edge type (SUPPORTS, CONTRADICTS, RELATED_TO, DEPENDS_ON, POSTED, DISCUSSED)"),
     order_by: str = Query(default="created_at", description="Field to order by (created_at, strength)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve relationship edges with optional filters.
@@ -376,7 +485,8 @@ async def get_beliefs(
     limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of beliefs to return"),
     offset: int = Query(default=0, ge=0, description="Number of beliefs to skip"),
     order_by: str = Query(default="last_updated", description="Field to order by (confidence, created_at, last_updated, evidence_count)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve beliefs from the belief network.
@@ -471,7 +581,8 @@ async def get_beliefs(
 
 @router.get("/graph")
 async def get_graph(
-    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of memories and edges to return")
+    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of memories and edges to return"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve complete graph data (memories + edges) in one call.
@@ -577,7 +688,9 @@ async def get_graph(
 
 
 @router.get("/stats")
-async def get_stats() -> Dict[str, Any]:
+async def get_stats(
+    api_key: str = Depends(verify_dashboard_api_key)
+) -> Dict[str, Any]:
     """
     Get database storage statistics.
 
@@ -640,7 +753,8 @@ async def get_stats() -> Dict[str, Any]:
 async def search_memories(
     q: str = Query(..., description="Search query text", min_length=1),
     limit: int = Query(default=10, ge=1, le=100, description="Maximum number of results to return"),
-    min_relevance: float = Query(default=0.5, ge=0.0, le=1.0, description="Minimum relevance threshold")
+    min_relevance: float = Query(default=0.5, ge=0.0, le=1.0, description="Minimum relevance threshold"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Semantic search for memories using embeddings.
@@ -715,4 +829,4 @@ async def search_memories(
         )
 
 
-__all__ = ['router', 'get_palace_instance']
+__all__ = ['router', 'get_palace_instance', 'verify_dashboard_api_key']

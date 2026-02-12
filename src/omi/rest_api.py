@@ -28,6 +28,7 @@ import json
 import asyncio
 import logging
 import os
+import yaml
 
 from .event_bus import get_event_bus
 from .events import (
@@ -43,8 +44,13 @@ from .api import MemoryTools, BeliefTools
 from .storage.graph_palace import GraphPalace
 from .embeddings import OllamaEmbedder, EmbeddingCache
 from .belief import BeliefNetwork, ContradictionDetector
+from .auth import APIKeyManager, RateLimiter
 
 logger = logging.getLogger(__name__)
+
+
+# Global rate limiter instance (60 second sliding window)
+rate_limiter = RateLimiter(window_seconds=60)
 
 
 # API Key Authentication
@@ -52,12 +58,19 @@ logger = logging.getLogger(__name__)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")) -> str:
+async def verify_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    api_key: Optional[str] = Query(None)
+) -> str:
     """
-    Verify API key from X-API-Key header.
+    Verify API key from X-API-Key header or api_key query parameter.
+
+    Checks both header and query parameter for API key.
+    Header takes precedence if both are provided.
 
     Args:
-        x_api_key: API key from request header
+        x_api_key: API key from X-API-Key request header
+        api_key: API key from api_key query parameter
 
     Returns:
         str: Validated API key
@@ -65,32 +78,78 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Ke
     Raises:
         HTTPException: 401 Unauthorized if API key is missing or invalid
     """
-    # Get expected API key from environment or config
-    # For now, check environment variable; will be updated to use config.yaml
-    expected_key = os.environ.get("OMI_API_KEY")
+    base_path = Path.home() / '.openclaw' / 'omi'
+    db_path = base_path / 'palace.sqlite'
+    config_path = base_path / 'config.yaml'
 
-    # If no expected key is configured, allow all requests (development mode)
-    if expected_key is None:
-        logger.warning("No OMI_API_KEY configured - authentication disabled (development mode)")
+    # Load config to check auth_required flag
+    auth_required = True  # Default to requiring auth
+    if config_path.exists():
+        try:
+            config_data = yaml.safe_load(config_path.read_text()) or {}
+            # Check security.auth_required (default: true)
+            security_config = config_data.get('security', {})
+            auth_required = security_config.get('auth_required', True)
+        except Exception as e:
+            logger.warning(f"Failed to load config.yaml: {e}. Defaulting to auth_required=True")
+            auth_required = True
+
+    # If auth is disabled in config, allow all requests (development mode)
+    if not auth_required:
+        logger.info("Authentication disabled via config (security.auth_required=false)")
         return "development"
 
+    # Check if database exists and has any API keys
+    if not db_path.exists():
+        # No database yet, allow requests (development mode)
+        logger.warning("No database found - authentication disabled (development mode)")
+        return "development"
+
+    # Initialize APIKeyManager
+    key_manager = APIKeyManager(db_path)
+
+    # Check if any API keys exist
+    existing_keys = key_manager.list_keys()
+    if len(existing_keys) == 0:
+        # No API keys configured, allow all requests (development mode)
+        logger.warning("No API keys configured - authentication disabled (development mode)")
+        return "development"
+
+    # Determine which key to validate (prefer header over query param)
+    provided_key = x_api_key if x_api_key is not None else api_key
+
     # Check if API key was provided
-    if x_api_key is None:
+    if provided_key is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing API key. Provide X-API-Key header.",
+            detail="Missing API key. Provide X-API-Key header or api_key query parameter.",
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    # Validate API key
-    if x_api_key != expected_key:
+    # Validate API key using APIKeyManager
+    validated_key = key_manager.validate_key(provided_key)
+
+    if validated_key is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key",
+            detail="Invalid or revoked API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    return x_api_key
+    # Check rate limit for this API key
+    allowed, retry_after = rate_limiter.check_rate_limit(
+        api_key=provided_key,
+        limit=validated_key.rate_limit
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    return provided_key
 
 
 # Pydantic models for request/response
@@ -529,7 +588,8 @@ async def events_sse(
     event_type: Optional[str] = Query(
         None,
         description="Filter by event type (e.g., 'memory.stored', 'belief.updated'). Omit for all events."
-    )
+    ),
+    api_key: str = Depends(verify_api_key)
 ) -> StreamingResponse:
     """
     Server-Sent Events (SSE) endpoint for real-time event streaming.
