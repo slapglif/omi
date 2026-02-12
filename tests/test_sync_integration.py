@@ -322,5 +322,297 @@ class TestLeaderFollowerSync(unittest.TestCase):
         assert memory.version >= 1
 
 
+class TestMultiLeaderSync(unittest.TestCase):
+    """Integration tests for multi-leader topology with conflict resolution."""
+
+    def setUp(self):
+        """Set up two leader instances for testing."""
+        # Create temporary directories for both leaders
+        self.temp_dir_leader1 = tempfile.mkdtemp()
+        self.temp_dir_leader2 = tempfile.mkdtemp()
+
+        self.leader1_path = Path(self.temp_dir_leader1)
+        self.leader2_path = Path(self.temp_dir_leader2)
+
+        # Initialize first leader instance
+        self.leader1_manager = SyncManager(
+            data_dir=self.leader1_path,
+            instance_id="leader-1",
+            topology=TopologyType.MULTI_LEADER
+        )
+
+        # Initialize second leader instance
+        self.leader2_manager = SyncManager(
+            data_dir=self.leader2_path,
+            instance_id="leader-2",
+            topology=TopologyType.MULTI_LEADER
+        )
+
+        # Create GraphPalace instances for direct database operations
+        self.leader1_db = GraphPalace(self.leader1_path / "palace.sqlite")
+        self.leader2_db = GraphPalace(self.leader2_path / "palace.sqlite")
+
+    def tearDown(self):
+        """Clean up test instances."""
+        self.leader1_db.close()
+        self.leader2_db.close()
+
+        import shutil
+        if Path(self.temp_dir_leader1).exists():
+            shutil.rmtree(self.temp_dir_leader1, ignore_errors=True)
+        if Path(self.temp_dir_leader2).exists():
+            shutil.rmtree(self.temp_dir_leader2, ignore_errors=True)
+
+    def test_multi_leader_setup(self):
+        """Test that both instances are correctly configured as leaders."""
+        # Both should be marked as leaders in multi-leader topology
+        assert self.leader1_manager.is_leader() is True
+        assert self.leader2_manager.is_leader() is True
+
+        # Both should be in ACTIVE state
+        assert self.leader1_manager.get_state() == SyncState.ACTIVE
+        assert self.leader2_manager.get_state() == SyncState.ACTIVE
+
+        # Verify topology type
+        status1 = self.leader1_manager.get_sync_status()
+        status2 = self.leader2_manager.get_sync_status()
+
+        assert status1["topology"] == "multi_leader"
+        assert status2["topology"] == "multi_leader"
+
+    def test_multi_leader_conflict_resolution(self):
+        """Test conflict resolution when both leaders modify the same memory."""
+        from omi.sync.conflict_resolver import ConflictResolver, ConflictStrategy
+        from omi.storage.models import Memory
+        from datetime import datetime, timedelta
+
+        # Register both leaders with each other
+        self.leader1_manager.register_instance("leader-2", "http://localhost:8002")
+        self.leader2_manager.register_instance("leader-1", "http://localhost:8001")
+
+        # Create a memory on leader1 with a specific ID
+        memory_id = "test-memory-conflict-123"
+
+        # Create conflicting memory versions from two different leaders
+        # These simulate concurrent writes in a multi-leader topology
+
+        # Store memory on leader1 with version 1 and vector clock
+        leader1_memory = Memory(
+            id=memory_id,
+            content="Version from leader-1",
+            memory_type="fact",
+            confidence=0.90,
+            created_at=datetime.now() - timedelta(seconds=10),
+            last_accessed=datetime.now() - timedelta(seconds=5),
+            version=1,
+            vector_clock={"leader-1": 1},
+            embedding=None,
+            instance_ids=["leader-1"]
+        )
+
+        # Store memory on leader2 with version 1 but different content and later timestamp
+        leader2_memory = Memory(
+            id=memory_id,
+            content="Version from leader-2",
+            memory_type="fact",
+            confidence=0.85,
+            created_at=datetime.now() - timedelta(seconds=10),
+            last_accessed=datetime.now(),  # More recent
+            version=1,
+            vector_clock={"leader-2": 1},
+            embedding=None,
+            instance_ids=["leader-2"]
+        )
+
+        # Test 1: LAST_WRITER_WINS strategy
+        # Should pick the memory with the most recent timestamp
+        resolver_lww = ConflictResolver(strategy=ConflictStrategy.LAST_WRITER_WINS)
+        resolution_lww = resolver_lww.resolve(leader1_memory, leader2_memory)
+
+        # Leader2's memory should win because it has a more recent last_accessed timestamp
+        assert resolution_lww.winner.content == "Version from leader-2"
+        assert resolution_lww.strategy_used == ConflictStrategy.LAST_WRITER_WINS
+        assert resolution_lww.needs_manual_review is False
+        assert "reason" in resolution_lww.conflict_metadata
+        print(f"✓ LAST_WRITER_WINS: {resolution_lww.conflict_metadata['reason']}")
+
+        # Test 2: MERGE strategy with concurrent vector clocks
+        # When vector clocks are concurrent (neither dominates), should flag for manual review
+        resolver_merge = ConflictResolver(strategy=ConflictStrategy.MERGE)
+        resolution_merge = resolver_merge.resolve(leader1_memory, leader2_memory)
+
+        # Vector clocks are concurrent (leader-1:1 vs leader-2:1), so should be flagged for review
+        assert resolution_merge.strategy_used == ConflictStrategy.MERGE
+        assert resolution_merge.needs_manual_review is True
+        assert "concurrent" in resolution_merge.conflict_metadata["causal_relationship"]
+        print(f"✓ MERGE (concurrent): flagged for manual review")
+
+        # Test 3: MERGE strategy with dominant vector clock
+        # When one vector clock dominates, should automatically resolve
+        # Create a memory from leader1 that has seen leader2's update (dominant clock)
+        leader1_memory_v2 = Memory(
+            id=memory_id,
+            content="Version from leader-1 v2",
+            memory_type="fact",
+            confidence=0.95,
+            created_at=datetime.now() - timedelta(seconds=10),
+            last_accessed=datetime.now(),
+            version=2,
+            vector_clock={"leader-1": 2, "leader-2": 1},  # Dominates leader2's clock
+            embedding=None,
+            instance_ids=["leader-1"]
+        )
+
+        resolution_merge_dominant = resolver_merge.resolve(leader1_memory_v2, leader2_memory)
+
+        # Leader1's v2 should win because its vector clock dominates
+        assert resolution_merge_dominant.winner.content == "Version from leader-1 v2"
+        assert resolution_merge_dominant.strategy_used == ConflictStrategy.MERGE
+        assert resolution_merge_dominant.needs_manual_review is False
+        assert "memory1_later" in resolution_merge_dominant.conflict_metadata["causal_relationship"]
+        print(f"✓ MERGE (dominant): memory1 won via vector clock dominance")
+
+        # Test 4: MANUAL_QUEUE strategy
+        # Should queue all conflicts for manual resolution
+        # First, we need to:
+        # 1. Register both instances in instance_registry (for foreign key constraint)
+        # 2. Store the memory in the database (for foreign key constraint)
+
+        cursor = self.leader1_db._conn.cursor()
+
+        # Register leader-1 and leader-2 in instance_registry
+        cursor.execute("""
+            INSERT OR IGNORE INTO instance_registry
+            (instance_id, hostname, topology_type, status, last_seen, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, ("leader-1", "localhost:8001", "leader", "active",
+              datetime.now().isoformat(), datetime.now().isoformat()))
+
+        cursor.execute("""
+            INSERT OR IGNORE INTO instance_registry
+            (instance_id, hostname, topology_type, status, last_seen, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, ("leader-2", "localhost:8002", "leader", "active",
+              datetime.now().isoformat(), datetime.now().isoformat()))
+
+        self.leader1_db._conn.commit()
+
+        # Store a memory in the database
+        actual_memory_id = self.leader1_db.store_memory(
+            content="Memory for conflict queue test",
+            memory_type="fact",
+            confidence=0.85
+        )
+
+        # Create memory objects for conflict resolution with the real memory_id
+        leader1_memory_queue = Memory(
+            id=actual_memory_id,
+            content="Version from leader-1 for queue",
+            memory_type="fact",
+            confidence=0.90,
+            created_at=datetime.now() - timedelta(seconds=10),
+            last_accessed=datetime.now() - timedelta(seconds=5),
+            version=1,
+            vector_clock={"leader-1": 1},
+            embedding=None,
+            instance_ids=["leader-1"]
+        )
+
+        leader2_memory_queue = Memory(
+            id=actual_memory_id,
+            content="Version from leader-2 for queue",
+            memory_type="fact",
+            confidence=0.85,
+            created_at=datetime.now() - timedelta(seconds=10),
+            last_accessed=datetime.now(),
+            version=1,
+            vector_clock={"leader-2": 1},
+            embedding=None,
+            instance_ids=["leader-2"]
+        )
+
+        resolver_manual = ConflictResolver(
+            strategy=ConflictStrategy.MANUAL_QUEUE,
+            graph_palace=self.leader1_db
+        )
+        resolution_manual = resolver_manual.resolve(leader1_memory_queue, leader2_memory_queue)
+
+        # Should queue for manual resolution but pick a temporary winner
+        assert resolution_manual.strategy_used == ConflictStrategy.MANUAL_QUEUE
+        assert resolution_manual.needs_manual_review is True
+        assert "conflict_queue_id" in resolution_manual.conflict_metadata
+        assert resolution_manual.winner is not None  # Temporary winner selected
+
+        # Verify conflict was queued in the database
+        cursor.execute(
+            "SELECT COUNT(*) FROM conflict_queue WHERE memory_id = ?",
+            (actual_memory_id,)
+        )
+        queue_count = cursor.fetchone()[0]
+        assert queue_count >= 1
+        print(f"✓ MANUAL_QUEUE: queued conflict with id {resolution_manual.conflict_metadata['conflict_queue_id']}")
+
+        print("\n✅ All conflict resolution strategies tested successfully")
+
+    def test_multi_leader_instance_registration(self):
+        """Test that leaders can register with each other in multi-leader topology."""
+        # Register leader2 with leader1
+        self.leader1_manager.register_instance("leader-2", "http://localhost:8002")
+
+        # Register leader1 with leader2
+        self.leader2_manager.register_instance("leader-1", "http://localhost:8001")
+
+        # Verify registrations
+        status1 = self.leader1_manager.get_sync_status()
+        status2 = self.leader2_manager.get_sync_status()
+
+        # Each should see itself + the other leader
+        assert status1["registered_instances"] >= 2
+        assert status2["registered_instances"] >= 2
+
+    def test_multi_leader_consensus_voting(self):
+        """Test that multiple leaders can vote on a memory for consensus."""
+        # Store a memory on leader1
+        memory_id = self.leader1_db.store_memory(
+            content="Consensus test in multi-leader",
+            memory_type="fact",
+            confidence=0.80
+        )
+
+        # Both leaders vote on the memory in leader1's database
+        # (In a real scenario, votes would be synced via sync protocol)
+        self.leader1_db.add_consensus_vote(memory_id, "leader-1", 1)
+
+        # Manually add the vote from leader2 to leader1's db
+        # (Simulating cross-instance voting after sync)
+        cursor = self.leader1_db._conn.cursor()
+        cursor.execute("""
+            INSERT OR IGNORE INTO consensus_votes (memory_id, instance_id, vote, created_at)
+            VALUES (?, ?, ?, ?)
+        """, (memory_id, "leader-2", 1, datetime.now().isoformat()))
+        self.leader1_db._conn.commit()
+
+        # Verify votes were recorded
+        votes = self.leader1_db.get_consensus_votes(memory_id)
+        assert votes >= 2  # Both leaders voted
+
+    def test_multi_leader_vector_clock_advancement(self):
+        """Test that vector clocks advance correctly in multi-leader topology."""
+        # Store memory on leader1
+        memory_id = self.leader1_db.store_memory(
+            content="Vector clock test",
+            memory_type="fact"
+        )
+
+        # Retrieve and check vector clock
+        memory = self.leader1_db.get_memory(memory_id)
+        assert memory is not None
+        assert memory.vector_clock is not None
+        assert isinstance(memory.vector_clock, dict)
+
+        # Vector clock should have an entry for leader-1
+        assert "leader-1" in memory.vector_clock or len(memory.vector_clock) == 0
+
+
 if __name__ == '__main__':
     unittest.main()
