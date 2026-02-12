@@ -485,6 +485,82 @@ async def end_session(request: EndSessionRequest, api_key: str = Depends(verify_
         )
 
 
+async def recall_stream(
+    query: str,
+    limit: int = 10,
+    min_relevance: float = 0.7,
+    memory_type: Optional[str] = None,
+    cursor: Optional[str] = None
+) -> AsyncGenerator[str, None]:
+    """
+    Generate SSE stream of recall results.
+
+    Streams individual memories as they are recalled, followed by pagination metadata.
+
+    Args:
+        query: Natural language search query
+        limit: Maximum number of results
+        min_relevance: Minimum relevance threshold
+        memory_type: Optional filter by memory type
+        cursor: Pagination cursor
+
+    Yields:
+        SSE-formatted recall data
+    """
+    try:
+        # Send initial connection message
+        yield f"data: {json.dumps({'type': 'stream_start', 'message': 'Recall stream started'})}\n\n"
+
+        # Perform recall
+        tools = get_memory_tools()
+        result = tools.recall(
+            query=query,
+            limit=limit,
+            min_relevance=min_relevance,
+            memory_type=memory_type,
+            cursor=cursor
+        )
+
+        # Stream each memory individually
+        for idx, memory in enumerate(result["memories"]):
+            memory_event = {
+                'type': 'memory',
+                'index': idx,
+                'data': memory
+            }
+            sse_data = f"data: {json.dumps(memory_event)}\n\n"
+            yield sse_data
+
+            # Small delay to prevent overwhelming the client
+            await asyncio.sleep(0.01)
+
+        # Send pagination metadata
+        metadata_event = {
+            'type': 'metadata',
+            'data': {
+                'count': len(result["memories"]),
+                'next_cursor': result.get('next_cursor', ''),
+                'has_more': result.get('has_more', False)
+            }
+        }
+        yield f"data: {json.dumps(metadata_event)}\n\n"
+
+        # Send stream completion message
+        yield f"data: {json.dumps({'type': 'stream_end', 'message': 'Recall stream completed'})}\n\n"
+
+    except asyncio.CancelledError:
+        logger.info("Recall stream cancelled by client")
+        raise
+    except Exception as e:
+        logger.error(f"Error in recall stream: {e}", exc_info=True)
+        error_event = {
+            'type': 'error',
+            'message': str(e)
+        }
+        yield f"data: {json.dumps(error_event)}\n\n"
+        raise
+
+
 async def event_stream(event_type_filter: Optional[str] = None) -> AsyncGenerator[str, None]:
     """
     Generate SSE stream of events from EventBus.
