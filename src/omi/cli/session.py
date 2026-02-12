@@ -335,6 +335,52 @@ def session_end(ctx, no_backup: bool) -> None:
         else:
             echo_verbose(click.style(" ⚠ Vault backup disabled (see config.yaml)", fg="yellow"), verbosity)
 
+    # Execute policies on session end
+    config_path = base_path / "config.yaml"
+    db_path = base_path / "palace.sqlite"
+
+    if db_path.exists():
+        try:
+            from ..policies import (
+                PolicyEngine,
+                load_policies_from_config,
+                get_default_policies
+            )
+
+            # Load policies from config or use defaults
+            policies = []
+            if config_path.exists():
+                try:
+                    policies = load_policies_from_config(config_path)
+                    echo_verbose(" ✓ Loaded policies from config", verbosity)
+                except Exception as e:
+                    echo_verbose(f" ⚠ Config load error, using defaults: {e}", verbosity)
+                    policies = get_default_policies()
+            else:
+                policies = get_default_policies()
+                echo_verbose(" ✓ Using default policies", verbosity)
+
+            # Initialize policy engine and execute policies
+            if policies:
+                palace = GraphPalace(db_path)
+                engine = PolicyEngine(palace)
+
+                # Register policies and execute
+                for policy in policies:
+                    engine.register_policy(policy)
+
+                results = engine.execute(dry_run=False)
+                palace.close()
+
+                # Log policy execution results
+                total_actions = sum(len(r.affected_memory_ids) for r in results)
+                if total_actions > 0:
+                    echo_verbose(f" ✓ Executed {len(results)} policies, {total_actions} memories affected", verbosity)
+                else:
+                    echo_verbose(" ✓ Policies executed, no actions needed", verbosity)
+        except Exception as e:
+            echo_verbose(f" ⚠ Policy execution error: {e}", verbosity)
+
     echo_normal(click.style("\n✓ Session ended", fg="green", bold=True), verbosity)
     echo_normal("Remember: The seeking is the continuity.", verbosity)
 
