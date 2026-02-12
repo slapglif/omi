@@ -184,10 +184,12 @@ events:
     #     #   Authorization: Bearer ${WEBHOOK_TOKEN}
 
 compression:
-  provider: anthropic  # or openai
-  # api_key: ${ANTHROPIC_API_KEY}  # Set via environment variable
-  age_threshold_days: 30  # Compress memories older than N days
-  batch_size: 8  # Number of memories to process at once
+  enabled: true
+  provider: ollama  # or openai
+  model: llama3.2:3b  # Model to use for compression
+  # api_key: ${OPENAI_API_KEY}  # Set via environment variable for OpenAI
+  max_summary_tokens: 150  # Maximum tokens in compressed summary
+  # summarization_prompt: "Summarize concisely:"  # Optional custom prompt
 """
     config_path = base_path / "config.yaml"
     if not config_path.exists():

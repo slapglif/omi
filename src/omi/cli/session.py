@@ -88,6 +88,14 @@ events:
     #     events: ["memory.stored", "session.started", "session.ended"]
     #     # headers:
     #     #   Authorization: Bearer ${WEBHOOK_TOKEN}
+
+compression:
+  enabled: true
+  provider: ollama  # or openai
+  model: llama3.2:3b  # Model to use for compression
+  # api_key: ${OPENAI_API_KEY}  # Set via environment variable for OpenAI
+  max_summary_tokens: 150  # Maximum tokens in compressed summary
+  # summarization_prompt: "Summarize concisely:"  # Optional custom prompt
 """
     config_path = base_path / "config.yaml"
     if not config_path.exists():
