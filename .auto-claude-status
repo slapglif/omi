@@ -3,13 +3,13 @@
   "spec": "049-multi-user-access-control-and-role-based-permissio",
   "state": "building",
   "subtasks": {
-    "completed": 4,
+    "completed": 6,
     "total": 17,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Core RBAC System",
+    "current": "CLI User Management",
     "id": null,
     "total": 3
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 6,
+    "number": 8,
     "started_at": "2026-02-12T05:35:44.171120"
   },
-  "last_update": "2026-02-12T05:55:21.269273"
+  "last_update": "2026-02-12T06:03:35.521179"
 }
