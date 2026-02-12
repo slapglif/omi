@@ -985,6 +985,181 @@ def delete_memories(graph_palace, memory_ids: List[str], safety_check: bool = Tr
         }
 
 
+def load_policies_from_config(config_path) -> List[Policy]:
+    """
+    Load policy configuration from config.yaml file.
+
+    Reads the policies section from a YAML config file and converts it
+    to a list of Policy objects with their associated PolicyRule objects.
+
+    Config YAML Schema:
+        policies:
+          - name: "archive-old-memories"
+            enabled: true
+            description: "Archive memories older than 90 days"
+            priority: 1
+            schedule: "daily"
+            rules:
+              - name: "archive-old-facts"
+                policy_type: "retention"
+                action: "archive"
+                enabled: true
+                memory_type_filter: "fact"
+                conditions:
+                  max_age_days: 90
+              - name: "archive-old-experiences"
+                policy_type: "retention"
+                action: "archive"
+                enabled: true
+                memory_type_filter: "experience"
+                conditions:
+                  max_age_days: 60
+
+    Args:
+        config_path: Path to config.yaml file (can be Path or str)
+
+    Returns:
+        List of Policy objects loaded from configuration
+
+    Raises:
+        FileNotFoundError: If config file doesn't exist
+        ValueError: If config YAML is invalid or policies section is malformed
+        KeyError: If required fields are missing from policy or rule definitions
+
+    Example:
+        from pathlib import Path
+        from omi.policies import load_policies_from_config
+
+        config_path = Path("~/.openclaw/omi/config.yaml").expanduser()
+        policies = load_policies_from_config(config_path)
+        for policy in policies:
+            print(f"Loaded policy: {policy.name}")
+    """
+    from pathlib import Path
+    import yaml
+
+    # Convert to Path if string
+    if isinstance(config_path, str):
+        config_path = Path(config_path)
+
+    # Check if file exists
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    try:
+        # Read and parse YAML
+        config_data = yaml.safe_load(config_path.read_text()) or {}
+    except yaml.YAMLError as e:
+        raise ValueError(f"Invalid YAML in config file: {e}")
+
+    # Extract policies section
+    policies_data = config_data.get("policies", [])
+    if not isinstance(policies_data, list):
+        raise ValueError("'policies' section must be a list")
+
+    policies = []
+
+    for policy_dict in policies_data:
+        try:
+            # Extract policy fields
+            name = policy_dict["name"]
+            enabled = policy_dict.get("enabled", True)
+            description = policy_dict.get("description")
+            priority = policy_dict.get("priority", 0)
+            schedule = policy_dict.get("schedule")
+            metadata = policy_dict.get("metadata")
+
+            # Parse datetime fields if present
+            created_at = None
+            if "created_at" in policy_dict:
+                created_at_str = policy_dict["created_at"]
+                if created_at_str:
+                    created_at = datetime.fromisoformat(created_at_str)
+
+            last_executed = None
+            if "last_executed" in policy_dict:
+                last_executed_str = policy_dict["last_executed"]
+                if last_executed_str:
+                    last_executed = datetime.fromisoformat(last_executed_str)
+
+            execution_count = policy_dict.get("execution_count", 0)
+
+            # Parse rules
+            rules_data = policy_dict.get("rules", [])
+            rules = []
+
+            for rule_dict in rules_data:
+                # Extract rule fields
+                rule_name = rule_dict["name"]
+                policy_type_str = rule_dict["policy_type"]
+                action_str = rule_dict["action"]
+                conditions = rule_dict.get("conditions", {})
+                rule_enabled = rule_dict.get("enabled", True)
+                rule_description = rule_dict.get("description")
+                memory_type_filter = rule_dict.get("memory_type_filter")
+                rule_metadata = rule_dict.get("metadata")
+
+                # Convert enum strings to enum values
+                try:
+                    policy_type = PolicyType(policy_type_str)
+                except ValueError:
+                    raise ValueError(
+                        f"Invalid policy_type '{policy_type_str}' in rule '{rule_name}'. "
+                        f"Valid values: {[t.value for t in PolicyType]}"
+                    )
+
+                try:
+                    action = PolicyAction(action_str)
+                except ValueError:
+                    raise ValueError(
+                        f"Invalid action '{action_str}' in rule '{rule_name}'. "
+                        f"Valid values: {[a.value for a in PolicyAction]}"
+                    )
+
+                # Parse rule created_at if present
+                rule_created_at = None
+                if "created_at" in rule_dict:
+                    rule_created_at_str = rule_dict["created_at"]
+                    if rule_created_at_str:
+                        rule_created_at = datetime.fromisoformat(rule_created_at_str)
+
+                # Create PolicyRule object
+                rule = PolicyRule(
+                    name=rule_name,
+                    policy_type=policy_type,
+                    action=action,
+                    conditions=conditions,
+                    enabled=rule_enabled,
+                    description=rule_description,
+                    memory_type_filter=memory_type_filter,
+                    created_at=rule_created_at or datetime.now(),
+                    metadata=rule_metadata
+                )
+                rules.append(rule)
+
+            # Create Policy object
+            policy = Policy(
+                name=name,
+                rules=rules,
+                enabled=enabled,
+                description=description,
+                priority=priority,
+                schedule=schedule,
+                created_at=created_at or datetime.now(),
+                last_executed=last_executed,
+                execution_count=execution_count,
+                metadata=metadata
+            )
+            policies.append(policy)
+
+        except KeyError as e:
+            raise KeyError(f"Missing required field in policy configuration: {e}")
+        except Exception as e:
+            raise ValueError(f"Error parsing policy '{policy_dict.get('name', 'unknown')}': {e}")
+
+    return policies
+
+
 # Export all policy types, actions, and classes
 __all__ = [
     "PolicyType",
@@ -996,7 +1171,9 @@ __all__ = [
     "ConfidencePolicy",
     "PolicyEngine",
     "PolicyExecutionResult",
+    "PolicyExecutionLog",
     "archive_memories",
     "delete_memories",
     "is_memory_locked",
+    "load_policies_from_config",
 ]
