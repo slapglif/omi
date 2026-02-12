@@ -667,6 +667,63 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(len(memories), 0)
         self.assertTrue(any(m.id == memory_id for m in memories))
 
+    async def test_list_memories_basic(self):
+        """Test basic list_memories pagination."""
+        # Store some test memories
+        for i in range(5):
+            await self.palace.store_memory(
+                content=f"Test memory {i}",
+                memory_type="experience"
+            )
+
+        # Test basic list
+        result = await self.palace.list_memories(limit=3)
+
+        self.assertEqual(len(result['memories']), 3, "Should return 3 memories")
+        self.assertEqual(result['total_count'], 5, "Should have 5 total memories")
+        self.assertTrue(result['has_more'], "Should have more results")
+        self.assertNotEqual(result['next_cursor'], "", "Should have next cursor")
+
+        # Test pagination with cursor
+        result2 = await self.palace.list_memories(limit=3, cursor=result['next_cursor'])
+        self.assertEqual(len(result2['memories']), 2, "Should return 2 remaining memories")
+        self.assertFalse(result2['has_more'], "Should have no more results")
+
+    async def test_list_beliefs_basic(self):
+        """Test basic list_beliefs pagination."""
+        # Store some test beliefs
+        for i in range(3):
+            await self.palace.store_memory(
+                content=f"Test belief {i}",
+                memory_type="belief",
+                confidence=0.5 + (i * 0.1)
+            )
+
+        # Test basic list
+        result = await self.palace.list_beliefs(limit=2)
+
+        self.assertEqual(len(result['beliefs']), 2, "Should return 2 beliefs")
+        self.assertEqual(result['total_count'], 3, "Should have 3 total beliefs")
+        self.assertTrue(result['has_more'], "Should have more results")
+
+    async def test_list_edges_basic(self):
+        """Test basic list_edges pagination."""
+        # Create memories and edges
+        m1 = await self.palace.store_memory(content="Memory 1", memory_type="fact")
+        m2 = await self.palace.store_memory(content="Memory 2", memory_type="fact")
+        m3 = await self.palace.store_memory(content="Memory 3", memory_type="fact")
+
+        await self.palace.create_edge(m1, m2, "SUPPORTS", strength=0.8)
+        await self.palace.create_edge(m2, m3, "RELATED_TO", strength=0.6)
+        await self.palace.create_edge(m3, m1, "DEPENDS_ON", strength=0.9)
+
+        # Test basic list
+        result = await self.palace.list_edges(limit=2)
+
+        self.assertEqual(len(result['edges']), 2, "Should return 2 edges")
+        self.assertEqual(result['total_count'], 3, "Should have 3 total edges")
+        self.assertTrue(result['has_more'], "Should have more results")
+
 
 class TestMemoryDataclass(unittest.TestCase):
     """Test Memory dataclass."""
