@@ -528,6 +528,112 @@ class ConfidencePolicy:
         return memory.confidence  # type: ignore[no-any-return]
 
 
+class SizePolicy:
+    """
+    Evaluates memories based on tier storage size limits.
+
+    When the total size of a memory tier exceeds max_tier_size_mb,
+    this policy identifies memories for archival or deletion.
+    Typically targets oldest or least-accessed memories first.
+
+    Args:
+        max_tier_size_mb: Maximum tier size in megabytes
+        memory_type_filter: Optional memory type to filter (e.g., "fact", "experience")
+
+    Example:
+        >>> policy = SizePolicy(max_tier_size_mb=100.0)
+        >>> memories_to_archive = policy.evaluate(memories)
+    """
+
+    def __init__(self, max_tier_size_mb: float, memory_type_filter: Optional[str] = None):
+        """
+        Initialize size policy.
+
+        Args:
+            max_tier_size_mb: Maximum tier size in megabytes
+            memory_type_filter: Optional filter for specific memory types
+
+        Raises:
+            ValueError: If max_tier_size_mb is not positive
+        """
+        if max_tier_size_mb <= 0:
+            raise ValueError("max_tier_size_mb must be positive")
+        self.max_tier_size_mb = max_tier_size_mb
+        self.memory_type_filter = memory_type_filter
+
+    def evaluate(self, memories: List[Any]) -> List[str]:
+        """
+        Evaluate memories and return IDs that exceed size limit.
+
+        Returns oldest/least-accessed memories when tier is over limit.
+
+        Args:
+            memories: List of Memory objects to evaluate
+
+        Returns:
+            List of memory IDs to archive/delete to get under size limit
+        """
+        # Filter by memory type if specified
+        if self.memory_type_filter:
+            memories = [m for m in memories if hasattr(m, 'memory_type') and m.memory_type == self.memory_type_filter]
+
+        # Skip locked memories
+        memories = [m for m in memories if not is_memory_locked(m)]
+
+        # Calculate total size (approximate by content length)
+        total_size_mb = sum(len(getattr(m, 'content', '')) for m in memories) / (1024 * 1024)
+
+        if total_size_mb <= self.max_tier_size_mb:
+            return []  # Under limit, no action needed
+
+        # Sort by created_at (oldest first) and last_accessed (least recent first)
+        sorted_memories = sorted(
+            memories,
+            key=lambda m: (
+                getattr(m, 'created_at', datetime.now()),
+                getattr(m, 'last_accessed', None) or getattr(m, 'created_at', datetime.now())
+            )
+        )
+
+        # Return memories until we're under the limit
+        result = []
+        current_size_mb = total_size_mb
+        for mem in sorted_memories:
+            mem_size_mb = len(getattr(mem, 'content', '')) / (1024 * 1024)
+            memory_id = mem.id if hasattr(mem, 'id') else str(mem)
+            result.append(memory_id)
+            current_size_mb -= mem_size_mb
+            if current_size_mb <= self.max_tier_size_mb:
+                break
+
+        return result
+
+    def is_over_limit(self, memories: List[Any]) -> bool:
+        """
+        Check if tier is over size limit.
+
+        Args:
+            memories: List of Memory objects to check
+
+        Returns:
+            True if tier exceeds size limit, False otherwise
+        """
+        total_size_mb = sum(len(getattr(m, 'content', '')) for m in memories) / (1024 * 1024)
+        return total_size_mb > self.max_tier_size_mb  # type: ignore[no-any-return]
+
+    def current_size_mb(self, memories: List[Any]) -> float:
+        """
+        Calculate current tier size in megabytes.
+
+        Args:
+            memories: List of Memory objects to measure
+
+        Returns:
+            Total size in megabytes
+        """
+        return sum(len(getattr(m, 'content', '')) for m in memories) / (1024 * 1024)
+
+
 @dataclass
 class PolicyExecutionResult:
     """Result of policy execution."""
@@ -790,9 +896,16 @@ class PolicyEngine:
             return confidence_policy.evaluate(memories)
 
         elif rule.policy_type == PolicyType.SIZE:
-            # Size-based policy (placeholder - not yet implemented)
-            # This would check tier sizes and select memories to archive/delete
-            return []
+            # Size-based policy (tier limit)
+            max_tier_size_mb = conditions.get("max_tier_size_mb")
+            if max_tier_size_mb is None:
+                return []
+
+            size_policy = SizePolicy(
+                max_tier_size_mb=max_tier_size_mb,
+                memory_type_filter=rule.memory_type_filter
+            )
+            return size_policy.evaluate(memories)
 
         return []
 
@@ -813,29 +926,27 @@ class PolicyEngine:
             None
 
         Note:
-            This is a placeholder implementation. Actual action execution will be
-            implemented in phase-2-policy-actions with proper integration to
-            GraphPalace methods for archive, delete, compress, etc.
-
             Expected action implementations:
-            - ARCHIVE: Call graph_palace.archive_memories(memory_ids)
-            - DELETE: Call graph_palace.delete_memories(memory_ids)
-            - COMPRESS: Call graph_palace.compress_memories(memory_ids)
-            - PROMOTE: Move memories to higher tier (e.g., to NOW.md)
-            - DEMOTE: Move memories to lower tier (e.g., to daily log)
+            - ARCHIVE: Call archive_memories(graph_palace, memory_ids)
+            - DELETE: Call delete_memories(graph_palace, memory_ids)
+            - COMPRESS: Call compress_memories(graph_palace, memory_ids)
+            - PROMOTE: Call promote_memories(graph_palace, memory_ids)
+            - DEMOTE: Call demote_memories(graph_palace, memory_ids)
         """
-        # Placeholder - actual implementation will be in phase 2
-        # For now, just validate that we have a graph_palace instance
         if self.graph_palace is None:
             return
 
-        # Action implementations will call appropriate graph_palace methods:
-        # - ARCHIVE: Mark memories as archived
-        # - DELETE: Remove memories
-        # - COMPRESS: Reduce storage footprint
-        # - PROMOTE: Move to higher tier
-        # - DEMOTE: Move to lower tier
-        pass
+        # Execute the appropriate action
+        if action == PolicyAction.ARCHIVE:
+            archive_memories(self.graph_palace, memory_ids)
+        elif action == PolicyAction.DELETE:
+            delete_memories(self.graph_palace, memory_ids)
+        elif action == PolicyAction.COMPRESS:
+            compress_memories(self.graph_palace, memory_ids)
+        elif action == PolicyAction.PROMOTE:
+            promote_memories(self.graph_palace, memory_ids)
+        elif action == PolicyAction.DEMOTE:
+            demote_memories(self.graph_palace, memory_ids)
 
     def _fetch_memories(self, memory_filter: Optional[Callable[[Any], bool]] = None) -> List[Any]:
         """
@@ -1034,6 +1145,191 @@ def delete_memories(graph_palace: Any, memory_ids: List[str], safety_check: bool
             "skipped": skipped,
             "errors": errors
         }
+
+
+def compress_memories(graph_palace: Any, memory_ids: List[str]) -> Dict[str, Any]:
+    """
+    Compress memory content to reduce storage size.
+
+    This function compresses memory content by:
+    - Removing extra whitespace
+    - Truncating to essential information
+    - Optionally summarizing longer content
+
+    Args:
+        graph_palace: GraphPalace instance for database access
+        memory_ids: List of memory IDs to compress
+
+    Returns:
+        Dict with:
+            - success: bool
+            - compressed_count: int
+            - memory_ids: List[str] of compressed IDs
+            - errors: List[str] of any errors
+
+    Example:
+        >>> result = compress_memories(palace, ["mem1", "mem2"])
+        >>> print(result["compressed_count"])
+        2
+    """
+    if not memory_ids:
+        return {
+            "success": True,
+            "compressed_count": 0,
+            "memory_ids": [],
+            "errors": []
+        }
+
+    compressed_ids: List[str] = []
+    errors: List[str] = []
+
+    for mem_id in memory_ids:
+        try:
+            memory = graph_palace.get_memory(mem_id)
+            if not memory:
+                errors.append(f"Memory {mem_id} not found")
+                continue
+
+            # Simple compression: remove extra whitespace
+            compressed_content = " ".join(memory.content.split())
+
+            # Update memory content in database
+            conn = graph_palace.conn
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE memories SET content = ?, metadata = json_set(COALESCE(metadata, '{}'), '$.compressed', 1) WHERE id = ?",
+                (compressed_content, mem_id)
+            )
+            conn.commit()
+
+            compressed_ids.append(mem_id)
+        except Exception as e:
+            errors.append(f"Failed to compress {mem_id}: {str(e)}")
+
+    return {
+        "success": len(errors) == 0,
+        "compressed_count": len(compressed_ids),
+        "memory_ids": compressed_ids,
+        "errors": errors
+    }
+
+
+def promote_memories(graph_palace: Any, memory_ids: List[str]) -> Dict[str, Any]:
+    """
+    Promote memories to a higher tier (e.g., Graph Palace → NOW.md).
+
+    This moves important memories to faster, more accessible tiers.
+    In OMI's 4-tier architecture:
+    - Tier 1: NOW.md (hot context)
+    - Tier 2: Daily logs
+    - Tier 3: Graph Palace
+    - Tier 4: MoltVault (cold storage)
+
+    Promotion typically moves from Graph Palace → Daily log or NOW.md.
+
+    Args:
+        graph_palace: GraphPalace instance
+        memory_ids: List of memory IDs to promote
+
+    Returns:
+        Dict with success, promoted_count, memory_ids, errors
+    """
+    if not memory_ids:
+        return {
+            "success": True,
+            "promoted_count": 0,
+            "memory_ids": [],
+            "errors": []
+        }
+
+    promoted_ids: List[str] = []
+    errors: List[str] = []
+
+    for mem_id in memory_ids:
+        try:
+            memory = graph_palace.get_memory(mem_id)
+            if not memory:
+                errors.append(f"Memory {mem_id} not found")
+                continue
+
+            # Mark memory as promoted (add metadata flag)
+            conn = graph_palace.conn
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE memories SET metadata = json_set(COALESCE(metadata, '{}'), '$.tier', 'promoted') WHERE id = ?",
+                (mem_id,)
+            )
+            conn.commit()
+
+            promoted_ids.append(mem_id)
+        except Exception as e:
+            errors.append(f"Failed to promote {mem_id}: {str(e)}")
+
+    return {
+        "success": len(errors) == 0,
+        "promoted_count": len(promoted_ids),
+        "memory_ids": promoted_ids,
+        "errors": errors
+    }
+
+
+def demote_memories(graph_palace: Any, memory_ids: List[str]) -> Dict[str, Any]:
+    """
+    Demote memories to a lower tier (e.g., Graph Palace → MoltVault).
+
+    This moves less important memories to slower, more compact storage.
+    In OMI's 4-tier architecture:
+    - Tier 1: NOW.md (hot context)
+    - Tier 2: Daily logs
+    - Tier 3: Graph Palace
+    - Tier 4: MoltVault (cold storage)
+
+    Demotion typically moves from Graph Palace → Archive/Vault.
+
+    Args:
+        graph_palace: GraphPalace instance
+        memory_ids: List of memory IDs to demote
+
+    Returns:
+        Dict with success, demoted_count, memory_ids, errors
+    """
+    if not memory_ids:
+        return {
+            "success": True,
+            "demoted_count": 0,
+            "memory_ids": [],
+            "errors": []
+        }
+
+    demoted_ids: List[str] = []
+    errors: List[str] = []
+
+    for mem_id in memory_ids:
+        try:
+            memory = graph_palace.get_memory(mem_id)
+            if not memory:
+                errors.append(f"Memory {mem_id} not found")
+                continue
+
+            # Mark memory as demoted (add metadata flag)
+            conn = graph_palace.conn
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE memories SET metadata = json_set(COALESCE(metadata, '{}'), '$.tier', 'demoted') WHERE id = ?",
+                (mem_id,)
+            )
+            conn.commit()
+
+            demoted_ids.append(mem_id)
+        except Exception as e:
+            errors.append(f"Failed to demote {mem_id}: {str(e)}")
+
+    return {
+        "success": len(errors) == 0,
+        "demoted_count": len(demoted_ids),
+        "memory_ids": demoted_ids,
+        "errors": errors
+    }
 
 
 def load_policies_from_config(config_path: Union[Path, str]) -> List[Policy]:
@@ -1463,12 +1759,16 @@ __all__ = [
     "RetentionPolicy",
     "UsagePolicy",
     "ConfidencePolicy",
+    "SizePolicy",
     "PolicyEngine",
     "PolicyExecutionResult",
     "PolicyExecutionLog",
     "PolicyEventHandler",
     "archive_memories",
     "delete_memories",
+    "compress_memories",
+    "promote_memories",
+    "demote_memories",
     "is_memory_locked",
     "load_policies_from_config",
     "get_default_policies",

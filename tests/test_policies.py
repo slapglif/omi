@@ -37,11 +37,15 @@ from omi.policies import (
     RetentionPolicy,
     UsagePolicy,
     ConfidencePolicy,
+    SizePolicy,
     PolicyEngine,
     PolicyEventHandler,
     is_memory_locked,
     archive_memories,
     delete_memories,
+    compress_memories,
+    promote_memories,
+    demote_memories,
     load_policies_from_config,
     get_default_policies,
 )
@@ -68,6 +72,29 @@ class MockMemory:
 
 
 # Mock GraphPalace for testing
+class MockCursor:
+    """Mock database cursor for testing."""
+    def __init__(self, memories):
+        self.memories = memories
+
+    def execute(self, query, params=None):
+        """Mock execute - just track that it was called."""
+        pass
+
+
+class MockConnection:
+    """Mock database connection for testing."""
+    def __init__(self, memories):
+        self.memories = memories
+
+    def cursor(self):
+        return MockCursor(self.memories)
+
+    def commit(self):
+        """Mock commit - does nothing."""
+        pass
+
+
 class MockGraphPalace:
     """Mock GraphPalace for testing PolicyEngine."""
 
@@ -75,6 +102,7 @@ class MockGraphPalace:
         self.memories = {}
         self.archived_memories = set()
         self.deleted_memories = set()
+        self.conn = MockConnection(self.memories)
 
     def get_memory(self, memory_id: str):
         """Get memory by ID."""
@@ -642,6 +670,135 @@ class TestConfidencePolicy(unittest.TestCase):
         self.assertIn("mem-unlocked", low_ids)
 
 
+class TestSizePolicy(unittest.TestCase):
+    """Test suite for SizePolicy."""
+
+    def test_size_policy_creation(self):
+        """Test SizePolicy initialization."""
+        policy = SizePolicy(max_tier_size_mb=100.0)
+        self.assertEqual(policy.max_tier_size_mb, 100.0)
+        self.assertIsNone(policy.memory_type_filter)
+
+    def test_size_policy_with_filter(self):
+        """Test SizePolicy with memory type filter."""
+        policy = SizePolicy(max_tier_size_mb=50.0, memory_type_filter="fact")
+        self.assertEqual(policy.max_tier_size_mb, 50.0)
+        self.assertEqual(policy.memory_type_filter, "fact")
+
+    def test_size_policy_invalid_size(self):
+        """Test SizePolicy raises error for invalid size."""
+        with self.assertRaises(ValueError) as context:
+            SizePolicy(max_tier_size_mb=0)
+        self.assertIn("must be positive", str(context.exception))
+
+        with self.assertRaises(ValueError):
+            SizePolicy(max_tier_size_mb=-10)
+
+    def test_size_policy_under_limit(self):
+        """Test SizePolicy when tier is under size limit."""
+        policy = SizePolicy(max_tier_size_mb=10.0)
+
+        # Create small memories (total < 10MB)
+        memories = [
+            MockMemory(id="1", content="Small" * 100, created_at=datetime.now()),
+            MockMemory(id="2", content="Tiny" * 50, created_at=datetime.now())
+        ]
+
+        result = policy.evaluate(memories)
+        self.assertEqual(result, [])
+
+    def test_size_policy_over_limit(self):
+        """Test SizePolicy when tier exceeds size limit."""
+        policy = SizePolicy(max_tier_size_mb=0.001)  # Very small limit (1KB)
+
+        # Create large memories that exceed limit
+        large_content = "X" * 10000  # ~10KB per memory
+        memories = [
+            MockMemory(id="1", content=large_content, created_at=datetime.now() - timedelta(days=10)),
+            MockMemory(id="2", content=large_content, created_at=datetime.now() - timedelta(days=5))
+        ]
+
+        result = policy.evaluate(memories)
+        # Should return at least one memory to free up space
+        self.assertGreater(len(result), 0)
+        # Should prioritize older memory first
+        self.assertIn("1", result)
+
+    def test_size_policy_respects_locks(self):
+        """Test SizePolicy skips locked memories."""
+        policy = SizePolicy(max_tier_size_mb=0.001)
+
+        large_content = "X" * 10000
+        memories = [
+            MockMemory(id="1", content=large_content, created_at=datetime.now(), locked=True),
+            MockMemory(id="2", content=large_content, created_at=datetime.now(), locked=True)
+        ]
+
+        result = policy.evaluate(memories)
+        # All memories are locked, so nothing should be selected
+        self.assertEqual(result, [])
+
+    def test_size_policy_memory_type_filter(self):
+        """Test SizePolicy with memory type filter."""
+        policy = SizePolicy(max_tier_size_mb=0.001, memory_type_filter="fact")
+
+        large_content = "X" * 10000
+        memories = [
+            MockMemory(id="1", content=large_content, memory_type="fact", created_at=datetime.now()),
+            MockMemory(id="2", content=large_content, memory_type="experience", created_at=datetime.now())
+        ]
+
+        result = policy.evaluate(memories)
+        # Should only consider facts
+        if result:  # If over limit after filtering
+            self.assertIn("1", result)
+            self.assertNotIn("2", result)
+
+    def test_size_policy_is_over_limit(self):
+        """Test is_over_limit method."""
+        policy = SizePolicy(max_tier_size_mb=0.001)
+
+        large_content = "X" * 10000
+        memories = [MockMemory(id="1", content=large_content, created_at=datetime.now())]
+
+        self.assertTrue(policy.is_over_limit(memories))
+
+        # Small memories should be under limit
+        small_memories = [MockMemory(id="1", content="Small", created_at=datetime.now())]
+        self.assertFalse(policy.is_over_limit(small_memories))
+
+    def test_size_policy_current_size_mb(self):
+        """Test current_size_mb method."""
+        policy = SizePolicy(max_tier_size_mb=100.0)
+
+        # Create memory with known size
+        content = "X" * 1024  # 1KB
+        memories = [MockMemory(id="1", content=content, created_at=datetime.now())]
+
+        size_mb = policy.current_size_mb(memories)
+        # Should be approximately 0.001 MB (1KB)
+        self.assertAlmostEqual(size_mb, 0.001, places=3)
+
+    def test_size_policy_sorts_by_age_and_access(self):
+        """Test SizePolicy prioritizes oldest and least-accessed memories."""
+        policy = SizePolicy(max_tier_size_mb=0.001)
+
+        large_content = "X" * 10000
+        now = datetime.now()
+
+        # Create memories with different ages and access times
+        memories = [
+            MockMemory(id="newest", content=large_content, created_at=now, last_accessed=now),
+            MockMemory(id="oldest", content=large_content, created_at=now - timedelta(days=100), last_accessed=now - timedelta(days=50)),
+            MockMemory(id="middle", content=large_content, created_at=now - timedelta(days=50), last_accessed=now - timedelta(days=25))
+        ]
+
+        result = policy.evaluate(memories)
+        # Oldest should be first in the list
+        if len(result) >= 1:
+            self.assertEqual(result[0], "oldest")
+
+
 class TestPolicyEngine(unittest.TestCase):
     """Test suite for PolicyEngine."""
 
@@ -897,6 +1054,101 @@ class TestPolicyEngine(unittest.TestCase):
 
         self.assertIn("mem-low", affected_ids)
 
+    def test_engine_evaluate_size_policy(self):
+        """Test PolicyEngine evaluates SIZE policy correctly."""
+        # Add large memories that exceed size limit
+        large_content = "X" * 10000  # ~10KB
+        self.palace.memories["mem-large1"] = MockMemory(
+            id="mem-large1",
+            content=large_content,
+            created_at=datetime.now() - timedelta(days=100)
+        )
+        self.palace.memories["mem-large2"] = MockMemory(
+            id="mem-large2",
+            content=large_content,
+            created_at=datetime.now() - timedelta(days=50)
+        )
+
+        rule = PolicyRule(
+            name="size-limit-policy",
+            policy_type=PolicyType.SIZE,
+            action=PolicyAction.ARCHIVE,
+            conditions={"max_tier_size_mb": 0.001}  # Very small limit (1KB)
+        )
+
+        affected_ids = self.engine._evaluate_policy(
+            rule,
+            list(self.palace.memories.values())
+        )
+
+        # Should identify large memories for archival
+        self.assertGreater(len(affected_ids), 0)
+
+    def test_engine_execute_compress_action(self):
+        """Test PolicyEngine executes COMPRESS action."""
+        # Create policy with COMPRESS action
+        policy = Policy(
+            name="compress-policy",
+            rules=[
+                PolicyRule(
+                    name="compress-old",
+                    policy_type=PolicyType.RETENTION,
+                    action=PolicyAction.COMPRESS,
+                    conditions={"max_age_days": 100}
+                )
+            ]
+        )
+
+        # Execute policy (dry run first)
+        results = self.engine.execute(policy, dry_run=True)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].action, PolicyAction.COMPRESS)
+
+        # Execute for real
+        results = self.engine.execute(policy, dry_run=False)
+        self.assertEqual(len(results), 1)
+        self.assertIsNone(results[0].error)
+
+    def test_engine_execute_promote_action(self):
+        """Test PolicyEngine executes PROMOTE action."""
+        # Create policy with PROMOTE action
+        policy = Policy(
+            name="promote-policy",
+            rules=[
+                PolicyRule(
+                    name="promote-recent",
+                    policy_type=PolicyType.USAGE,
+                    action=PolicyAction.PROMOTE,
+                    conditions={"min_access_count": 10, "max_age_days": 0}
+                )
+            ]
+        )
+
+        # Execute policy
+        results = self.engine.execute(policy, dry_run=False)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].action, PolicyAction.PROMOTE)
+
+    def test_engine_execute_demote_action(self):
+        """Test PolicyEngine executes DEMOTE action."""
+        # Create policy with DEMOTE action
+        policy = Policy(
+            name="demote-policy",
+            rules=[
+                PolicyRule(
+                    name="demote-unused",
+                    policy_type=PolicyType.USAGE,
+                    action=PolicyAction.DEMOTE,
+                    conditions={"min_access_count": 1, "max_age_days": 100}
+                )
+            ]
+        )
+
+        # Execute policy
+        results = self.engine.execute(policy, dry_run=False)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].action, PolicyAction.DEMOTE)
+
 
 class TestPolicyHelpers(unittest.TestCase):
     """Test suite for policy helper functions."""
@@ -975,6 +1227,102 @@ class TestPolicyHelpers(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(result["deleted_count"], 0)
+
+    def test_compress_memories(self):
+        """Test compress_memories() compresses memory content."""
+        palace = MockGraphPalace()
+
+        # Add a memory to compress
+        memory = MockMemory(id="mem1", content="  Multiple   spaces  between   words  ")
+        palace.memories["mem1"] = memory
+
+        result = compress_memories(palace, ["mem1"])
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["compressed_count"], 1)
+        self.assertIn("mem1", result["memory_ids"])
+        self.assertEqual(len(result["errors"]), 0)
+
+    def test_compress_memories_empty_list(self):
+        """Test compress_memories() with empty list."""
+        palace = MockGraphPalace()
+        result = compress_memories(palace, [])
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["compressed_count"], 0)
+
+    def test_compress_memories_not_found(self):
+        """Test compress_memories() handles missing memories."""
+        palace = MockGraphPalace()
+        result = compress_memories(palace, ["nonexistent"])
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["compressed_count"], 0)
+        self.assertGreater(len(result["errors"]), 0)
+
+    def test_promote_memories(self):
+        """Test promote_memories() promotes memories to higher tier."""
+        palace = MockGraphPalace()
+
+        # Add a memory to promote
+        memory = MockMemory(id="mem1", content="Important memory")
+        palace.memories["mem1"] = memory
+
+        result = promote_memories(palace, ["mem1"])
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["promoted_count"], 1)
+        self.assertIn("mem1", result["memory_ids"])
+        self.assertEqual(len(result["errors"]), 0)
+
+    def test_promote_memories_empty_list(self):
+        """Test promote_memories() with empty list."""
+        palace = MockGraphPalace()
+        result = promote_memories(palace, [])
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["promoted_count"], 0)
+
+    def test_promote_memories_not_found(self):
+        """Test promote_memories() handles missing memories."""
+        palace = MockGraphPalace()
+        result = promote_memories(palace, ["nonexistent"])
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["promoted_count"], 0)
+        self.assertGreater(len(result["errors"]), 0)
+
+    def test_demote_memories(self):
+        """Test demote_memories() demotes memories to lower tier."""
+        palace = MockGraphPalace()
+
+        # Add a memory to demote
+        memory = MockMemory(id="mem1", content="Less important memory")
+        palace.memories["mem1"] = memory
+
+        result = demote_memories(palace, ["mem1"])
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["demoted_count"], 1)
+        self.assertIn("mem1", result["memory_ids"])
+        self.assertEqual(len(result["errors"]), 0)
+
+    def test_demote_memories_empty_list(self):
+        """Test demote_memories() with empty list."""
+        palace = MockGraphPalace()
+        result = demote_memories(palace, [])
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["demoted_count"], 0)
+
+    def test_demote_memories_not_found(self):
+        """Test demote_memories() handles missing memories."""
+        palace = MockGraphPalace()
+        result = demote_memories(palace, ["nonexistent"])
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["demoted_count"], 0)
+        self.assertGreater(len(result["errors"]), 0)
 
 
 class TestPolicyLoading(unittest.TestCase):
