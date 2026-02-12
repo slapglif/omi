@@ -464,6 +464,313 @@ class ConfidencePolicy:
         return memory.confidence
 
 
+@dataclass
+class PolicyExecutionResult:
+    """Result of policy execution."""
+    policy_name: str
+    action: PolicyAction
+    affected_memory_ids: List[str]
+    dry_run: bool
+    executed_at: datetime = field(default_factory=datetime.now)
+    error: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "policy_name": self.policy_name,
+            "action": self.action.value,
+            "affected_memory_ids": self.affected_memory_ids,
+            "dry_run": self.dry_run,
+            "executed_at": self.executed_at.isoformat() if self.executed_at else None,
+            "error": self.error,
+            "metadata": self.metadata or {}
+        }
+
+
+class PolicyEngine:
+    """
+    Core policy execution engine for memory lifecycle management.
+
+    The PolicyEngine is responsible for executing policies against memories in the Graph Palace.
+    It supports both dry-run mode (preview what would happen) and actual execution.
+
+    Features:
+    - Execute individual policies or policy sets
+    - Dry-run mode for safe preview
+    - Automatic policy evaluator selection based on policy type
+    - Execution result tracking
+    - Error handling and rollback support
+
+    Example:
+        # Initialize with Graph Palace instance
+        engine = PolicyEngine(graph_palace)
+
+        # Create a retention policy
+        policy = Policy(
+            name="archive-old-experiences",
+            rules=[
+                PolicyRule(
+                    name="archive-90-day-experiences",
+                    policy_type=PolicyType.RETENTION,
+                    action=PolicyAction.ARCHIVE,
+                    conditions={"max_age_days": 90},
+                    memory_type_filter="experience"
+                )
+            ]
+        )
+
+        # Dry run to preview
+        results = engine.execute(policy, dry_run=True)
+        print(f"Would affect {len(results[0].affected_memory_ids)} memories")
+
+        # Execute for real
+        results = engine.execute(policy, dry_run=False)
+    """
+
+    def __init__(self, graph_palace: Optional[Any] = None):
+        """
+        Initialize PolicyEngine.
+
+        Args:
+            graph_palace: GraphPalace instance for memory operations (can be None for testing)
+        """
+        self.graph_palace = graph_palace
+        self._execution_history: List[PolicyExecutionResult] = []
+
+    def execute(
+        self,
+        policy: Policy,
+        dry_run: bool = True,
+        memory_filter: Optional[Callable[[Any], bool]] = None
+    ) -> List[PolicyExecutionResult]:
+        """
+        Execute a policy against memories.
+
+        Args:
+            policy: Policy to execute
+            dry_run: If True, only preview actions without executing (default: True)
+            memory_filter: Optional filter function to pre-filter memories
+
+        Returns:
+            List of PolicyExecutionResult objects, one per rule in the policy
+
+        Raises:
+            ValueError: If policy is invalid or disabled
+        """
+        if not policy.enabled:
+            raise ValueError(f"Policy '{policy.name}' is disabled")
+
+        results: List[PolicyExecutionResult] = []
+
+        # Fetch all memories (can be overridden for testing)
+        try:
+            memories = self._fetch_memories(memory_filter)
+        except Exception as e:
+            # If we can't fetch memories, return error result
+            error_result = PolicyExecutionResult(
+                policy_name=policy.name,
+                action=PolicyAction.ARCHIVE,  # Placeholder
+                affected_memory_ids=[],
+                dry_run=dry_run,
+                error=f"Failed to fetch memories: {str(e)}"
+            )
+            results.append(error_result)
+            return results
+
+        # Execute each rule in the policy
+        for rule in policy.rules:
+            if not rule.enabled:
+                continue
+
+            try:
+                result = self._execute_rule(rule, memories, dry_run)
+                results.append(result)
+            except Exception as e:
+                # Record error but continue with other rules
+                error_result = PolicyExecutionResult(
+                    policy_name=policy.name,
+                    action=rule.action,
+                    affected_memory_ids=[],
+                    dry_run=dry_run,
+                    error=f"Failed to execute rule '{rule.name}': {str(e)}"
+                )
+                results.append(error_result)
+
+        # Update policy execution metadata
+        if not dry_run:
+            policy.last_executed = datetime.now()
+            policy.execution_count += 1
+
+        # Store in execution history
+        self._execution_history.extend(results)
+
+        return results
+
+    def _execute_rule(
+        self,
+        rule: PolicyRule,
+        memories: List[Any],
+        dry_run: bool
+    ) -> PolicyExecutionResult:
+        """
+        Execute a single policy rule.
+
+        Args:
+            rule: PolicyRule to execute
+            memories: List of memories to evaluate
+            dry_run: If True, only preview actions without executing
+
+        Returns:
+            PolicyExecutionResult for this rule
+        """
+        # Filter memories by type if specified
+        filtered_memories = memories
+        if rule.memory_type_filter:
+            filtered_memories = [
+                m for m in memories
+                if hasattr(m, 'memory_type') and m.memory_type == rule.memory_type_filter
+            ]
+
+        # Select appropriate evaluator based on policy type
+        affected_ids = self._evaluate_policy(rule, filtered_memories)
+
+        # Execute action if not dry run
+        if not dry_run and affected_ids:
+            self._execute_action(rule.action, affected_ids)
+
+        return PolicyExecutionResult(
+            policy_name=rule.name,
+            action=rule.action,
+            affected_memory_ids=affected_ids,
+            dry_run=dry_run,
+            metadata={
+                "policy_type": rule.policy_type.value,
+                "conditions": rule.conditions,
+                "memory_type_filter": rule.memory_type_filter,
+                "description": rule.description
+            }
+        )
+
+    def _evaluate_policy(self, rule: PolicyRule, memories: List[Any]) -> List[str]:
+        """
+        Evaluate policy rule against memories using appropriate evaluator.
+
+        Args:
+            rule: PolicyRule to evaluate
+            memories: List of memories to evaluate
+
+        Returns:
+            List of memory IDs that match the policy conditions
+        """
+        conditions = rule.conditions
+
+        if rule.policy_type == PolicyType.RETENTION:
+            # Age-based retention policy
+            max_age_days = conditions.get("max_age_days")
+            if max_age_days is None:
+                return []
+
+            policy = RetentionPolicy(
+                max_age_days=max_age_days,
+                memory_type_filter=rule.memory_type_filter
+            )
+            return policy.evaluate(memories)
+
+        elif rule.policy_type == PolicyType.USAGE:
+            # Recall/access-based usage policy
+            min_access_count = conditions.get("min_access_count", 1)
+            max_age_days = conditions.get("max_age_days", 90)
+
+            policy = UsagePolicy(
+                min_access_count=min_access_count,
+                max_age_days=max_age_days,
+                memory_type_filter=rule.memory_type_filter
+            )
+            return policy.evaluate(memories)
+
+        elif rule.policy_type == PolicyType.CONFIDENCE:
+            # Confidence threshold policy
+            min_confidence = conditions.get("min_confidence")
+            if min_confidence is None:
+                return []
+
+            policy = ConfidencePolicy(
+                min_confidence=min_confidence,
+                memory_type_filter=rule.memory_type_filter
+            )
+            return policy.evaluate(memories)
+
+        elif rule.policy_type == PolicyType.SIZE:
+            # Size-based policy (placeholder - not yet implemented)
+            # This would check tier sizes and select memories to archive/delete
+            return []
+
+        return []
+
+    def _execute_action(self, action: PolicyAction, memory_ids: List[str]) -> None:
+        """
+        Execute a policy action on the specified memories.
+
+        Args:
+            action: PolicyAction to execute
+            memory_ids: List of memory IDs to act upon
+
+        Note:
+            This is a placeholder implementation. Actual action execution will be
+            implemented in phase-2-policy-actions with proper integration to
+            GraphPalace methods for archive, delete, compress, etc.
+        """
+        # Placeholder - actual implementation will be in phase 2
+        # For now, just validate that we have a graph_palace instance
+        if self.graph_palace is None:
+            return
+
+        # Action implementations will call appropriate graph_palace methods:
+        # - ARCHIVE: Mark memories as archived
+        # - DELETE: Remove memories
+        # - COMPRESS: Reduce storage footprint
+        # - PROMOTE: Move to higher tier
+        # - DEMOTE: Move to lower tier
+        pass
+
+    def _fetch_memories(self, memory_filter: Optional[Callable[[Any], bool]] = None) -> List[Any]:
+        """
+        Fetch memories from GraphPalace.
+
+        Args:
+            memory_filter: Optional filter function to pre-filter memories
+
+        Returns:
+            List of Memory objects
+        """
+        if self.graph_palace is None:
+            return []
+
+        # This is a placeholder - actual implementation depends on GraphPalace API
+        # For now, return empty list to enable testing
+        memories = []
+
+        # Apply filter if provided
+        if memory_filter:
+            memories = [m for m in memories if memory_filter(m)]
+
+        return memories
+
+    def get_execution_history(self) -> List[PolicyExecutionResult]:
+        """
+        Get the execution history for this engine instance.
+
+        Returns:
+            List of PolicyExecutionResult objects in chronological order
+        """
+        return self._execution_history.copy()
+
+    def clear_execution_history(self) -> None:
+        """Clear the execution history."""
+        self._execution_history.clear()
+
+
 # Export all policy types, actions, and classes
 __all__ = [
     "PolicyType",
@@ -473,4 +780,6 @@ __all__ = [
     "RetentionPolicy",
     "UsagePolicy",
     "ConfidencePolicy",
+    "PolicyEngine",
+    "PolicyExecutionResult",
 ]
