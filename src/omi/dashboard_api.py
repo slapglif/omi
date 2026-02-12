@@ -312,91 +312,50 @@ async def get_edges(
 
 @router.get("/beliefs")
 async def get_beliefs(
-    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of beliefs to return"),
-    offset: int = Query(default=0, ge=0, description="Number of beliefs to skip"),
-    order_by: str = Query(default="last_updated", description="Field to order by (confidence, created_at, last_updated, evidence_count)"),
+    limit: int = Query(default=50, ge=1, le=500, description="Maximum number of beliefs to return"),
+    cursor: Optional[str] = Query(default=None, description="Pagination cursor from previous response"),
+    order_by: str = Query(default="created_at", description="Field to order by (confidence, created_at, access_count, last_accessed)"),
     order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
 ) -> Dict[str, Any]:
     """
-    Retrieve beliefs from the belief network.
+    Retrieve beliefs from the belief network with cursor-based pagination.
 
     Query Parameters:
-        limit: Maximum number of beliefs to return (1-1000, default 100)
-        offset: Number of beliefs to skip for pagination (default 0)
-        order_by: Field to order by (confidence, created_at, last_updated, evidence_count)
+        limit: Maximum number of beliefs to return (1-500, default 50)
+        cursor: Pagination cursor from previous response (for next page)
+        order_by: Field to order by (confidence, created_at, access_count, last_accessed)
         order_dir: Order direction (asc, desc)
 
     Returns:
         Dict containing:
             - beliefs: List of belief objects
             - total_count: Total count of beliefs
-            - limit: Applied limit
-            - offset: Applied offset
+            - next_cursor: Cursor for next page (empty if no more results)
+            - has_more: Boolean indicating if more results exist
 
     Raises:
         HTTPException: If database access fails or invalid parameters provided
     """
-    # Validate order_by
-    valid_order_fields = {"confidence", "created_at", "last_updated", "evidence_count"}
-    if order_by not in valid_order_fields:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
-        )
-
-    # Validate order_dir
-    order_dir_upper = order_dir.upper()
-    if order_dir_upper not in {"ASC", "DESC"}:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
-        )
-
     try:
         palace = get_palace_instance()
 
-        # Build SQL query
-        base_query = """
-            SELECT id, content, confidence, created_at, last_updated, evidence_count
-            FROM beliefs
-        """
-        count_query = "SELECT COUNT(*) FROM beliefs"
-        params: List[Any] = []
+        # Call list_beliefs with cursor-based pagination
+        # This method handles all validation internally
+        result = palace.list_beliefs(
+            limit=limit,
+            cursor=cursor,
+            order_by=order_by,
+            order_dir=order_dir
+        )
 
-        # Get total count
-        with palace._db_lock:
-            cursor = palace._conn.execute(count_query, params)
-            total_count = cursor.fetchone()[0]
+        return result
 
-            # Add ORDER BY and pagination
-            base_query += f" ORDER BY {order_by} {order_dir_upper}"
-            base_query += " LIMIT ? OFFSET ?"
-            params.extend([limit, offset])
-
-            # Execute query
-            cursor = palace._conn.execute(base_query, params)
-            rows = cursor.fetchall()
-
-        # Convert rows to belief objects
-        beliefs = []
-        for row in rows:
-            belief = {
-                "id": row[0],
-                "content": row[1],
-                "confidence": row[2],
-                "created_at": row[3],
-                "last_updated": row[4],
-                "evidence_count": row[5]
-            }
-            beliefs.append(belief)
-
-        return {
-            "beliefs": beliefs,
-            "total_count": total_count,
-            "limit": limit,
-            "offset": offset
-        }
-
+    except ValueError as e:
+        # Validation errors from list_beliefs
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
