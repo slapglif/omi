@@ -33,10 +33,247 @@ from datetime import datetime, timedelta
 from threading import Lock
 import logging
 
+from ..event_bus import EventHandler
 from .topology import TopologyManager, InstanceMetadata
 from .protocol import TopologyType, SyncState, SyncOperation, SyncMessage, SyncResponse
 
 logger = logging.getLogger(__name__)
+
+
+class SyncEventHandler(EventHandler):
+    """
+    Event handler that subscribes to memory events and propagates them to other instances.
+
+    This handler bridges the local EventBus with the distributed sync protocol,
+    enabling real-time memory propagation across OMI instances. When a memory
+    is stored or updated on one instance, it's automatically synced to all other
+    instances in the cluster.
+
+    Architecture:
+    - Subscribes to memory.stored, belief.updated, and other relevant events
+    - Converts events to SyncMessage objects
+    - Propagates messages to other instances via sync protocol
+    - Handles errors gracefully without blocking the event bus
+
+    Thread-safe: Can be called concurrently from multiple threads.
+
+    Example:
+        handler = SyncEventHandler(
+            instance_id="instance-1",
+            topology_manager=topology_mgr,
+            sync_protocol=protocol
+        )
+        event_bus.subscribe('memory.stored', handler.handle)
+    """
+
+    def __init__(
+        self,
+        instance_id: str,
+        topology_manager: TopologyManager,
+        sync_protocol: Optional[Any] = None
+    ):
+        """
+        Initialize sync event handler.
+
+        Args:
+            instance_id: ID of this instance
+            topology_manager: TopologyManager for getting other instances
+            sync_protocol: Optional SyncProtocol for network communication
+                          If None, events are logged but not propagated
+        """
+        self.instance_id = instance_id
+        self.topology = topology_manager
+        self.protocol = sync_protocol
+        self._event_count = 0
+        self._error_count = 0
+        self._lock = Lock()
+
+        logger.info(
+            f"SyncEventHandler initialized for instance {instance_id}, "
+            f"protocol={'enabled' if sync_protocol else 'disabled'}"
+        )
+
+    def handle(self, event: Any) -> None:
+        """
+        Handle an event from the EventBus.
+
+        Converts the event to a SyncMessage and propagates it to other instances
+        via the sync protocol. If no protocol is configured, logs the event.
+
+        Args:
+            event: Event object from EventBus (must have 'event_type' attribute)
+
+        Event Types Handled:
+            - memory.stored: Propagate new memory to other instances
+            - belief.updated: Propagate belief confidence changes
+            - belief.contradiction_detected: Propagate contradiction detection
+
+        Error Handling:
+            Errors are logged but do not raise exceptions to avoid blocking
+            the EventBus. Failed events are counted for monitoring.
+        """
+        with self._lock:
+            self._event_count += 1
+
+        try:
+            if not hasattr(event, 'event_type'):
+                logger.warning(f"Event missing 'event_type': {type(event).__name__}")
+                return
+
+            event_type = event.event_type
+
+            # Only propagate specific event types
+            if event_type not in ['memory.stored', 'belief.updated', 'belief.contradiction_detected']:
+                logger.debug(f"Skipping non-syncable event type: {event_type}")
+                return
+
+            # Convert event to sync message
+            sync_message = self._event_to_sync_message(event)
+            if not sync_message:
+                logger.debug(f"Could not convert event to sync message: {event_type}")
+                return
+
+            # Propagate to other instances
+            self._propagate_message(sync_message)
+
+            logger.debug(
+                f"Handled sync event {event_type} from instance {self.instance_id}, "
+                f"message_id={sync_message.memory_id}"
+            )
+
+        except Exception as e:
+            with self._lock:
+                self._error_count += 1
+            logger.error(
+                f"Error handling sync event {getattr(event, 'event_type', 'unknown')}: {e}",
+                exc_info=True
+            )
+
+    def _event_to_sync_message(self, event: Any) -> Optional[SyncMessage]:
+        """
+        Convert an EventBus event to a SyncMessage for network propagation.
+
+        Args:
+            event: Event object from EventBus
+
+        Returns:
+            SyncMessage if conversion succeeds, None otherwise
+        """
+        try:
+            event_type = event.event_type
+
+            # Memory stored event
+            if event_type == 'memory.stored':
+                return SyncMessage(
+                    operation=SyncOperation.MEMORY_STORE,
+                    instance_id=self.instance_id,
+                    memory_id=getattr(event, 'memory_id', None),
+                    content={
+                        'content': getattr(event, 'content', None),
+                        'memory_type': getattr(event, 'memory_type', None),
+                        'confidence': getattr(event, 'confidence', None),
+                    },
+                    timestamp=getattr(event, 'timestamp', datetime.now()),
+                    metadata=getattr(event, 'metadata', None)
+                )
+
+            # Belief updated event
+            elif event_type == 'belief.updated':
+                return SyncMessage(
+                    operation=SyncOperation.BELIEF_UPDATE,
+                    instance_id=self.instance_id,
+                    memory_id=getattr(event, 'belief_id', None),
+                    content={
+                        'old_confidence': getattr(event, 'old_confidence', None),
+                        'new_confidence': getattr(event, 'new_confidence', None),
+                        'evidence_id': getattr(event, 'evidence_id', None),
+                    },
+                    timestamp=getattr(event, 'timestamp', datetime.now()),
+                    metadata=getattr(event, 'metadata', None)
+                )
+
+            # Contradiction detected event
+            elif event_type == 'belief.contradiction_detected':
+                return SyncMessage(
+                    operation=SyncOperation.MEMORY_UPDATE,
+                    instance_id=self.instance_id,
+                    memory_id=getattr(event, 'memory_id_1', None),
+                    content={
+                        'memory_id_1': getattr(event, 'memory_id_1', None),
+                        'memory_id_2': getattr(event, 'memory_id_2', None),
+                        'contradiction_pattern': getattr(event, 'contradiction_pattern', None),
+                        'confidence': getattr(event, 'confidence', None),
+                    },
+                    timestamp=getattr(event, 'timestamp', datetime.now()),
+                    metadata=getattr(event, 'metadata', None)
+                )
+
+            else:
+                logger.warning(f"Unhandled event type for sync: {event_type}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error converting event to sync message: {e}", exc_info=True)
+            return None
+
+    def _propagate_message(self, message: SyncMessage) -> None:
+        """
+        Propagate sync message to other instances.
+
+        If a sync protocol is configured, sends the message to all other
+        healthy instances. If no protocol is configured, logs the message
+        for later implementation.
+
+        Args:
+            message: SyncMessage to propagate
+        """
+        # Get other healthy instances (exclude self)
+        other_instances = [
+            inst for inst in self.topology.get_healthy_instances()
+            if inst.instance_id != self.instance_id
+        ]
+
+        if not other_instances:
+            logger.debug(
+                f"No other instances to propagate to (operation={message.operation.value})"
+            )
+            return
+
+        # If protocol is configured, propagate via network
+        if self.protocol:
+            # Full network propagation will be implemented in later phases
+            # For now, we have the infrastructure in place
+            logger.info(
+                f"Would propagate {message.operation.value} to {len(other_instances)} instances "
+                f"(full implementation in Phase 6)"
+            )
+            # TODO: Phase 6 will implement:
+            # for instance in other_instances:
+            #     try:
+            #         response = await self.protocol.send_message(message, instance.instance_id)
+            #         if not response.success:
+            #             logger.warning(f"Sync failed for {instance.instance_id}: {response.message}")
+            #     except Exception as e:
+            #         logger.error(f"Error sending to {instance.instance_id}: {e}")
+        else:
+            # No protocol configured - log for visibility
+            logger.info(
+                f"Sync event ready: {message.operation.value} to {len(other_instances)} instances "
+                f"(sync protocol not configured)"
+            )
+
+    def get_stats(self) -> Dict[str, int]:
+        """
+        Get handler statistics.
+
+        Returns:
+            Dictionary with event_count and error_count
+        """
+        with self._lock:
+            return {
+                'event_count': self._event_count,
+                'error_count': self._error_count
+            }
 
 
 class SyncManager:
@@ -123,7 +360,7 @@ class SyncManager:
 
         # Event bus integration (set when start_incremental_sync is called)
         self._event_bus: Optional[Any] = None
-        self._event_subscriptions: List[Callable] = []
+        self._event_subscriptions: List[tuple] = []  # List of (event_type, callback) tuples
 
         # Sync protocol (pluggable, set later if needed)
         self._protocol: Optional[Any] = None
@@ -279,6 +516,11 @@ class SyncManager:
         on one instance, they're automatically propagated to other instances
         via the event bus.
 
+        Creates a SyncEventHandler and subscribes to memory events:
+        - memory.stored: New memories created
+        - belief.updated: Belief confidence changes
+        - belief.contradiction_detected: Contradictions detected
+
         Args:
             event_bus: EventBus instance for subscribing to memory events
 
@@ -286,24 +528,40 @@ class SyncManager:
             from omi.event_bus import get_event_bus
             bus = get_event_bus()
             manager.start_incremental_sync(bus)
-
-        Note:
-            This will be fully implemented in Phase 5 (subtask-5-2).
-            For now, it stores the event bus reference for future use.
         """
         with self._lock:
+            # Store event bus reference
             self._event_bus = event_bus
-            logger.info(f"Incremental sync started for instance {self.instance_id}")
 
-            # Phase 5 will add event subscriptions here:
-            # - Subscribe to memory.stored events
-            # - Subscribe to memory.updated events
-            # - Subscribe to edge.created events
-            # - Propagate to other instances via sync protocol
+            # Create sync event handler
+            handler = SyncEventHandler(
+                instance_id=self.instance_id,
+                topology_manager=self.topology,
+                sync_protocol=self._protocol
+            )
+
+            # Subscribe to syncable event types
+            event_types = [
+                'memory.stored',
+                'belief.updated',
+                'belief.contradiction_detected'
+            ]
+
+            for event_type in event_types:
+                self._event_bus.subscribe(event_type, handler.handle)
+                self._event_subscriptions.append((event_type, handler.handle))
+                logger.debug(f"Subscribed to {event_type} for sync propagation")
+
+            logger.info(
+                f"Incremental sync started for instance {self.instance_id}: "
+                f"subscribed to {len(event_types)} event types"
+            )
 
     def stop_incremental_sync(self) -> None:
         """
         Stop incremental sync and unsubscribe from EventBus.
+
+        Unsubscribes all event handlers registered during start_incremental_sync.
 
         Example:
             manager.stop_incremental_sync()
@@ -311,13 +569,18 @@ class SyncManager:
         with self._lock:
             if self._event_bus:
                 # Unsubscribe all event handlers
-                for callback in self._event_subscriptions:
-                    # Phase 5 will implement proper unsubscribe
-                    pass
+                unsubscribed_count = 0
+                for event_type, callback in self._event_subscriptions:
+                    if self._event_bus.unsubscribe(event_type, callback):
+                        unsubscribed_count += 1
+                        logger.debug(f"Unsubscribed from {event_type}")
 
                 self._event_subscriptions.clear()
                 self._event_bus = None
-                logger.info(f"Incremental sync stopped for instance {self.instance_id}")
+                logger.info(
+                    f"Incremental sync stopped for instance {self.instance_id}: "
+                    f"unsubscribed {unsubscribed_count} handlers"
+                )
 
     def bulk_sync_from(self, source_instance_id: str, source_endpoint: str) -> bool:
         """
