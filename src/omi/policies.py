@@ -102,10 +102,106 @@ class Policy:
         }
 
 
+class RetentionPolicy:
+    """
+    Age-based retention policy for memory lifecycle management.
+
+    Evaluates memories against a maximum age threshold and identifies
+    memories that should be acted upon (archived, deleted, etc.).
+
+    Example:
+        policy = RetentionPolicy(max_age_days=90)
+        old_memories = policy.evaluate(all_memories)
+        # Returns memories older than 90 days
+    """
+
+    def __init__(self, max_age_days: int, memory_type_filter: Optional[str] = None):
+        """
+        Initialize retention policy.
+
+        Args:
+            max_age_days: Maximum age in days before memory is considered for action
+            memory_type_filter: Optional filter for specific memory types (fact, experience, belief, decision)
+        """
+        if max_age_days <= 0:
+            raise ValueError("max_age_days must be positive")
+
+        self.max_age_days = max_age_days
+        self.memory_type_filter = memory_type_filter
+
+    def evaluate(self, memories: List[Any]) -> List[str]:
+        """
+        Evaluate memories against retention policy.
+
+        Args:
+            memories: List of Memory objects to evaluate
+
+        Returns:
+            List of memory IDs that exceed the age threshold
+        """
+        now = datetime.now()
+        matching_ids = []
+
+        for memory in memories:
+            # Skip if memory type doesn't match filter
+            if self.memory_type_filter and hasattr(memory, 'memory_type'):
+                if memory.memory_type != self.memory_type_filter:
+                    continue
+
+            # Check age
+            if hasattr(memory, 'created_at') and memory.created_at:
+                age_days = (now - memory.created_at).days
+                if age_days > self.max_age_days:
+                    memory_id = memory.id if hasattr(memory, 'id') else str(memory)
+                    matching_ids.append(memory_id)
+
+        return matching_ids
+
+    def is_expired(self, memory: Any) -> bool:
+        """
+        Check if a single memory exceeds the age threshold.
+
+        Args:
+            memory: Memory object to check
+
+        Returns:
+            True if memory exceeds max_age_days, False otherwise
+        """
+        if not hasattr(memory, 'created_at') or not memory.created_at:
+            return False
+
+        # Check memory type filter
+        if self.memory_type_filter and hasattr(memory, 'memory_type'):
+            if memory.memory_type != self.memory_type_filter:
+                return False
+
+        now = datetime.now()
+        age_days = (now - memory.created_at).days
+        return age_days > self.max_age_days
+
+    def days_until_expiry(self, memory: Any) -> Optional[int]:
+        """
+        Calculate days until memory expires under this policy.
+
+        Args:
+            memory: Memory object to check
+
+        Returns:
+            Days until expiry (negative if already expired), None if no created_at
+        """
+        if not hasattr(memory, 'created_at') or not memory.created_at:
+            return None
+
+        now = datetime.now()
+        age_days = (now - memory.created_at).days
+        return self.max_age_days - age_days
+
+
 # Export all policy types, actions, and classes
 __all__ = [
     "PolicyType",
     "PolicyAction",
     "PolicyRule",
     "Policy",
+    "RetentionPolicy",
 ]
