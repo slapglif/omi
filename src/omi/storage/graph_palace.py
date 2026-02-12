@@ -23,6 +23,10 @@ from collections import deque
 import numpy as np
 import struct
 
+# Event bus integration for incremental sync
+from ..events import MemoryStoredEvent
+from ..event_bus import get_event_bus
+
 
 @dataclass
 class Memory:
@@ -361,6 +365,16 @@ class GraphPalace:
         # Cache the embedding for fast access
         if embedding:
             self._embedding_cache[memory_id] = embedding
+
+        # Publish event for incremental sync
+        # SyncEventHandler will pick up this event and propagate to other instances
+        event = MemoryStoredEvent(
+            memory_id=memory_id,
+            content=content,
+            memory_type=memory_type,
+            confidence=confidence
+        )
+        get_event_bus().publish(event)
 
         return memory_id
 
