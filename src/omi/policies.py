@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional, List, Dict, Any, Callable
+import math
 
 
 class PolicyType(Enum):
@@ -197,6 +198,157 @@ class RetentionPolicy:
         return self.max_age_days - age_days
 
 
+class UsagePolicy:
+    """
+    Usage-based (recall-based) policy for memory lifecycle management.
+
+    Evaluates memories against access patterns to identify underused memories
+    that should be acted upon (archived, deleted, etc.).
+
+    A memory is considered unused if:
+    - It has been accessed fewer than min_access_count times
+    - AND it's older than max_age_days
+
+    Example:
+        policy = UsagePolicy(min_access_count=2, max_age_days=30)
+        unused_memories = policy.evaluate(all_memories)
+        # Returns memories older than 30 days with <2 accesses
+    """
+
+    def __init__(
+        self,
+        min_access_count: int,
+        max_age_days: int,
+        memory_type_filter: Optional[str] = None
+    ):
+        """
+        Initialize usage policy.
+
+        Args:
+            min_access_count: Minimum access count threshold (memories below this are candidates)
+            max_age_days: Minimum age in days (only consider memories older than this)
+            memory_type_filter: Optional filter for specific memory types (fact, experience, belief, decision)
+        """
+        if min_access_count < 0:
+            raise ValueError("min_access_count must be non-negative")
+        if max_age_days <= 0:
+            raise ValueError("max_age_days must be positive")
+
+        self.min_access_count = min_access_count
+        self.max_age_days = max_age_days
+        self.memory_type_filter = memory_type_filter
+
+    def evaluate(self, memories: List[Any]) -> List[str]:
+        """
+        Evaluate memories against usage policy.
+
+        Args:
+            memories: List of Memory objects to evaluate
+
+        Returns:
+            List of memory IDs that are underused (low access count AND old enough)
+        """
+        now = datetime.now()
+        matching_ids = []
+
+        for memory in memories:
+            # Skip if memory type doesn't match filter
+            if self.memory_type_filter and hasattr(memory, 'memory_type'):
+                if memory.memory_type != self.memory_type_filter:
+                    continue
+
+            # Check age threshold first (must be old enough)
+            if hasattr(memory, 'created_at') and memory.created_at:
+                age_days = (now - memory.created_at).days
+                if age_days <= self.max_age_days:
+                    continue  # Too new, skip
+
+            # Check access count
+            access_count = getattr(memory, 'access_count', 0)
+            if access_count < self.min_access_count:
+                memory_id = memory.id if hasattr(memory, 'id') else str(memory)
+                matching_ids.append(memory_id)
+
+        return matching_ids
+
+    def is_unused(self, memory: Any) -> bool:
+        """
+        Check if a single memory is underused based on access patterns.
+
+        Args:
+            memory: Memory object to check
+
+        Returns:
+            True if memory is old enough AND has insufficient access count
+        """
+        # Check memory type filter
+        if self.memory_type_filter and hasattr(memory, 'memory_type'):
+            if memory.memory_type != self.memory_type_filter:
+                return False
+
+        # Check age threshold
+        if not hasattr(memory, 'created_at') or not memory.created_at:
+            return False
+
+        now = datetime.now()
+        age_days = (now - memory.created_at).days
+        if age_days <= self.max_age_days:
+            return False  # Too new
+
+        # Check access count
+        access_count = getattr(memory, 'access_count', 0)
+        return access_count < self.min_access_count
+
+    def days_since_last_access(self, memory: Any) -> Optional[int]:
+        """
+        Calculate days since memory was last accessed.
+
+        Args:
+            memory: Memory object to check
+
+        Returns:
+            Days since last access, None if no last_accessed timestamp
+        """
+        if not hasattr(memory, 'last_accessed') or not memory.last_accessed:
+            # Fall back to created_at if no last_accessed
+            if hasattr(memory, 'created_at') and memory.created_at:
+                now = datetime.now()
+                return (now - memory.created_at).days
+            return None
+
+        now = datetime.now()
+        return (now - memory.last_accessed).days
+
+    def usage_score(self, memory: Any) -> Optional[float]:
+        """
+        Calculate a usage score for the memory (0.0 = unused, 1.0 = well-used).
+
+        Score factors:
+        - Access count relative to threshold
+        - Recency of last access
+
+        Args:
+            memory: Memory object to score
+
+        Returns:
+            Usage score 0.0-1.0, None if insufficient data
+        """
+        access_count = getattr(memory, 'access_count', 0)
+        days_since_access = self.days_since_last_access(memory)
+
+        if days_since_access is None:
+            return None
+
+        # Score based on access count (capped at 2x threshold = score 1.0)
+        access_score = min(1.0, access_count / (self.min_access_count * 2)) if self.min_access_count > 0 else 1.0
+
+        # Score based on recency (exponential decay with 30-day half-life)
+        recency_score = math.exp(-days_since_access / 30.0)
+
+        # Combine: 60% access frequency, 40% recency
+        return (access_score * 0.6) + (recency_score * 0.4)
+
+
 # Export all policy types, actions, and classes
 __all__ = [
     "PolicyType",
@@ -204,4 +356,5 @@ __all__ = [
     "PolicyRule",
     "Policy",
     "RetentionPolicy",
+    "UsagePolicy",
 ]
