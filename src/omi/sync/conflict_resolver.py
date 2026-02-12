@@ -207,21 +207,142 @@ class ConflictResolver:
         """
         Resolve using merge strategy with vector clock comparison.
 
-        TODO: Implement in subtask-3-2
-        This will use vector clocks to determine causal relationships
-        and merge non-conflicting changes.
+        Uses vector clocks to determine causal relationships:
+        - If one memory's clock dominates the other, it's causally later (wins)
+        - If clocks are concurrent (neither dominates), queue for manual review
+
+        Vector clock A dominates B if:
+        - All counters in A >= corresponding counters in B
+        - At least one counter in A > corresponding counter in B
 
         Args:
             memory1: First memory version
             memory2: Second memory version
 
         Returns:
-            ConflictResolution with merged result or manual queue
+            ConflictResolution with winner or manual queue flag
         """
-        raise NotImplementedError(
-            "MERGE strategy not yet implemented. "
-            "Use LAST_WRITER_WINS or MANUAL_QUEUE for now."
-        )
+        # Get vector clocks, defaulting to empty dicts
+        vc1 = memory1.vector_clock if memory1.vector_clock else {}
+        vc2 = memory2.vector_clock if memory2.vector_clock else {}
+
+        # If both are empty, fall back to last-writer-wins
+        if not vc1 and not vc2:
+            logger.info(
+                f"Merge strategy: both vector clocks empty for {memory1.id}, "
+                "falling back to last-writer-wins"
+            )
+            return self._resolve_last_writer_wins(memory1, memory2)
+
+        # Compare vector clocks to determine causal relationship
+        comparison = self._compare_vector_clocks(vc1, vc2)
+
+        if comparison == "memory1_dominates":
+            # memory1 is causally later, it wins
+            logger.info(
+                f"Merge strategy: memory1 dominates for {memory1.id}, "
+                f"vc1={vc1}, vc2={vc2}"
+            )
+            return ConflictResolution(
+                winner=memory1,
+                strategy_used=ConflictStrategy.MERGE,
+                needs_manual_review=False,
+                conflict_metadata={
+                    "reason": "memory1 vector clock dominates memory2",
+                    "memory1_vector_clock": vc1,
+                    "memory2_vector_clock": vc2,
+                    "causal_relationship": "memory1_later"
+                }
+            )
+
+        elif comparison == "memory2_dominates":
+            # memory2 is causally later, it wins
+            logger.info(
+                f"Merge strategy: memory2 dominates for {memory2.id}, "
+                f"vc1={vc1}, vc2={vc2}"
+            )
+            return ConflictResolution(
+                winner=memory2,
+                strategy_used=ConflictStrategy.MERGE,
+                needs_manual_review=False,
+                conflict_metadata={
+                    "reason": "memory2 vector clock dominates memory1",
+                    "memory1_vector_clock": vc1,
+                    "memory2_vector_clock": vc2,
+                    "causal_relationship": "memory2_later"
+                }
+            )
+
+        else:
+            # Concurrent modification - true conflict, needs manual review
+            logger.warning(
+                f"Merge strategy: concurrent conflict detected for {memory1.id}, "
+                f"vc1={vc1}, vc2={vc2}, queuing for manual review"
+            )
+            # Prefer newer version as temporary winner while waiting for review
+            temp_winner = self._resolve_last_writer_wins(memory1, memory2).winner
+
+            return ConflictResolution(
+                winner=temp_winner,
+                strategy_used=ConflictStrategy.MERGE,
+                needs_manual_review=True,
+                conflict_metadata={
+                    "reason": "concurrent modification detected",
+                    "memory1_vector_clock": vc1,
+                    "memory2_vector_clock": vc2,
+                    "causal_relationship": "concurrent",
+                    "temporary_winner": temp_winner.id,
+                    "requires_manual_merge": True
+                }
+            )
+
+    def _compare_vector_clocks(
+        self, vc1: Dict[str, int], vc2: Dict[str, int]
+    ) -> str:
+        """
+        Compare two vector clocks to determine causal relationship.
+
+        Args:
+            vc1: First vector clock (instance_id -> counter)
+            vc2: Second vector clock (instance_id -> counter)
+
+        Returns:
+            "memory1_dominates" if vc1 >= vc2 and vc1 > vc2 for at least one counter
+            "memory2_dominates" if vc2 >= vc1 and vc2 > vc1 for at least one counter
+            "concurrent" if neither dominates (true conflict)
+        """
+        # Get all instance IDs from both clocks
+        all_instances = set(vc1.keys()) | set(vc2.keys())
+
+        if not all_instances:
+            # Both empty
+            return "concurrent"
+
+        # Track comparison results
+        vc1_greater_or_equal = True  # vc1 >= vc2 for all counters
+        vc1_strictly_greater = False  # vc1 > vc2 for at least one counter
+
+        vc2_greater_or_equal = True  # vc2 >= vc1 for all counters
+        vc2_strictly_greater = False  # vc2 > vc1 for at least one counter
+
+        for instance_id in all_instances:
+            count1 = vc1.get(instance_id, 0)
+            count2 = vc2.get(instance_id, 0)
+
+            if count1 > count2:
+                vc1_strictly_greater = True
+                vc2_greater_or_equal = False
+            elif count2 > count1:
+                vc2_strictly_greater = True
+                vc1_greater_or_equal = False
+
+        # Determine dominance
+        if vc1_greater_or_equal and vc1_strictly_greater:
+            return "memory1_dominates"
+        elif vc2_greater_or_equal and vc2_strictly_greater:
+            return "memory2_dominates"
+        else:
+            return "concurrent"
 
     def _resolve_manual_queue(
         self, memory1: Memory, memory2: Memory
