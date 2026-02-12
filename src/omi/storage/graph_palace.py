@@ -111,7 +111,7 @@ class GraphPalace:
     # Target: <500ms for 1000 memories
     QUERY_TIMEOUT_MS = 500
 
-    def __init__(self, db_path: Path, enable_wal: bool = True, embedding_dim: int = None):
+    def __init__(self, db_path: Path, enable_wal: bool = True, embedding_dim: int = None, conflict_detector=None):
         """
         Initialize Graph Palace.
 
@@ -119,11 +119,13 @@ class GraphPalace:
             db_path: Path to SQLite database file
             enable_wal: Enable WAL mode for concurrent writes (default: True)
             embedding_dim: Embedding dimension (default: 1024 for bge-m3)
+            conflict_detector: Optional ConflictDetector for multi-agent conflict resolution
         """
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._enable_wal = enable_wal
         self.embedding_dim = embedding_dim if embedding_dim is not None else self.EMBEDDING_DIM
+        self._conflict_detector = conflict_detector
 
         # Create persistent connection
         # check_same_thread=False allows multi-threaded access (safe with WAL mode)
@@ -246,7 +248,11 @@ class GraphPalace:
                    content: str,
                    embedding: Optional[List[float]] = None,
                    memory_type: str = "experience",
-                   confidence: Optional[float] = None) -> str:
+                   confidence: Optional[float] = None,
+                   agent_id: Optional[str] = None,
+                   namespace: Optional[str] = None,
+                   base_version: Optional[int] = None,
+                   conflict_strategy: Optional[str] = None) -> str:
         """
         Store a memory in the palace.
 
@@ -255,9 +261,16 @@ class GraphPalace:
             embedding: Vector embedding (1024-dim for bge-m3)
             memory_type: One of (fact, experience, belief, decision)
             confidence: 0.0-1.0 for beliefs
+            agent_id: Optional agent ID for conflict detection
+            namespace: Optional namespace for conflict detection
+            base_version: Optional base version for conflict detection
+            conflict_strategy: Optional conflict resolution strategy (last_writer_wins, merge, reject)
 
         Returns:
             memory_id: UUID of the created memory
+
+        Raises:
+            RuntimeError: If conflict detected and strategy is REJECT
         """
         self._validate_memory_type(memory_type)
 
@@ -268,39 +281,122 @@ class GraphPalace:
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         now = datetime.now().isoformat()
 
+        # Conflict detection integration
+        write_intent = None
+        if self._conflict_detector and agent_id:
+            # Register write intent before storing
+            write_intent = self._conflict_detector.register_intent(
+                memory_id=memory_id,
+                agent_id=agent_id,
+                content_hash=content_hash,
+                namespace=namespace,
+                base_version=base_version,
+                metadata={"memory_type": memory_type}
+            )
+
+            # Detect conflicts
+            conflict = self._conflict_detector.detect_conflict(
+                memory_id=memory_id,
+                agent_id=agent_id
+            )
+
+            if conflict:
+                # Resolve conflict using specified strategy
+                from omi.conflict_resolution import (
+                    ConflictResolutionStrategy,
+                    LastWriterWinsResolver,
+                    MergeResolver,
+                    RejectResolver
+                )
+
+                # Parse strategy
+                strategy = ConflictResolutionStrategy.LAST_WRITER_WINS
+                if conflict_strategy:
+                    strategy = ConflictResolutionStrategy.from_string(conflict_strategy)
+
+                # Get all conflicting intents
+                intents = [
+                    self._conflict_detector.get_intent(intent_id)
+                    for intent_id in conflict.conflicting_intents
+                ]
+                intents = [i for i in intents if i is not None]
+
+                # Resolve using appropriate resolver
+                if strategy == ConflictResolutionStrategy.LAST_WRITER_WINS:
+                    resolver = LastWriterWinsResolver()
+                    result = resolver.resolve(conflict, intents)
+                elif strategy == ConflictResolutionStrategy.MERGE:
+                    resolver = MergeResolver()
+                    result = resolver.resolve(conflict, intents)
+                elif strategy == ConflictResolutionStrategy.REJECT:
+                    resolver = RejectResolver()
+                    result = resolver.resolve(conflict, intents)
+                    # Reject strategy - raise error
+                    raise RuntimeError(
+                        f"Concurrent write conflict detected and rejected. "
+                        f"Conflict ID: {conflict.id}. "
+                        f"Conflicting agents: {', '.join(conflict.conflicting_agents)}"
+                    )
+                else:
+                    raise ValueError(f"Unknown conflict resolution strategy: {strategy}")
+
+                # Mark conflict as resolved
+                self._conflict_detector.resolve_conflict(
+                    conflict_id=conflict.id,
+                    strategy=strategy,
+                    winner_intent_id=result.winner_intent_id,
+                    metadata=result.metadata
+                )
+
+                # If this write is not the winner, abort
+                if result.winner_intent_id != write_intent.id:
+                    raise RuntimeError(
+                        f"Write intent lost conflict resolution. "
+                        f"Winner: {result.winner_intent_id}. "
+                        f"Strategy: {strategy}"
+                    )
+
         # Convert embedding to blob
         embedding_blob = self._embed_to_blob(embedding) if embedding else None
 
-        # Use lock for thread-safe database access
-        with self._db_lock:
-            self._conn.execute("""
-                INSERT INTO memories
-                (id, content, embedding, memory_type, confidence, created_at,
-                 last_accessed, access_count, instance_ids, content_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                memory_id,
-                content,
-                embedding_blob,
-                memory_type,
-                confidence,
-                now,
-                now,
-                0,
-                json.dumps([]),
-                content_hash
-            ))
-            # Insert into FTS index
-            self._conn.execute("""
-                INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
-            """, (memory_id, content))
-            self._conn.commit()
+        try:
+            # Use lock for thread-safe database access
+            with self._db_lock:
+                self._conn.execute("""
+                    INSERT INTO memories
+                    (id, content, embedding, memory_type, confidence, created_at,
+                     last_accessed, access_count, instance_ids, content_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    memory_id,
+                    content,
+                    embedding_blob,
+                    memory_type,
+                    confidence,
+                    now,
+                    now,
+                    0,
+                    json.dumps([]),
+                    content_hash
+                ))
+                # Insert into FTS index
+                self._conn.execute("""
+                    INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
+                """, (memory_id, content))
+                self._conn.commit()
 
-        # Cache the embedding for fast access
-        if embedding:
-            self._embedding_cache[memory_id] = embedding
+            # Cache the embedding for fast access
+            if embedding:
+                self._embedding_cache[memory_id] = embedding
 
-        return memory_id
+            # Commit write intent if conflict detection was used
+            if write_intent:
+                self._conflict_detector.commit_intent(write_intent.id)
+
+            return memory_id
+        except Exception as e:
+            # If write failed, don't commit the intent
+            raise
 
     def get_memory(self, memory_id: str) -> Optional[Memory]:
         """
@@ -862,36 +958,133 @@ class GraphPalace:
 
         return cursor.rowcount > 0
 
-    def update_memory_content(self, memory_id: str, new_content: str) -> bool:
+    def update_memory_content(self,
+                            memory_id: str,
+                            new_content: str,
+                            agent_id: Optional[str] = None,
+                            namespace: Optional[str] = None,
+                            base_version: Optional[int] = None,
+                            conflict_strategy: Optional[str] = None) -> bool:
         """
         Update the content of a memory and recalculate hash and timestamp.
 
         Args:
             memory_id: Memory ID
             new_content: New content text
+            agent_id: Optional agent ID for conflict detection
+            namespace: Optional namespace for conflict detection
+            base_version: Optional base version for conflict detection
+            conflict_strategy: Optional conflict resolution strategy (last_writer_wins, merge, reject)
 
         Returns:
             True if successful
+
+        Raises:
+            RuntimeError: If conflict detected and strategy is REJECT
         """
         new_content_hash = hashlib.sha256(new_content.encode()).hexdigest()
         now = datetime.now().isoformat()
 
-        cursor = self._conn.execute("""
-            UPDATE memories
-            SET content = ?, content_hash = ?, last_accessed = ?
-            WHERE id = ?
-        """, (new_content, new_content_hash, now, memory_id))
+        # Conflict detection integration
+        write_intent = None
+        if self._conflict_detector and agent_id:
+            # Register write intent before updating
+            write_intent = self._conflict_detector.register_intent(
+                memory_id=memory_id,
+                agent_id=agent_id,
+                content_hash=new_content_hash,
+                namespace=namespace,
+                base_version=base_version,
+                metadata={"operation": "update"}
+            )
 
-        # Update FTS index
-        if cursor.rowcount > 0:
-            self._conn.execute("""
-                UPDATE memories_fts
-                SET content = ?
-                WHERE memory_id = ?
-            """, (new_content, memory_id))
+            # Detect conflicts
+            conflict = self._conflict_detector.detect_conflict(
+                memory_id=memory_id,
+                agent_id=agent_id
+            )
 
-        self._conn.commit()
-        return cursor.rowcount > 0
+            if conflict:
+                # Resolve conflict using specified strategy
+                from omi.conflict_resolution import (
+                    ConflictResolutionStrategy,
+                    LastWriterWinsResolver,
+                    MergeResolver,
+                    RejectResolver
+                )
+
+                # Parse strategy
+                strategy = ConflictResolutionStrategy.LAST_WRITER_WINS
+                if conflict_strategy:
+                    strategy = ConflictResolutionStrategy.from_string(conflict_strategy)
+
+                # Get all conflicting intents
+                intents = [
+                    self._conflict_detector.get_intent(intent_id)
+                    for intent_id in conflict.conflicting_intents
+                ]
+                intents = [i for i in intents if i is not None]
+
+                # Resolve using appropriate resolver
+                if strategy == ConflictResolutionStrategy.LAST_WRITER_WINS:
+                    resolver = LastWriterWinsResolver()
+                    result = resolver.resolve(conflict, intents)
+                elif strategy == ConflictResolutionStrategy.MERGE:
+                    resolver = MergeResolver()
+                    result = resolver.resolve(conflict, intents)
+                elif strategy == ConflictResolutionStrategy.REJECT:
+                    resolver = RejectResolver()
+                    result = resolver.resolve(conflict, intents)
+                    # Reject strategy - raise error
+                    raise RuntimeError(
+                        f"Concurrent write conflict detected and rejected. "
+                        f"Conflict ID: {conflict.id}. "
+                        f"Conflicting agents: {', '.join(conflict.conflicting_agents)}"
+                    )
+                else:
+                    raise ValueError(f"Unknown conflict resolution strategy: {strategy}")
+
+                # Mark conflict as resolved
+                self._conflict_detector.resolve_conflict(
+                    conflict_id=conflict.id,
+                    strategy=strategy,
+                    winner_intent_id=result.winner_intent_id,
+                    metadata=result.metadata
+                )
+
+                # If this write is not the winner, abort
+                if result.winner_intent_id != write_intent.id:
+                    raise RuntimeError(
+                        f"Write intent lost conflict resolution. "
+                        f"Winner: {result.winner_intent_id}. "
+                        f"Strategy: {strategy}"
+                    )
+
+        try:
+            cursor = self._conn.execute("""
+                UPDATE memories
+                SET content = ?, content_hash = ?, last_accessed = ?
+                WHERE id = ?
+            """, (new_content, new_content_hash, now, memory_id))
+
+            # Update FTS index
+            if cursor.rowcount > 0:
+                self._conn.execute("""
+                    UPDATE memories_fts
+                    SET content = ?
+                    WHERE memory_id = ?
+                """, (new_content, memory_id))
+
+            self._conn.commit()
+
+            # Commit write intent if conflict detection was used
+            if write_intent:
+                self._conflict_detector.commit_intent(write_intent.id)
+
+            return cursor.rowcount > 0
+        except Exception as e:
+            # If update failed, don't commit the intent
+            raise
 
     def delete_memory(self, memory_id: str) -> bool:
         """

@@ -149,6 +149,60 @@ class SessionEndedEvent:
         }
 
 
+@dataclass
+class BeliefPropagatedEvent:
+    """Event emitted when a belief is propagated between agents."""
+    belief_id: str
+    source_agent_id: str
+    target_agent_id: str
+    content: str
+    confidence: float
+    timestamp: datetime = field(default_factory=datetime.now)
+    event_type: str = "belief.propagated"
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "belief_id": self.belief_id,
+            "source_agent_id": self.source_agent_id,
+            "target_agent_id": self.target_agent_id,
+            "content": self.content,
+            "confidence": self.confidence,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "metadata": self.metadata or {}
+        }
+
+
+@dataclass
+class SharedMemoryStoredEvent:
+    """Event emitted when a memory is stored for sharing across agents."""
+    memory_id: str
+    content: str
+    memory_type: str  # fact | experience | belief | decision
+    source_agent_id: str
+    target_agent_ids: List[str] = field(default_factory=list)
+    confidence: Optional[float] = None
+    timestamp: datetime = field(default_factory=datetime.now)
+    event_type: str = "memory.shared_stored"
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "memory_id": self.memory_id,
+            "content": self.content,
+            "memory_type": self.memory_type,
+            "source_agent_id": self.source_agent_id,
+            "target_agent_ids": self.target_agent_ids,
+            "confidence": self.confidence,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "metadata": self.metadata or {}
+        }
+
+
 # Export all event types
 __all__ = [
     "MemoryStoredEvent",
@@ -157,4 +211,6 @@ __all__ = [
     "ContradictionDetectedEvent",
     "SessionStartedEvent",
     "SessionEndedEvent",
+    "BeliefPropagatedEvent",
+    "SharedMemoryStoredEvent",
 ]

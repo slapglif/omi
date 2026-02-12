@@ -1760,50 +1760,142 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
 
 
 @cli.command()
+@click.option('--cross-agent', is_flag=True, help='Show cross-agent operation audit logs')
+@click.option('--limit', '-l', default=20, type=int, help='Maximum number of audit entries to display (for --cross-agent)')
+@click.option('--agent-id', type=str, default=None, help='Filter by specific agent ID (for --cross-agent)')
+@click.option('--namespace', type=str, default=None, help='Filter by specific namespace (for --cross-agent)')
 @click.pass_context
-def audit(ctx: click.Context) -> None:
+def audit(ctx: click.Context, cross_agent: bool, limit: int, agent_id: Optional[str], namespace: Optional[str]) -> None:
     """Run security audit.
 
     Checks:
     - File integrity (NOW.md, MEMORY.md)
     - Graph topology (orphan nodes, sudden cores)
     - Git history for suspicious modifications
+    - Cross-agent operations audit log (with --cross-agent)
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
 
+    db_path = base_path / "palace.sqlite"
+
+    # If --cross-agent flag is set, show audit logs
+    if cross_agent:
+        click.echo(click.style("Cross-Agent Operations Audit Log", fg="cyan", bold=True))
+        click.echo("=" * 80)
+
+        if not db_path.exists():
+            click.echo(click.style("Error: Database not found", fg="red"))
+            sys.exit(1)
+
+        try:
+            from omi.audit_log import AuditLogger
+
+            logger = AuditLogger(db_path)
+
+            # Query audit logs based on filters
+            if agent_id:
+                entries = logger.get_by_agent(agent_id, limit=limit)
+                click.echo(f"\nShowing logs for agent: {click.style(agent_id, fg='cyan', bold=True)}")
+            elif namespace:
+                entries = logger.get_by_namespace(namespace, limit=limit)
+                click.echo(f"\nShowing logs for namespace: {click.style(namespace, fg='cyan', bold=True)}")
+            else:
+                entries = logger.get_recent(limit=limit)
+                click.echo(f"\nShowing {click.style(f'{limit}', fg='cyan')} most recent entries")
+
+            if not entries:
+                click.echo(click.style("\nNo audit entries found.", fg="yellow"))
+                return
+
+            # Display entries
+            click.echo(f"\nTotal entries: {click.style(str(len(entries)), fg='cyan', bold=True)}")
+            click.echo()
+
+            for i, entry in enumerate(entries, 1):
+                # Color-code action types
+                action_color = {
+                    'read': 'blue',
+                    'write': 'green',
+                    'delete': 'red',
+                    'share': 'magenta',
+                    'subscribe': 'cyan',
+                    'unsubscribe': 'yellow',
+                    'grant_permission': 'green',
+                    'revoke_permission': 'red',
+                    'create_namespace': 'magenta',
+                    'delete_namespace': 'red'
+                }.get(entry.action_type, 'white')
+
+                # Format timestamp
+                timestamp_str = entry.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+
+                click.echo(f"{click.style(f'{i}.', fg='bright_black')} "
+                          f"{click.style(timestamp_str, fg='bright_black')} | "
+                          f"{click.style(entry.action_type.upper(), fg=action_color, bold=True)} | "
+                          f"{click.style(entry.resource_type, fg='white')}")
+
+                click.echo(f"   Agent: {click.style(entry.agent_id, fg='cyan')}")
+
+                if entry.namespace:
+                    click.echo(f"   Namespace: {click.style(entry.namespace, fg='magenta')}")
+
+                if entry.resource_id:
+                    # Truncate long resource IDs (like memory UUIDs)
+                    resource_display = entry.resource_id[:16] + '...' if len(entry.resource_id) > 16 else entry.resource_id
+                    click.echo(f"   Resource: {click.style(resource_display, fg='yellow')}")
+
+                if entry.metadata:
+                    # Display metadata if present (truncated for readability)
+                    metadata_str = json.dumps(entry.metadata)
+                    if len(metadata_str) > 60:
+                        metadata_str = metadata_str[:57] + '...'
+                    click.echo(f"   Metadata: {click.style(metadata_str, fg='bright_black')}")
+
+                click.echo()
+
+            logger.close()
+
+        except Exception as e:
+            click.echo(click.style(f"Error: Failed to retrieve audit logs: {e}", fg="red"))
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+        return
+
+    # Standard security audit
     click.echo(click.style("Running Security Audit...", fg="cyan", bold=True))
     click.echo("=" * 50)
-    
-    db_path = base_path / "palace.sqlite"
+
     try:
         detector = PoisonDetector(base_path, GraphPalace(db_path) if db_path.exists() else None)
         results = detector.full_security_audit()
-        
+
         # File integrity
         click.echo(f"\n{click.style('File Integrity:', bold=True)}")
         file_ok = results.get('file_integrity', False)
         file_status = "✓ VERIFIED" if file_ok else "✗ FAILED"
         file_color = "green" if file_ok else "red"
         click.echo(f"  Status: {click.style(file_status, fg=file_color)}")
-        
+
         # Topology
         click.echo(f"\n{click.style('Graph Topology:', bold=True)}")
         orphans = results.get('orphan_nodes', [])
         cores = results.get('sudden_cores', [])
-        
+
         if orphans:
             click.echo(click.style(f"  ⚠ {len(orphans)} orphan nodes detected", fg="yellow"))
         else:
             click.echo(click.style(f"  ✓ No orphan nodes", fg="green"))
-        
+
         if cores:
             click.echo(click.style(f"  ⚠ {len(cores)} sudden cores detected", fg="yellow"))
         else:
             click.echo(click.style(f"  ✓ No sudden cores", fg="green"))
-        
+
         # Git audit
         click.echo(f"\n{click.style('Git History:', bold=True)}")
         git_check = results.get('git_audit', {})
@@ -1817,7 +1909,7 @@ def audit(ctx: click.Context) -> None:
                 click.echo(click.style(f"  ⚠ {len(suspicious)} suspicious commits", fg="yellow"))
             else:
                 click.echo(click.style(f"  ✓ No suspicious commits", fg="green"))
-        
+
         # Overall
         overall = results.get('overall_safe', False)
         click.echo(f"\n" + click.style("Overall Safety: ", bold=True), nl=False)
@@ -1825,12 +1917,111 @@ def audit(ctx: click.Context) -> None:
             click.echo(click.style("SAFE ✓", fg="green", bold=True))
         else:
             click.echo(click.style("ATTENTION REQUIRED ⚠", fg="yellow", bold=True))
-            
+
     except Exception as e:
         click.echo(click.style(f"Error: Audit failed: {e}", fg="red"))
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+@cli.command()
+@click.argument('topic')
+@click.option('--timeout', type=int, default=0, help='Timeout in seconds (0 = forever)')
+@click.option('--format', 'output_format', type=click.Choice(['json', 'pretty']), default='pretty',
+              help='Output format for events')
+@click.pass_context
+def subscribe(ctx: click.Context, topic: str, timeout: int, output_format: str) -> None:
+    """Subscribe to events on a topic.
+
+    Listen for events published to the specified topic and display them
+    as they arrive. Use '*' to subscribe to all events.
+
+    \b
+    Available event types:
+        memory.stored                   Memory stored in Graph Palace
+        memory.recalled                 Memories recalled via search
+        memory.shared_stored           Memory shared across agents
+        belief.updated                  Belief confidence updated
+        belief.contradiction_detected   Contradiction detected
+        belief.propagated              Belief propagated between agents
+        session.started                Session started
+        session.ended                  Session ended
+        *                              All events (wildcard)
+
+    \b
+    Examples:
+        omi subscribe memory.stored
+        omi subscribe "belief.*" --format json
+        omi subscribe "*" --timeout 60
+    """
+    import signal
+    import time
+    from threading import Event as ThreadEvent
+
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    event_bus = get_event_bus()
+
+    # Event to signal shutdown
+    shutdown_event = ThreadEvent()
+    event_count = 0
+
+    # Define event handler
+    def handle_event(event: Any) -> None:
+        nonlocal event_count
+        event_count += 1
+
+        if output_format == 'json':
+            # JSON format
+            if hasattr(event, 'to_dict'):
+                event_data = event.to_dict()
+            else:
+                event_data = {'event_type': event.event_type}
+            click.echo(json.dumps(event_data))
+        else:
+            # Pretty format
+            timestamp = event.timestamp.strftime('%H:%M:%S') if hasattr(event, 'timestamp') else ''
+            event_type = click.style(event.event_type, fg='cyan', bold=True)
+            click.echo(f"[{timestamp}] {event_type}")
+
+            # Display event-specific details
+            if hasattr(event, 'to_dict'):
+                event_dict = event.to_dict()
+                for key, value in event_dict.items():
+                    if key not in ['event_type', 'timestamp', 'metadata']:
+                        click.echo(f"  {key}: {value}")
+            click.echo()  # Blank line for readability
+
+    # Signal handler for graceful shutdown
+    def signal_handler(sig: int, frame: Any) -> None:
+        click.echo(click.style("\n\nShutdown requested...", fg="yellow"))
+        shutdown_event.set()
+
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Subscribe to topic
+    event_bus.subscribe(topic, handle_event)
+
+    click.echo(click.style(f"Subscribing to topic: {topic}", fg="cyan", bold=True))
+    if timeout > 0:
+        click.echo(f"Timeout: {timeout} seconds")
+    click.echo("Waiting for events... (Ctrl+C to stop)\n")
+
+    try:
+        # Wait for timeout or shutdown signal
+        if timeout > 0:
+            shutdown_event.wait(timeout=timeout)
+        else:
+            # Wait indefinitely
+            while not shutdown_event.is_set():
+                time.sleep(0.1)
+    finally:
+        # Cleanup
+        event_bus.unsubscribe(topic, handle_event)
+        click.echo(click.style(f"\nReceived {event_count} event(s)", fg="green"))
+        click.echo(click.style("Unsubscribed from topic", fg="cyan"))
 
 
 @cli.command()

@@ -26,7 +26,12 @@ from .event_bus import get_event_bus
 
 # Vault
 from .moltvault import MoltVault
-# from .moltvault import MoltVault
+
+# Multi-agent coordination
+from .shared_namespace import SharedNamespace
+from .permissions import PermissionManager, PermissionLevel
+from .subscriptions import SubscriptionManager
+from .audit_log import AuditLogger
 
 
 class MemoryTools:
@@ -447,26 +452,403 @@ class DailyLogTools:
 
     def __init__(self, daily_store: DailyLogStore) -> None:
         self.daily: DailyLogStore = daily_store
-    
+
     def append(self, content: str) -> str:
         """
         daily_log_append: Add to today's log
-        
+
         Pattern: Append throughout day, continuous capture
         """
         file_path = self.daily.append(content)
         return str(file_path)
-    
+
     def read(self, days_ago: int = 0) -> str:
         """daily_log_read: Read specific day's log"""
         from datetime import datetime, timedelta
-        
+
         target = datetime.now() - timedelta(days=days_ago)
         return self.daily.read_daily(target)
-    
+
     def list_recent(self, days: int = 7) -> List[str]:
         """daily_log_list: Recent log files"""
         return [str(p) for p in self.daily.list_days(days)]
+
+
+class SharedNamespaceTools:
+    """
+    Shared namespace operations for multi-agent coordination
+
+    Recommended: namespace_create, namespace_list, subscribe
+    """
+
+    def __init__(
+        self,
+        shared_namespace: SharedNamespace,
+        permissions: PermissionManager,
+        subscriptions: SubscriptionManager,
+        audit_logger: AuditLogger
+    ) -> None:
+        self.shared_ns: SharedNamespace = shared_namespace
+        self.permissions: PermissionManager = permissions
+        self.subscriptions: SubscriptionManager = subscriptions
+        self.audit: AuditLogger = audit_logger
+
+    def create_namespace(
+        self,
+        namespace: str,
+        created_by: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        namespace_create: Create shared namespace for multi-agent coordination
+
+        Args:
+            namespace: Namespace string (e.g., "team-alpha/research")
+            created_by: Agent ID creating the namespace
+            metadata: Optional metadata dictionary
+
+        Returns:
+            Created namespace information
+        """
+        try:
+            ns_info = self.shared_ns.create(namespace, created_by, metadata)
+
+            # Log creation
+            self.audit.log(
+                agent_id=created_by,
+                action_type=AuditLogger.ACTION_CREATE_NAMESPACE,
+                resource_type=AuditLogger.RESOURCE_NAMESPACE,
+                resource_id=namespace,
+                namespace=namespace,
+                metadata=metadata
+            )
+
+            return ns_info.to_dict()
+        except ValueError as e:
+            return {'error': str(e)}
+
+    def list_namespaces(
+        self,
+        agent_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        namespace_list: List shared namespaces
+
+        Args:
+            agent_id: Optional agent ID to filter by creator
+
+        Returns:
+            List of namespace information dictionaries
+        """
+        if agent_id:
+            namespaces = self.shared_ns.list_by_creator(agent_id)
+        else:
+            namespaces = self.shared_ns.list_all()
+
+        return [ns.to_dict() for ns in namespaces]
+
+    def get_namespace(self, namespace: str) -> Optional[Dict[str, Any]]:
+        """
+        namespace_get: Get information about a specific namespace
+
+        Args:
+            namespace: Namespace string
+
+        Returns:
+            Namespace information or None if not found
+        """
+        ns_info = self.shared_ns.get(namespace)
+        return ns_info.to_dict() if ns_info else None
+
+    def delete_namespace(
+        self,
+        namespace: str,
+        agent_id: str
+    ) -> Dict[str, Any]:
+        """
+        namespace_delete: Delete a shared namespace (admin only)
+
+        Requires ADMIN permission. Cascades to permissions and subscriptions.
+
+        Args:
+            namespace: Namespace string
+            agent_id: Agent ID attempting deletion
+
+        Returns:
+            Success status
+        """
+        # Check admin permission
+        if not self.permissions.can_admin(namespace, agent_id):
+            return {'success': False, 'error': 'Admin permission required'}
+
+        success = self.shared_ns.delete(namespace)
+
+        if success:
+            # Log deletion
+            self.audit.log(
+                agent_id=agent_id,
+                action_type=AuditLogger.ACTION_DELETE_NAMESPACE,
+                resource_type=AuditLogger.RESOURCE_NAMESPACE,
+                resource_id=namespace,
+                namespace=namespace
+            )
+
+        return {'success': success}
+
+    def grant_permission(
+        self,
+        namespace: str,
+        agent_id: str,
+        target_agent_id: str,
+        permission_level: str
+    ) -> Dict[str, Any]:
+        """
+        permission_grant: Grant permission to agent for namespace
+
+        Requires ADMIN permission.
+
+        Args:
+            namespace: Namespace string
+            agent_id: Agent ID granting permission (must have ADMIN)
+            target_agent_id: Agent ID to grant permission to
+            permission_level: Permission level (read|write|admin)
+
+        Returns:
+            Permission information or error
+        """
+        # Check admin permission
+        if not self.permissions.can_admin(namespace, agent_id):
+            return {'error': 'Admin permission required'}
+
+        try:
+            level = PermissionLevel.from_string(permission_level)
+            perm_info = self.permissions.grant(namespace, target_agent_id, level)
+
+            # Log grant
+            self.audit.log(
+                agent_id=agent_id,
+                action_type=AuditLogger.ACTION_GRANT_PERMISSION,
+                resource_type=AuditLogger.RESOURCE_PERMISSION,
+                resource_id=target_agent_id,
+                namespace=namespace,
+                metadata={'permission_level': permission_level}
+            )
+
+            return perm_info.to_dict()
+        except ValueError as e:
+            return {'error': str(e)}
+
+    def revoke_permission(
+        self,
+        namespace: str,
+        agent_id: str,
+        target_agent_id: str
+    ) -> Dict[str, Any]:
+        """
+        permission_revoke: Revoke agent permission from namespace
+
+        Requires ADMIN permission.
+
+        Args:
+            namespace: Namespace string
+            agent_id: Agent ID revoking permission (must have ADMIN)
+            target_agent_id: Agent ID to revoke permission from
+
+        Returns:
+            Success status
+        """
+        # Check admin permission
+        if not self.permissions.can_admin(namespace, agent_id):
+            return {'success': False, 'error': 'Admin permission required'}
+
+        success = self.permissions.revoke(namespace, target_agent_id)
+
+        if success:
+            # Log revoke
+            self.audit.log(
+                agent_id=agent_id,
+                action_type=AuditLogger.ACTION_REVOKE_PERMISSION,
+                resource_type=AuditLogger.RESOURCE_PERMISSION,
+                resource_id=target_agent_id,
+                namespace=namespace
+            )
+
+        return {'success': success}
+
+    def list_permissions(
+        self,
+        namespace: Optional[str] = None,
+        agent_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        permission_list: List permissions for namespace or agent
+
+        Args:
+            namespace: Optional namespace to filter by
+            agent_id: Optional agent ID to filter by
+
+        Returns:
+            List of permission information dictionaries
+        """
+        if namespace:
+            permissions = self.permissions.list_for_namespace(namespace)
+        elif agent_id:
+            permissions = self.permissions.list_for_agent(agent_id)
+        else:
+            return []
+
+        return [perm.to_dict() for perm in permissions]
+
+    def check_permission(
+        self,
+        namespace: str,
+        agent_id: str,
+        required_level: str
+    ) -> bool:
+        """
+        permission_check: Check if agent has required permission level
+
+        Args:
+            namespace: Namespace string
+            agent_id: Agent ID to check
+            required_level: Required permission level (read|write|admin)
+
+        Returns:
+            True if agent has sufficient permission, False otherwise
+        """
+        try:
+            level = PermissionLevel.from_string(required_level)
+            return self.permissions.has_permission(namespace, agent_id, level)
+        except ValueError:
+            return False
+
+    def subscribe(
+        self,
+        agent_id: str,
+        event_types: List[str],
+        namespace: Optional[str] = None,
+        memory_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        subscribe: Subscribe agent to events
+
+        Args:
+            agent_id: Agent ID creating subscription
+            event_types: Event types to subscribe to (e.g., ["memory.stored"])
+            namespace: Optional namespace to filter by
+            memory_id: Optional memory ID to filter by
+
+        Returns:
+            Subscription information or error
+        """
+        try:
+            sub_info = self.subscriptions.subscribe(
+                agent_id=agent_id,
+                event_types=event_types,
+                namespace=namespace,
+                memory_id=memory_id
+            )
+
+            # Log subscription
+            self.audit.log(
+                agent_id=agent_id,
+                action_type=AuditLogger.ACTION_SUBSCRIBE,
+                resource_type=AuditLogger.RESOURCE_SUBSCRIPTION,
+                resource_id=sub_info.id,
+                namespace=namespace,
+                metadata={
+                    'event_types': event_types,
+                    'memory_id': memory_id
+                }
+            )
+
+            return sub_info.to_dict()
+        except ValueError as e:
+            return {'error': str(e)}
+
+    def unsubscribe(
+        self,
+        agent_id: str,
+        subscription_id: str
+    ) -> Dict[str, Any]:
+        """
+        unsubscribe: Remove subscription
+
+        Args:
+            agent_id: Agent ID removing subscription
+            subscription_id: Subscription ID to remove
+
+        Returns:
+            Success status
+        """
+        # Verify subscription belongs to agent
+        sub_info = self.subscriptions.get(subscription_id)
+        if not sub_info or sub_info.agent_id != agent_id:
+            return {'success': False, 'error': 'Subscription not found or unauthorized'}
+
+        success = self.subscriptions.unsubscribe(subscription_id)
+
+        if success:
+            # Log unsubscribe
+            self.audit.log(
+                agent_id=agent_id,
+                action_type=AuditLogger.ACTION_UNSUBSCRIBE,
+                resource_type=AuditLogger.RESOURCE_SUBSCRIPTION,
+                resource_id=subscription_id,
+                namespace=sub_info.namespace
+            )
+
+        return {'success': success}
+
+    def list_subscriptions(
+        self,
+        agent_id: Optional[str] = None,
+        namespace: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        subscription_list: List subscriptions for agent or namespace
+
+        Args:
+            agent_id: Optional agent ID to filter by
+            namespace: Optional namespace to filter by
+
+        Returns:
+            List of subscription information dictionaries
+        """
+        if agent_id:
+            subscriptions = self.subscriptions.list_for_agent(agent_id)
+        elif namespace:
+            subscriptions = self.subscriptions.list_for_namespace(namespace)
+        else:
+            return []
+
+        return [sub.to_dict() for sub in subscriptions]
+
+    def audit_recent(
+        self,
+        limit: int = 50,
+        agent_id: Optional[str] = None,
+        namespace: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        audit_recent: Get recent audit log entries
+
+        Args:
+            limit: Maximum entries to return (default: 50)
+            agent_id: Optional agent ID to filter by
+            namespace: Optional namespace to filter by
+
+        Returns:
+            List of audit entry dictionaries
+        """
+        if agent_id:
+            entries = self.audit.get_by_agent(agent_id, limit=limit)
+        elif namespace:
+            entries = self.audit.get_by_namespace(namespace, limit=limit)
+        else:
+            entries = self.audit.get_recent(limit=limit)
+
+        return [entry.to_dict() for entry in entries]
 
 
 def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
