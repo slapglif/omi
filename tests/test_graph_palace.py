@@ -733,6 +733,105 @@ class TestGraphPalace(unittest.TestCase):
 
         self.assertGreater(len(result["memories"]), 0)
 
+    # ==================== Belief Pagination ====================
+
+    def test_list_beliefs_basic(self):
+        """Test basic list_beliefs pagination."""
+        # Create 5 beliefs and 3 facts
+        for i in range(5):
+            self.palace.store_memory(
+                content=f"Belief {i}",
+                memory_type="belief",
+                confidence=0.5 + (i * 0.1)
+            )
+        for i in range(3):
+            self.palace.store_memory(
+                content=f"Fact {i}",
+                memory_type="fact"
+            )
+
+        # Get beliefs only
+        result = self.palace.list_beliefs(limit=3)
+
+        self.assertEqual(len(result["beliefs"]), 3)
+        self.assertEqual(result["total_count"], 5)
+        self.assertTrue(result["has_more"])
+        self.assertIsNotNone(result["next_cursor"])
+
+        # Verify only beliefs returned
+        for belief in result["beliefs"]:
+            self.assertEqual(belief["memory_type"], "belief")
+            self.assertIn("confidence", belief)
+
+    def test_list_beliefs_cursor_pagination(self):
+        """Test cursor-based pagination through all beliefs."""
+        # Create 10 beliefs
+        belief_ids = []
+        for i in range(10):
+            belief_id = self.palace.store_memory(
+                content=f"Belief {i}",
+                memory_type="belief",
+                confidence=0.5
+            )
+            belief_ids.append(belief_id)
+
+        # Page 1
+        result = self.palace.list_beliefs(limit=4, order_by="created_at", order_dir="asc")
+        self.assertEqual(len(result["beliefs"]), 4)
+        self.assertTrue(result["has_more"])
+        page1_ids = [b["id"] for b in result["beliefs"]]
+
+        # Page 2
+        result2 = self.palace.list_beliefs(limit=4, cursor=result["next_cursor"])
+        self.assertEqual(len(result2["beliefs"]), 4)
+        self.assertTrue(result2["has_more"])
+        page2_ids = [b["id"] for b in result2["beliefs"]]
+
+        # Ensure no overlap between pages
+        self.assertEqual(len(set(page1_ids) & set(page2_ids)), 0)
+
+        # Page 3 (last page)
+        result3 = self.palace.list_beliefs(limit=4, cursor=result2["next_cursor"])
+        self.assertEqual(len(result3["beliefs"]), 2)
+        self.assertFalse(result3["has_more"])
+        self.assertEqual(result3["next_cursor"], "")
+
+    def test_list_beliefs_order_by_confidence(self):
+        """Test ordering beliefs by confidence."""
+        # Create beliefs with different confidence levels
+        b1_id = self.palace.store_memory(content="Low confidence", memory_type="belief", confidence=0.3)
+        b2_id = self.palace.store_memory(content="High confidence", memory_type="belief", confidence=0.9)
+        b3_id = self.palace.store_memory(content="Medium confidence", memory_type="belief", confidence=0.6)
+
+        # Order by confidence desc
+        result = self.palace.list_beliefs(order_by="confidence", order_dir="desc", limit=10)
+
+        # First should be highest confidence
+        self.assertEqual(result["beliefs"][0]["id"], b2_id)
+        self.assertAlmostEqual(result["beliefs"][0]["confidence"], 0.9, places=4)
+
+    def test_list_beliefs_empty(self):
+        """Test list_beliefs with no beliefs."""
+        # Create some facts but no beliefs
+        self.palace.store_memory(content="Fact", memory_type="fact")
+
+        result = self.palace.list_beliefs(limit=10)
+
+        self.assertEqual(len(result["beliefs"]), 0)
+        self.assertEqual(result["total_count"], 0)
+        self.assertFalse(result["has_more"])
+        self.assertEqual(result["next_cursor"], "")
+
+    def test_list_beliefs_invalid_order_by(self):
+        """Test invalid order_by field raises error."""
+        with self.assertRaises(ValueError):
+            self.palace.list_beliefs(order_by="invalid_field")
+
+    def test_list_beliefs_invalid_order_dir(self):
+        """Test invalid order direction raises error."""
+        with self.assertRaises(ValueError):
+            self.palace.list_beliefs(order_dir="sideways")
+
 
 class TestMemoryDataclass(unittest.TestCase):
     """Test Memory dataclass."""

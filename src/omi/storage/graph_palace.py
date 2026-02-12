@@ -624,6 +624,148 @@ class GraphPalace:
             "has_more": has_more
         }
 
+    def list_beliefs(
+        self,
+        limit: int = 50,
+        cursor: Optional[str] = None,
+        order_by: str = "created_at",
+        order_dir: str = "desc"
+    ) -> Dict[str, Any]:
+        """
+        List beliefs (memories with type='belief') with cursor-based pagination.
+
+        Args:
+            limit: Maximum number of beliefs to return (default 50, max 500)
+            cursor: Pagination cursor from previous response (base64 encoded)
+            order_by: Field to order by (confidence, created_at, access_count, last_accessed)
+            order_dir: Order direction (asc, desc)
+
+        Returns:
+            Dictionary containing:
+                - beliefs: List of belief dictionaries
+                - total_count: Total number of beliefs
+                - next_cursor: Cursor for next page (empty string if no more results)
+                - has_more: Boolean indicating if more results exist
+
+        Raises:
+            ValueError: If invalid parameters provided
+        """
+        # Validate limit
+        if limit < 1:
+            raise ValueError(f"limit must be >= 1, got {limit}")
+        if limit > 500:
+            raise ValueError(f"limit must be <= 500, got {limit}")
+
+        # Validate order_by
+        valid_order_fields = {"confidence", "created_at", "access_count", "last_accessed"}
+        if order_by not in valid_order_fields:
+            raise ValueError(
+                f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
+            )
+
+        # Validate order_dir
+        order_dir_upper = order_dir.upper()
+        if order_dir_upper not in {"ASC", "DESC"}:
+            raise ValueError(f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'")
+
+        # Decode cursor
+        cursor_data = self._decode_cursor(cursor)
+
+        # If cursor provided, use order settings from cursor for consistency
+        if cursor_data and "last_id" in cursor_data:
+            effective_order_by = cursor_data.get("order_by", order_by)
+            effective_order_dir = cursor_data.get("order_dir", order_dir_upper)
+        else:
+            effective_order_by = order_by
+            effective_order_dir = order_dir_upper
+
+        # Build base query - filter for beliefs only
+        base_query = """
+            SELECT id, content, memory_type, confidence,
+                   created_at, last_accessed, access_count, instance_ids, content_hash
+            FROM memories
+            WHERE memory_type = 'belief'
+        """
+        count_query = "SELECT COUNT(*) FROM memories WHERE memory_type = 'belief'"
+        params: List[Any] = []
+
+        # Cursor-based pagination: filter by last value
+        if cursor_data and "last_id" in cursor_data:
+            last_id = cursor_data["last_id"]
+
+            # Get the value of the order_by field for the last_id
+            cursor_value_query = f"SELECT {effective_order_by} FROM memories WHERE id = ?"
+            with self._db_lock:
+                cursor_result = self._conn.execute(cursor_value_query, (last_id,))
+                cursor_value_row = cursor_result.fetchone()
+
+            if cursor_value_row:
+                cursor_value = cursor_value_row[0]
+
+                # Add cursor condition based on sort direction
+                if effective_order_dir == "DESC":
+                    # For DESC, we want values less than cursor_value
+                    # or equal values with id > last_id (for stable ordering)
+                    base_query += f" AND ({effective_order_by} < ? OR ({effective_order_by} = ? AND id > ?))"
+                    params.extend([cursor_value, cursor_value, last_id])
+                else:  # ASC
+                    # For ASC, we want values greater than cursor_value
+                    # or equal values with id > last_id (for stable ordering)
+                    base_query += f" AND ({effective_order_by} > ? OR ({effective_order_by} = ? AND id > ?))"
+                    params.extend([cursor_value, cursor_value, last_id])
+
+        # Get total count (for beliefs only)
+        with self._db_lock:
+            cursor_result = self._conn.execute(count_query)
+            total_count = cursor_result.fetchone()[0]
+
+            # Add ORDER BY and LIMIT
+            base_query += f" ORDER BY {effective_order_by} {effective_order_dir}, id ASC"
+            base_query += " LIMIT ?"
+            params.append(limit + 1)  # Fetch one extra to determine has_more
+
+            # Execute query
+            cursor_result = self._conn.execute(base_query, params)
+            rows = cursor_result.fetchall()
+
+        # Check if there are more results
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]  # Trim to requested limit
+
+        # Convert rows to belief dictionaries
+        beliefs = []
+        for row in rows:
+            belief_dict = {
+                "id": row[0],
+                "content": row[1],
+                "memory_type": row[2],
+                "confidence": row[3],
+                "created_at": row[4],
+                "last_accessed": row[5],
+                "access_count": row[6],
+                "instance_ids": row[7] if row[7] else "[]",
+                "content_hash": row[8]
+            }
+            beliefs.append(belief_dict)
+
+        # Generate next cursor
+        next_cursor = ""
+        if has_more and beliefs:
+            last_belief = beliefs[-1]
+            next_cursor = self._encode_cursor({
+                "last_id": last_belief["id"],
+                "order_by": effective_order_by,
+                "order_dir": effective_order_dir
+            })
+
+        return {
+            "beliefs": beliefs,
+            "total_count": total_count,
+            "next_cursor": next_cursor,
+            "has_more": has_more
+        }
+
     def recall(self,
                query_embedding: List[float],
                limit: int = 10,
