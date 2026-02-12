@@ -122,16 +122,19 @@ class TestAuthentication:
             if old_key:
                 os.environ["OMI_API_KEY"] = old_key
 
-    def test_store_without_api_key_when_required(self, client):
+    def test_store_without_api_key_when_required(self, client, temp_data_dir):
         """
-        POST /api/v1/store without API key when OMI_API_KEY is set
+        POST /api/v1/store without API key when auth is enabled
         Assert: Returns 401 with missing API key error
         """
-        # Set API key in environment to require authentication
-        old_key = os.environ.get("OMI_API_KEY")
-        os.environ["OMI_API_KEY"] = "test-secret-key"
+        # Setup: Create API key in database to enable auth enforcement
+        db_path = temp_data_dir / "palace.sqlite"
+        key_manager = APIKeyManager(db_path)
+        key_manager.generate_key("test-key", rate_limit=100)  # Auth now required
 
-        try:
+        # Patch Path.home to use temp directory
+        with patch('omi.rest_api.Path.home', return_value=temp_data_dir.parent.parent):
+            # Make request WITHOUT API key
             response = client.post(
                 "/api/v1/store",
                 json={
@@ -140,16 +143,11 @@ class TestAuthentication:
                 }
             )
 
+            # Should now return 401 (auth enabled, no key provided)
             assert response.status_code == 401
             data = response.json()
             assert "detail" in data
-            assert "Missing API key" in data["detail"]
-        finally:
-            # Restore old key
-            if old_key:
-                os.environ["OMI_API_KEY"] = old_key
-            else:
-                del os.environ["OMI_API_KEY"]
+            assert "API key" in data["detail"]
 
     def test_store_with_valid_api_key(self, client, mock_memory_tools):
         """
@@ -182,16 +180,19 @@ class TestAuthentication:
             else:
                 del os.environ["OMI_API_KEY"]
 
-    def test_store_with_invalid_api_key(self, client):
+    def test_store_with_invalid_api_key(self, client, temp_data_dir):
         """
         POST /api/v1/store with incorrect API key
         Assert: Returns 401 with invalid API key error
         """
-        # Set API key in environment
-        old_key = os.environ.get("OMI_API_KEY")
-        os.environ["OMI_API_KEY"] = "test-secret-key"
+        # Setup: Create API key in database to enable auth enforcement
+        db_path = temp_data_dir / "palace.sqlite"
+        key_manager = APIKeyManager(db_path)
+        key_manager.generate_key("test-key", rate_limit=100)  # Creates a valid key
 
-        try:
+        # Patch Path.home to use temp directory
+        with patch('omi.rest_api.Path.home', return_value=temp_data_dir.parent.parent):
+            # Make request with WRONG API key
             response = client.post(
                 "/api/v1/store",
                 json={
@@ -201,39 +202,32 @@ class TestAuthentication:
                 headers={"X-API-Key": "wrong-key"}
             )
 
+            # Should return 401 (invalid key)
             assert response.status_code == 401
             data = response.json()
             assert "detail" in data
-            assert "Invalid API key" in data["detail"]
-        finally:
-            # Restore old key
-            if old_key:
-                os.environ["OMI_API_KEY"] = old_key
-            else:
-                del os.environ["OMI_API_KEY"]
+            assert "Invalid" in data["detail"] and "API key" in data["detail"]
 
-    def test_recall_without_api_key_when_required(self, client):
+    def test_recall_without_api_key_when_required(self, client, temp_data_dir):
         """
-        GET /api/v1/recall without API key when OMI_API_KEY is set
+        GET /api/v1/recall without API key when auth is enabled
         Assert: Returns 401 with missing API key error
         """
-        # Set API key in environment
-        old_key = os.environ.get("OMI_API_KEY")
-        os.environ["OMI_API_KEY"] = "test-secret-key"
+        # Setup: Create API key in database to enable auth enforcement
+        db_path = temp_data_dir / "palace.sqlite"
+        key_manager = APIKeyManager(db_path)
+        key_manager.generate_key("test-key", rate_limit=100)  # Auth now required
 
-        try:
+        # Patch Path.home to use temp directory
+        with patch('omi.rest_api.Path.home', return_value=temp_data_dir.parent.parent):
+            # Make request WITHOUT API key
             response = client.get("/api/v1/recall?query=test")
 
+            # Should return 401 (auth enabled, no key provided)
             assert response.status_code == 401
             data = response.json()
             assert "detail" in data
-            assert "Missing API key" in data["detail"]
-        finally:
-            # Restore old key
-            if old_key:
-                os.environ["OMI_API_KEY"] = old_key
-            else:
-                del os.environ["OMI_API_KEY"]
+            assert "API key" in data["detail"]
 
     def test_recall_with_valid_api_key(self, client, mock_memory_tools):
         """
@@ -288,34 +282,60 @@ class TestAuthentication:
             else:
                 del os.environ["OMI_API_KEY"]
 
-    def test_case_sensitive_api_key(self, client):
+    def test_case_sensitive_api_key(self, client, temp_data_dir, mock_memory_tools):
         """
         POST /api/v1/store with API key that differs only in case
         Assert: Returns 401 (API keys are case-sensitive)
         """
-        # Set API key in environment
-        old_key = os.environ.get("OMI_API_KEY")
-        os.environ["OMI_API_KEY"] = "Test-Secret-Key"
+        # Setup: Create API key in database to enable auth enforcement
+        db_path = temp_data_dir / "palace.sqlite"
+        key_manager = APIKeyManager(db_path)
+        # Generate a key with specific characters for case sensitivity test
+        api_key = key_manager.generate_key("test-key", rate_limit=100)
 
-        try:
-            response = client.post(
-                "/api/v1/store",
-                json={
-                    "content": "Test memory",
-                    "memory_type": "fact"
-                },
-                headers={"X-API-Key": "test-secret-key"}  # Different case
-            )
+        # Patch Path.home to use temp directory
+        with patch('omi.rest_api.Path.home', return_value=temp_data_dir.parent.parent):
+            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+                # First verify the correct key works
+                response_valid = client.post(
+                    "/api/v1/store",
+                    json={
+                        "content": "Test memory",
+                        "memory_type": "fact"
+                    },
+                    headers={"X-API-Key": api_key}
+                )
+                assert response_valid.status_code == 201
 
-            assert response.status_code == 401
-            data = response.json()
-            assert "Invalid API key" in data["detail"]
-        finally:
-            # Restore old key
-            if old_key:
-                os.environ["OMI_API_KEY"] = old_key
-            else:
-                del os.environ["OMI_API_KEY"]
+                # Now make request with WRONG case - swap case of all alphabetic characters
+                wrong_case_key = ''.join(c.swapcase() if c.isalpha() else c for c in api_key)
+
+                # Only run the test if the key actually changed (has at least one letter)
+                if wrong_case_key != api_key:
+                    response = client.post(
+                        "/api/v1/store",
+                        json={
+                            "content": "Test memory",
+                            "memory_type": "fact"
+                        },
+                        headers={"X-API-Key": wrong_case_key}  # Different case
+                    )
+
+                    # Should return 401 (case-sensitive mismatch)
+                    assert response.status_code == 401
+                    data = response.json()
+                    assert "Invalid" in data["detail"] and "API key" in data["detail"]
+                else:
+                    # If the generated key has no letters, test with a manually wrong key
+                    response = client.post(
+                        "/api/v1/store",
+                        json={
+                            "content": "Test memory",
+                            "memory_type": "fact"
+                        },
+                        headers={"X-API-Key": "WRONG_KEY"}
+                    )
+                    assert response.status_code == 401
 
 
 class TestMemoryEndpoints:
@@ -1354,30 +1374,32 @@ class TestIntegration:
                 memory_type=None
             )
 
-    def test_full_workflow_with_authentication(self, client, mock_memory_tools):
+    def test_full_workflow_with_authentication(self, client, temp_data_dir, mock_memory_tools):
         """
         Full workflow with authentication: Store -> Recall with API key
         Assert: Authenticated requests work end-to-end
         """
-        # Set API key in environment
-        old_key = os.environ.get("OMI_API_KEY")
-        os.environ["OMI_API_KEY"] = "integration-test-key"
+        # Setup: Create API key in database to enable auth enforcement
+        db_path = temp_data_dir / "palace.sqlite"
+        key_manager = APIKeyManager(db_path)
+        api_key = key_manager.generate_key("integration-test-key", rate_limit=100)
 
-        try:
-            # Configure mock
-            stored_memory_id = "mem_auth_test_456"
-            mock_memory_tools.store.return_value = stored_memory_id
-            mock_memory_tools.recall.return_value = [
-                {
-                    "id": stored_memory_id,
-                    "content": "Authenticated memory",
-                    "memory_type": "experience",
-                    "relevance": 0.88,
-                    "created_at": "2024-01-01T00:00:00",
-                    "final_score": 0.82
-                }
-            ]
+        # Configure mock
+        stored_memory_id = "mem_auth_test_456"
+        mock_memory_tools.store.return_value = stored_memory_id
+        mock_memory_tools.recall.return_value = [
+            {
+                "id": stored_memory_id,
+                "content": "Authenticated memory",
+                "memory_type": "experience",
+                "relevance": 0.88,
+                "created_at": "2024-01-01T00:00:00",
+                "final_score": 0.82
+            }
+        ]
 
+        # Patch Path.home to use temp directory
+        with patch('omi.rest_api.Path.home', return_value=temp_data_dir.parent.parent):
             with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
                 # Step 1: Store with authentication
                 store_response = client.post(
@@ -1386,7 +1408,7 @@ class TestIntegration:
                         "content": "Authenticated memory",
                         "memory_type": "experience"
                     },
-                    headers={"X-API-Key": "integration-test-key"}
+                    headers={"X-API-Key": api_key}
                 )
 
                 assert store_response.status_code == 201
@@ -1396,7 +1418,7 @@ class TestIntegration:
                 recall_response = client.get(
                     "/api/v1/recall",
                     params={"query": "authenticated"},
-                    headers={"X-API-Key": "integration-test-key"}
+                    headers={"X-API-Key": api_key}
                 )
 
                 assert recall_response.status_code == 200
@@ -1411,12 +1433,6 @@ class TestIntegration:
                 )
 
                 assert unauth_response.status_code == 401
-        finally:
-            # Restore old key
-            if old_key:
-                os.environ["OMI_API_KEY"] = old_key
-            else:
-                del os.environ["OMI_API_KEY"]
 
     def test_full_workflow_multiple_memories(self, client, mock_memory_tools, disable_auth):
         """
