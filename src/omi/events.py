@@ -8,6 +8,7 @@ This module defines typed events emitted during memory operations:
 - ContradictionDetectedEvent: When a contradiction is detected
 - SessionStartedEvent: When a session starts
 - SessionEndedEvent: When a session ends
+- PolicyTriggeredEvent: When a memory policy is triggered
 
 All events include full context (memory content, metadata, timestamps).
 """
@@ -149,6 +150,30 @@ class SessionEndedEvent:
         }
 
 
+@dataclass
+class PolicyTriggeredEvent:
+    """Event emitted when a memory policy is triggered."""
+    policy_id: str
+    action: str
+    affected_memory_ids: List[str] = field(default_factory=list)
+    reason: Optional[str] = None
+    timestamp: datetime = field(default_factory=datetime.now)
+    event_type: str = "policy.triggered"
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "policy_id": self.policy_id,
+            "action": self.action,
+            "affected_memory_ids": self.affected_memory_ids,
+            "reason": self.reason,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "metadata": self.metadata or {}
+        }
+
+
 # Export all event types
 __all__ = [
     "MemoryStoredEvent",
@@ -157,4 +182,5 @@ __all__ = [
     "ContradictionDetectedEvent",
     "SessionStartedEvent",
     "SessionEndedEvent",
+    "PolicyTriggeredEvent",
 ]
