@@ -6,8 +6,11 @@ Tests that snapshots capture point-in-time memory state with delta encoding.
 
 import pytest
 import sqlite3
+import json
+import tarfile
 from pathlib import Path
 from datetime import datetime
+from unittest.mock import Mock, MagicMock, patch
 import time
 from omi.storage.snapshots import SnapshotManager, SnapshotInfo, SnapshotDiff
 from omi.storage.graph_palace import GraphPalace
@@ -319,3 +322,137 @@ def test_snapshot_with_no_changes(temp_db, snapshot_manager, palace):
     conn.close()
 
     assert state1 == state2, "State should be identical"
+
+
+def test_moltvault_integration(temp_db, palace, tmp_path):
+    """Test integration with MoltVault for cloud backup."""
+    # Create a mock MoltVault instance
+    mock_moltvault = Mock()
+    mock_backend = Mock()
+
+    # Track uploaded files
+    uploaded_files = {}
+
+    def mock_upload(local_path, key, metadata=None):
+        """Mock upload that stores file content for verification."""
+        # Read and store the file content
+        with open(local_path, 'rb') as f:
+            uploaded_files[key] = {
+                'content': f.read(),
+                'metadata': metadata
+            }
+        return key
+
+    mock_backend.upload = mock_upload
+    mock_moltvault._get_backend.return_value = mock_backend
+
+    # Create snapshot manager with MoltVault
+    snapshot_manager = SnapshotManager(temp_db, moltvault=mock_moltvault)
+
+    # Create some memories
+    mem1 = palace.store_memory(content="Memory 1", memory_type="fact")
+    mem2 = palace.store_memory(content="Memory 2", memory_type="fact")
+
+    # Create snapshot with MoltVault backup
+    snapshot = snapshot_manager.create_snapshot(
+        description="Test snapshot with cloud backup",
+        backup_to_moltvault=True
+    )
+
+    # Verify snapshot was created
+    assert snapshot.snapshot_id is not None
+    assert snapshot.description == "Test snapshot with cloud backup"
+    assert snapshot.moltvault_backup_id is not None
+
+    # Verify backend was called
+    mock_moltvault._get_backend.assert_called_once()
+
+    # Verify file was uploaded
+    assert len(uploaded_files) == 1
+    backup_key = snapshot.moltvault_backup_id
+    assert backup_key in uploaded_files
+    assert backup_key.startswith("snapshots/")
+    assert backup_key.endswith(".tar.gz")
+
+    # Verify uploaded metadata
+    upload_metadata = uploaded_files[backup_key]['metadata']
+    assert upload_metadata['snapshot_id'] == snapshot.snapshot_id
+    assert upload_metadata['description'] == "Test snapshot with cloud backup"
+    assert upload_metadata['type'] == "snapshot"
+
+    # Extract and verify the tar.gz content
+    uploaded_content = uploaded_files[backup_key]['content']
+    tar_path = tmp_path / "uploaded.tar.gz"
+    with open(tar_path, 'wb') as f:
+        f.write(uploaded_content)
+
+    # Extract tar and read JSON
+    with tarfile.open(tar_path, 'r:gz') as tar:
+        members = tar.getmembers()
+        assert len(members) == 1, "Archive should contain one JSON file"
+
+        json_member = members[0]
+        assert json_member.name.endswith('.json')
+
+        # Extract and parse JSON
+        json_file = tar.extractfile(json_member)
+        snapshot_data = json.load(json_file)
+
+    # Verify exported snapshot data structure
+    assert 'snapshot' in snapshot_data
+    assert 'memories' in snapshot_data
+    assert 'export_version' in snapshot_data
+
+    # Verify snapshot metadata
+    assert snapshot_data['snapshot']['snapshot_id'] == snapshot.snapshot_id
+    assert snapshot_data['snapshot']['description'] == "Test snapshot with cloud backup"
+
+    # Verify memory data
+    assert len(snapshot_data['memories']) == 2
+    memory_ids = {m['memory_id'] for m in snapshot_data['memories']}
+    assert mem1 in memory_ids
+    assert mem2 in memory_ids
+
+    # Verify each memory has required fields
+    for memory in snapshot_data['memories']:
+        assert 'memory_id' in memory
+        assert 'version_id' in memory
+        assert 'operation_type' in memory
+        assert 'content' in memory
+        assert memory['operation_type'] == 'ADDED'  # First snapshot, all memories are ADDED
+
+
+def test_moltvault_integration_without_instance(temp_db, palace):
+    """Test that backup_to_moltvault=True fails without MoltVault instance."""
+    # Create snapshot manager without MoltVault
+    snapshot_manager = SnapshotManager(temp_db, moltvault=None)
+
+    # Create a memory
+    palace.store_memory(content="Test memory", memory_type="fact")
+
+    # Try to create snapshot with backup - should fail
+    with pytest.raises(ValueError, match="backup_to_moltvault=True but no MoltVault instance configured"):
+        snapshot_manager.create_snapshot(
+            description="Should fail",
+            backup_to_moltvault=True
+        )
+
+
+def test_moltvault_integration_local_only_mode(temp_db, palace):
+    """Test creating snapshots without MoltVault backup (local-only mode)."""
+    # Create snapshot manager without MoltVault
+    snapshot_manager = SnapshotManager(temp_db, moltvault=None)
+
+    # Create a memory
+    palace.store_memory(content="Test memory", memory_type="fact")
+
+    # Create snapshot without backup - should work fine
+    snapshot = snapshot_manager.create_snapshot(
+        description="Local only snapshot",
+        backup_to_moltvault=False
+    )
+
+    # Verify snapshot was created
+    assert snapshot.snapshot_id is not None
+    assert snapshot.description == "Local only snapshot"
+    assert snapshot.moltvault_backup_id is None  # No cloud backup

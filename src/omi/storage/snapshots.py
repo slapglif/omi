@@ -14,13 +14,18 @@ Features:
 import sqlite3
 import json
 import uuid
+import tarfile
+import tempfile
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional, Dict, Any, Set
+from typing import List, Optional, Dict, Any, Set, TYPE_CHECKING
 from dataclasses import dataclass, asdict
 
 from .models import Memory
 from .schema import init_database
+
+if TYPE_CHECKING:
+    from ..moltvault import MoltVault
 
 
 @dataclass
@@ -122,14 +127,16 @@ class SnapshotManager:
         manager.rollback_to_snapshot(snapshot.snapshot_id)
     """
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, moltvault: Optional['MoltVault'] = None):
         """
         Initialize Snapshot Manager.
 
         Args:
             db_path: Path to SQLite database file
+            moltvault: Optional MoltVault instance for cloud backup
         """
         self.db_path = Path(db_path)
+        self.moltvault = moltvault
         if not self.db_path.exists():
             raise FileNotFoundError(f"Database file not found: {self.db_path}")
 
@@ -137,7 +144,8 @@ class SnapshotManager:
         self,
         description: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        moltvault_backup_id: Optional[str] = None
+        moltvault_backup_id: Optional[str] = None,
+        backup_to_moltvault: bool = False
     ) -> SnapshotInfo:
         """
         Create a point-in-time snapshot of current memory state.
@@ -148,13 +156,15 @@ class SnapshotManager:
         Args:
             description: Optional description for the snapshot
             metadata: Optional metadata dictionary
-            moltvault_backup_id: Optional MoltVault backup reference
+            moltvault_backup_id: Optional MoltVault backup reference (deprecated - use backup_to_moltvault instead)
+            backup_to_moltvault: If True and moltvault instance provided, backup snapshot to cloud
 
         Returns:
             SnapshotInfo object with snapshot details
 
         Raises:
             sqlite3.Error: If snapshot creation fails
+            ValueError: If backup_to_moltvault=True but no moltvault instance configured
         """
         snapshot_id = f"snap-{uuid.uuid4().hex[:12]}"
         created_at = datetime.now()
@@ -191,6 +201,24 @@ class SnapshotManager:
                     memory_count = self._create_full_snapshot(conn, snapshot_id)
 
                 conn.commit()
+
+                # Backup to MoltVault if requested
+                if backup_to_moltvault:
+                    if not self.moltvault:
+                        raise ValueError("backup_to_moltvault=True but no MoltVault instance configured")
+
+                    # Export snapshot and backup to cloud
+                    moltvault_backup_id = self._backup_snapshot_to_moltvault(
+                        conn, snapshot_id, description
+                    )
+
+                    # Update snapshot with backup ID
+                    conn.execute("""
+                        UPDATE snapshots
+                        SET moltvault_backup_id = ?
+                        WHERE snapshot_id = ?
+                    """, (moltvault_backup_id, snapshot_id))
+                    conn.commit()
 
                 return SnapshotInfo(
                     snapshot_id=snapshot_id,
@@ -649,3 +677,124 @@ class SnapshotManager:
             """, (snapshot_id,))
 
             return cursor.rowcount > 0
+
+    def _backup_snapshot_to_moltvault(
+        self,
+        conn: sqlite3.Connection,
+        snapshot_id: str,
+        description: Optional[str] = None
+    ) -> str:
+        """
+        Backup a snapshot to MoltVault cloud storage.
+
+        This exports the snapshot metadata and associated memory data to a
+        tar.gz archive and uploads it to the configured MoltVault backend.
+
+        Args:
+            conn: SQLite connection
+            snapshot_id: Snapshot to backup
+            description: Optional description for logging
+
+        Returns:
+            Backup ID (storage key) for the uploaded snapshot
+
+        Raises:
+            ValueError: If MoltVault not configured
+            Exception: If backup fails
+        """
+        if not self.moltvault:
+            raise ValueError("MoltVault instance not configured")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_dir = Path(tmpdir)
+
+            # Export snapshot metadata and data to JSON
+            snapshot_data = self._export_snapshot_data(conn, snapshot_id)
+            snapshot_file = temp_dir / f"{snapshot_id}.json"
+            with open(snapshot_file, 'w') as f:
+                json.dump(snapshot_data, f, indent=2)
+
+            # Create tar.gz archive
+            archive_name = f"{snapshot_id}.tar.gz"
+            archive_path = temp_dir / archive_name
+            with tarfile.open(archive_path, "w:gz") as tar:
+                tar.add(snapshot_file, arcname=f"{snapshot_id}.json")
+
+            # Upload to MoltVault backend
+            backend = self.moltvault._get_backend()
+            backup_key = f"snapshots/{archive_name}"
+
+            # Upload with metadata
+            upload_metadata = {
+                "snapshot_id": snapshot_id,
+                "description": description or "",
+                "created_at": datetime.now().isoformat(),
+                "type": "snapshot"
+            }
+
+            backend.upload(archive_path, backup_key, metadata=upload_metadata)
+
+            return backup_key
+
+    def _export_snapshot_data(
+        self,
+        conn: sqlite3.Connection,
+        snapshot_id: str
+    ) -> Dict[str, Any]:
+        """
+        Export complete snapshot data for backup.
+
+        Args:
+            conn: SQLite connection
+            snapshot_id: Snapshot to export
+
+        Returns:
+            Dictionary containing snapshot metadata and all associated data
+        """
+        # Get snapshot metadata
+        cursor = conn.execute("""
+            SELECT snapshot_id, created_at, description, metadata_json, moltvault_backup_id
+            FROM snapshots
+            WHERE snapshot_id = ?
+        """, (snapshot_id,))
+
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError(f"Snapshot not found: {snapshot_id}")
+
+        snapshot_metadata = {
+            "snapshot_id": row[0],
+            "created_at": row[1],
+            "description": row[2],
+            "metadata": json.loads(row[3]) if row[3] else None,
+            "moltvault_backup_id": row[4]
+        }
+
+        # Get snapshot memories
+        cursor = conn.execute("""
+            SELECT sm.memory_id, sm.version_id, sm.operation_type,
+                   mv.content, mv.version_number, mv.operation_type as version_op,
+                   mv.created_at as version_created_at
+            FROM snapshot_memories sm
+            LEFT JOIN memory_versions mv ON sm.version_id = mv.version_id
+            WHERE sm.snapshot_id = ?
+        """, (snapshot_id,))
+
+        memories = []
+        for mem_row in cursor.fetchall():
+            memory_data = {
+                "memory_id": mem_row[0],
+                "version_id": mem_row[1],
+                "operation_type": mem_row[2],
+                "content": mem_row[3],
+                "version_number": mem_row[4],
+                "version_operation_type": mem_row[5],
+                "version_created_at": mem_row[6]
+            }
+            memories.append(memory_data)
+
+        return {
+            "snapshot": snapshot_metadata,
+            "memories": memories,
+            "export_version": "1.0"
+        }
