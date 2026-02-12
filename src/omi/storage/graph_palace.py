@@ -576,6 +576,84 @@ class GraphPalace:
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:limit]
 
+    def recall_at(self, timestamp: datetime) -> List[Memory]:
+        """
+        Point-in-time query: Reconstruct memory state as it existed at a specific timestamp.
+
+        This method queries the memory_versions table to reconstruct what memories
+        existed at the given timestamp, including their content at that time.
+
+        Algorithm:
+        1. Find all unique memory_ids that had versions created at or before timestamp
+        2. For each memory_id, get the most recent version at or before timestamp
+        3. Exclude memories where the most recent operation was DELETE
+        4. Return Memory objects with historical content
+
+        Args:
+            timestamp: Point in time to query
+
+        Returns:
+            List of Memory objects as they existed at the timestamp
+        """
+        memories = []
+
+        # Query to get the most recent version for each memory_id at or before timestamp
+        # Uses a subquery to find max version_number per memory_id up to timestamp
+        cursor = self._conn.execute("""
+            SELECT mv.memory_id, mv.content, mv.operation_type, mv.created_at
+            FROM memory_versions mv
+            INNER JOIN (
+                SELECT memory_id, MAX(version_number) as max_version
+                FROM memory_versions
+                WHERE created_at <= ?
+                GROUP BY memory_id
+            ) latest ON mv.memory_id = latest.memory_id AND mv.version_number = latest.max_version
+            WHERE mv.operation_type != 'DELETE'
+        """, (timestamp.isoformat(),))
+
+        for row in cursor:
+            memory_id = row[0]
+            content = row[1]
+            operation_type = row[2]
+            created_at_str = row[3]
+
+            # Get additional memory metadata from memories table if it exists
+            # Note: The memory might not exist in memories table if it was deleted,
+            # but we're reconstructing historical state from versions
+            metadata_cursor = self._conn.execute("""
+                SELECT memory_type, confidence, embedding
+                FROM memories
+                WHERE id = ?
+            """, (memory_id,))
+            metadata_row = metadata_cursor.fetchone()
+
+            if metadata_row:
+                memory_type = metadata_row[0] or "experience"
+                confidence = metadata_row[1]
+                embedding_blob = metadata_row[2]
+                embedding = self._blob_to_embed(embedding_blob) if embedding_blob else None
+            else:
+                # Memory was deleted from main table, use defaults
+                memory_type = "experience"
+                confidence = None
+                embedding = None
+
+            memory = Memory(
+                id=memory_id,
+                content=content,
+                embedding=embedding,
+                memory_type=memory_type,
+                confidence=confidence,
+                created_at=datetime.fromisoformat(created_at_str) if created_at_str else None,
+                last_accessed=None,
+                access_count=0,
+                instance_ids=[],
+                content_hash=hashlib.sha256(content.encode()).hexdigest()
+            )
+            memories.append(memory)
+
+        return memories
+
     def full_text_search(self, query: str, limit: int = 10) -> List[Memory]:
         """
         Full-text search using FTS5.

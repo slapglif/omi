@@ -144,3 +144,65 @@ def test_multiple_updates_increment_version(temp_db):
     assert versions[1][0] == 2 and versions[1][1] == "UPDATE"
     assert versions[2][0] == 3 and versions[2][1] == "UPDATE"
     assert versions[3][0] == 4 and versions[3][1] == "UPDATE"
+
+
+def test_recall_at_timestamp(temp_db):
+    """
+    Test that recall_at returns memories as they existed at a specific timestamp.
+
+    When querying at a point in time:
+    - Should return memories that existed at that time
+    - Should return the correct version (not the current one)
+    - Should exclude memories created after the timestamp
+    - Should exclude memories deleted before the timestamp
+    """
+    import time
+    palace = GraphPalace(temp_db, enable_wal=False)
+
+    # Store initial memory
+    memory_id_1 = palace.store_memory(
+        content="Original content v1",
+        memory_type="fact"
+    )
+
+    # Get timestamp after first memory
+    time.sleep(0.1)
+    timestamp_after_v1 = datetime.now()
+    time.sleep(0.1)
+
+    # Update the memory (v2)
+    palace.store_memory(
+        content="Updated content v2",
+        memory_type="fact",
+        memory_id=memory_id_1
+    )
+
+    # Get timestamp after update
+    time.sleep(0.1)
+    timestamp_after_v2 = datetime.now()
+    time.sleep(0.1)
+
+    # Create a second memory
+    memory_id_2 = palace.store_memory(
+        content="Second memory",
+        memory_type="experience"
+    )
+
+    # Test 1: Recall at timestamp_after_v1 should return v1 content
+    memories_at_v1 = palace.recall_at(timestamp_after_v1)
+    assert len(memories_at_v1) == 1, "Should have 1 memory at timestamp_after_v1"
+    assert memories_at_v1[0].id == memory_id_1
+    assert memories_at_v1[0].content == "Original content v1"
+
+    # Test 2: Recall at timestamp_after_v2 should return v2 content and exclude second memory
+    memories_at_v2 = palace.recall_at(timestamp_after_v2)
+    assert len(memories_at_v2) == 1, "Should have 1 memory at timestamp_after_v2"
+    assert memories_at_v2[0].id == memory_id_1
+    assert memories_at_v2[0].content == "Updated content v2"
+
+    # Test 3: Recall at current time should return both memories
+    memories_now = palace.recall_at(datetime.now())
+    assert len(memories_now) == 2, "Should have 2 memories at current time"
+    memory_ids = {m.id for m in memories_now}
+    assert memory_id_1 in memory_ids
+    assert memory_id_2 in memory_ids
