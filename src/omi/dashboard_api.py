@@ -197,17 +197,17 @@ async def get_memories(
 @router.get("/edges")
 async def get_edges(
     limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of edges to return"),
-    offset: int = Query(default=0, ge=0, description="Number of edges to skip"),
+    cursor: Optional[str] = Query(default=None, description="Pagination cursor from previous response"),
     edge_type: Optional[str] = Query(default=None, description="Filter by edge type (SUPPORTS, CONTRADICTS, RELATED_TO, DEPENDS_ON, POSTED, DISCUSSED)"),
     order_by: str = Query(default="created_at", description="Field to order by (created_at, strength)"),
     order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
 ) -> Dict[str, Any]:
     """
-    Retrieve relationship edges with optional filters.
+    Retrieve relationship edges with cursor-based pagination.
 
     Query Parameters:
         limit: Maximum number of edges to return (1-1000, default 100)
-        offset: Number of edges to skip for pagination (default 0)
+        cursor: Pagination cursor from previous response (for next page)
         edge_type: Filter by type (SUPPORTS, CONTRADICTS, RELATED_TO, DEPENDS_ON, POSTED, DISCUSSED)
         order_by: Field to order by (created_at, strength)
         order_dir: Order direction (asc, desc)
@@ -216,89 +216,33 @@ async def get_edges(
         Dict containing:
             - edges: List of edge objects
             - total_count: Total count of edges matching filters
-            - limit: Applied limit
-            - offset: Applied offset
+            - next_cursor: Cursor for next page (empty if no more results)
+            - has_more: Boolean indicating if more results exist
 
     Raises:
         HTTPException: If database access fails or invalid parameters provided
     """
-    # Validate edge_type if provided
-    if edge_type is not None:
-        valid_types = {"SUPPORTS", "CONTRADICTS", "RELATED_TO", "DEPENDS_ON", "POSTED", "DISCUSSED"}
-        if edge_type not in valid_types:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid edge_type: {edge_type}. Must be one of: {valid_types}"
-            )
-
-    # Validate order_by
-    valid_order_fields = {"created_at", "strength"}
-    if order_by not in valid_order_fields:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
-        )
-
-    # Validate order_dir
-    order_dir_upper = order_dir.upper()
-    if order_dir_upper not in {"ASC", "DESC"}:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
-        )
-
     try:
         palace = get_palace_instance()
 
-        # Build SQL query
-        base_query = """
-            SELECT id, source_id, target_id, edge_type, strength, created_at
-            FROM edges
-        """
-        count_query = "SELECT COUNT(*) FROM edges"
-        params: List[Any] = []
+        # Call list_edges with cursor-based pagination
+        # This method handles all validation internally
+        result = palace.list_edges(
+            limit=limit,
+            cursor=cursor,
+            edge_type=edge_type,
+            order_by=order_by,
+            order_dir=order_dir
+        )
 
-        # Add WHERE clause if filtering by edge_type
-        if edge_type is not None:
-            where_clause = " WHERE edge_type = ?"
-            base_query += where_clause
-            count_query += where_clause
-            params.append(edge_type)
+        return result
 
-        # Get total count
-        with palace._db_lock:
-            cursor = palace._conn.execute(count_query, params)
-            total_count = cursor.fetchone()[0]
-
-            # Add ORDER BY and pagination
-            base_query += f" ORDER BY {order_by} {order_dir_upper}"
-            base_query += " LIMIT ? OFFSET ?"
-            params.extend([limit, offset])
-
-            # Execute query
-            cursor = palace._conn.execute(base_query, params)
-            rows = cursor.fetchall()
-
-        # Convert rows to edge objects
-        edges = []
-        for row in rows:
-            edge = {
-                "id": row[0],
-                "source_id": row[1],
-                "target_id": row[2],
-                "edge_type": row[3],
-                "strength": row[4],
-                "created_at": row[5]
-            }
-            edges.append(edge)
-
-        return {
-            "edges": edges,
-            "total_count": total_count,
-            "limit": limit,
-            "offset": offset
-        }
-
+    except ValueError as e:
+        # Validation errors from list_edges
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
