@@ -164,9 +164,71 @@ class EndSessionResponse(BaseModel):
     message: str = Field(default="Session ended successfully")
 
 
+class SyncStatusResponse(BaseModel):
+    """Response containing sync status."""
+    instance_id: str = Field(..., description="This instance ID")
+    state: str = Field(..., description="Current sync state")
+    topology: str = Field(..., description="Topology type (leader-follower or multi-leader)")
+    is_leader: bool = Field(..., description="Whether this instance is a leader")
+    last_sync: Optional[str] = Field(default=None, description="Timestamp of last sync")
+    lag_seconds: Optional[float] = Field(default=None, description="Sync lag in seconds")
+    sync_count: int = Field(..., description="Number of sync operations performed")
+    error_count: int = Field(..., description="Number of sync errors")
+    last_error: Optional[str] = Field(default=None, description="Last error message")
+    registered_instances: int = Field(..., description="Count of registered instances")
+    healthy_instances: int = Field(..., description="Count of healthy instances")
+    topology_info: dict = Field(..., description="Detailed topology information")
+
+
+class BulkSyncRequest(BaseModel):
+    """Request body for bulk sync operations."""
+    instance_id: str = Field(..., description="Target/source instance ID")
+    endpoint: str = Field(..., description="Network endpoint (URL)")
+
+
+class BulkSyncResponse(BaseModel):
+    """Response after bulk sync operation."""
+    success: bool = Field(..., description="Whether sync completed successfully")
+    instance_id: str = Field(..., description="Target/source instance ID")
+    endpoint: str = Field(..., description="Network endpoint")
+    message: str = Field(..., description="Operation result message")
+
+
+class RegisterInstanceRequest(BaseModel):
+    """Request body for registering an instance."""
+    instance_id: str = Field(..., description="Unique identifier for instance")
+    endpoint: Optional[str] = Field(default=None, description="Network endpoint (optional)")
+
+
+class RegisterInstanceResponse(BaseModel):
+    """Response after registering an instance."""
+    status: str = Field(..., description="Registration status")
+    instance_id: str = Field(..., description="Registered instance ID")
+    endpoint: str = Field(..., description="Endpoint or 'not specified'")
+
+
+class UnregisterInstanceResponse(BaseModel):
+    """Response after unregistering an instance."""
+    success: bool = Field(..., description="Whether instance was removed")
+    instance_id: str = Field(..., description="Instance ID")
+    message: str = Field(..., description="Operation result message")
+
+
+class ReconcilePartitionRequest(BaseModel):
+    """Request body for partition reconciliation."""
+    instance_id: str = Field(..., description="ID of instance to reconcile with")
+
+
+class IncrementalSyncResponse(BaseModel):
+    """Response after starting/stopping incremental sync."""
+    status: str = Field(..., description="Operation status (started/stopped)")
+    message: str = Field(..., description="Status message")
+
+
 # Initialize components
 _memory_tools_instance = None
 _belief_tools_instance = None
+_sync_tools_instance = None
 
 def get_memory_tools() -> MemoryTools:
     """Initialize and return MemoryTools instance (lazy initialization)."""
@@ -216,6 +278,27 @@ def get_belief_tools() -> BeliefTools:
     return _belief_tools_instance
 
 
+def get_sync_tools():
+    """Initialize and return SyncTools instance (lazy initialization)."""
+    global _sync_tools_instance
+
+    if _sync_tools_instance is None:
+        from .api import SyncTools
+        from .sync.sync_manager import SyncManager
+
+        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        # Get instance ID from config or use hostname
+        import socket
+        instance_id = os.environ.get('OMI_INSTANCE_ID', socket.gethostname())
+
+        sync_manager = SyncManager(base_path, instance_id)
+        _sync_tools_instance = SyncTools(sync_manager)
+
+    return _sync_tools_instance
+
+
 # Create FastAPI app
 app = FastAPI(
     title="OMI REST API",
@@ -261,6 +344,10 @@ environment variable to enable authentication.
         {
             "name": "Events",
             "description": "Server-Sent Events (SSE) for real-time operation streaming"
+        },
+        {
+            "name": "Distributed Sync",
+            "description": "Multi-instance synchronization for leader-follower and multi-leader topologies"
         }
     ]
 )
@@ -322,6 +409,14 @@ async def root() -> Dict[str, Any]:
             "/api/v1/dashboard/beliefs": "Retrieve belief network data",
             "/api/v1/dashboard/stats": "Get database storage statistics",
             "/api/v1/dashboard/search": "Semantic search for memories",
+            "/api/sync/status": "GET - Get distributed sync status",
+            "/api/sync/incremental/start": "POST - Start incremental sync",
+            "/api/sync/incremental/stop": "POST - Stop incremental sync",
+            "/api/sync/bulk/from": "POST - Import memory snapshot from instance",
+            "/api/sync/bulk/to": "POST - Export memory snapshot to instance",
+            "/api/sync/instances/register": "POST - Register instance to cluster",
+            "/api/sync/instances/{instance_id}": "DELETE - Unregister instance",
+            "/api/sync/reconcile": "POST - Reconcile after network partition",
             "/health": "Health check endpoint"
         }
     }
@@ -457,6 +552,126 @@ async def end_session(request: EndSessionRequest, api_key: str = Depends(verify_
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to end session: {str(e)}"
+        )
+
+
+@app.get("/api/sync/status", response_model=SyncStatusResponse, tags=["Distributed Sync"], summary="Get sync status")
+async def get_sync_status(api_key: str = Depends(verify_api_key)):
+    """Get comprehensive distributed sync status including topology, lag metrics, and instance list."""
+    try:
+        tools = get_sync_tools()
+        status_data = tools.status()
+        return SyncStatusResponse(**status_data)
+    except Exception as e:
+        logger.error(f"Error getting sync status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get sync status: {str(e)}"
+        )
+
+
+@app.post("/api/sync/incremental/start", response_model=IncrementalSyncResponse, tags=["Distributed Sync"], summary="Start incremental sync")
+async def start_incremental_sync(api_key: str = Depends(verify_api_key)):
+    """Start real-time event-based synchronization with other instances."""
+    try:
+        tools = get_sync_tools()
+        result = tools.start_incremental()
+        return IncrementalSyncResponse(**result)
+    except Exception as e:
+        logger.error(f"Error starting incremental sync: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start incremental sync: {str(e)}"
+        )
+
+
+@app.post("/api/sync/incremental/stop", response_model=IncrementalSyncResponse, tags=["Distributed Sync"], summary="Stop incremental sync")
+async def stop_incremental_sync(api_key: str = Depends(verify_api_key)):
+    """Stop real-time event-based synchronization."""
+    try:
+        tools = get_sync_tools()
+        result = tools.stop_incremental()
+        return IncrementalSyncResponse(**result)
+    except Exception as e:
+        logger.error(f"Error stopping incremental sync: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to stop incremental sync: {str(e)}"
+        )
+
+
+@app.post("/api/sync/bulk/from", response_model=BulkSyncResponse, tags=["Distributed Sync"], summary="Import memory snapshot")
+async def bulk_sync_from(request: BulkSyncRequest, api_key: str = Depends(verify_api_key)):
+    """Import full memory snapshot from another OMI instance."""
+    try:
+        tools = get_sync_tools()
+        result = tools.bulk_from(request.instance_id, request.endpoint)
+        return BulkSyncResponse(**result)
+    except Exception as e:
+        logger.error(f"Error performing bulk sync from: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to perform bulk sync from: {str(e)}"
+        )
+
+
+@app.post("/api/sync/bulk/to", response_model=BulkSyncResponse, tags=["Distributed Sync"], summary="Export memory snapshot")
+async def bulk_sync_to(request: BulkSyncRequest, api_key: str = Depends(verify_api_key)):
+    """Export full memory snapshot to another OMI instance."""
+    try:
+        tools = get_sync_tools()
+        result = tools.bulk_to(request.instance_id, request.endpoint)
+        return BulkSyncResponse(**result)
+    except Exception as e:
+        logger.error(f"Error performing bulk sync to: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to perform bulk sync to: {str(e)}"
+        )
+
+
+@app.post("/api/sync/instances/register", response_model=RegisterInstanceResponse, tags=["Distributed Sync"], summary="Register instance")
+async def register_instance(request: RegisterInstanceRequest, api_key: str = Depends(verify_api_key)):
+    """Register an OMI instance to the sync cluster."""
+    try:
+        tools = get_sync_tools()
+        result = tools.register_instance(request.instance_id, request.endpoint)
+        return RegisterInstanceResponse(**result)
+    except Exception as e:
+        logger.error(f"Error registering instance: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to register instance: {str(e)}"
+        )
+
+
+@app.delete("/api/sync/instances/{instance_id}", response_model=UnregisterInstanceResponse, tags=["Distributed Sync"], summary="Unregister instance")
+async def unregister_instance(instance_id: str, api_key: str = Depends(verify_api_key)):
+    """Remove an OMI instance from the sync cluster."""
+    try:
+        tools = get_sync_tools()
+        result = tools.unregister_instance(instance_id)
+        return UnregisterInstanceResponse(**result)
+    except Exception as e:
+        logger.error(f"Error unregistering instance: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unregister instance: {str(e)}"
+        )
+
+
+@app.post("/api/sync/reconcile", tags=["Distributed Sync"], summary="Reconcile after partition")
+async def reconcile_partition(request: ReconcilePartitionRequest, api_key: str = Depends(verify_api_key)):
+    """Reconcile memory stores after network partition with conflict resolution."""
+    try:
+        tools = get_sync_tools()
+        result = tools.reconcile_partition(request.instance_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error reconciling partition: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reconcile partition: {str(e)}"
         )
 
 
