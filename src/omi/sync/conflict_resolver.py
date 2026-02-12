@@ -17,10 +17,13 @@ Manual Queue: Unresolvable conflicts are queued for manual resolution.
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 import logging
 
 from ..storage.models import Memory
+
+if TYPE_CHECKING:
+    from ..storage.graph_palace import GraphPalace
 
 logger = logging.getLogger(__name__)
 
@@ -73,14 +76,21 @@ class ConflictResolver:
     Thread-safe for concurrent resolution operations.
     """
 
-    def __init__(self, strategy: ConflictStrategy = ConflictStrategy.LAST_WRITER_WINS):
+    def __init__(
+        self,
+        strategy: ConflictStrategy = ConflictStrategy.LAST_WRITER_WINS,
+        graph_palace: Optional["GraphPalace"] = None
+    ):
         """
         Initialize conflict resolver.
 
         Args:
             strategy: Resolution strategy to use (default: LAST_WRITER_WINS)
+            graph_palace: Optional GraphPalace instance for queuing conflicts
+                         (required for MANUAL_QUEUE strategy)
         """
         self.strategy = strategy
+        self.graph_palace = graph_palace
         logger.info(f"ConflictResolver initialized with strategy: {strategy.value}")
 
     def resolve(self, memory1: Memory, memory2: Memory) -> ConflictResolution:
@@ -350,8 +360,9 @@ class ConflictResolver:
         """
         Queue conflict for manual resolution.
 
-        TODO: Implement in subtask-3-3
-        This will add the conflict to a queue in the database for human review.
+        All conflicts are queued in the database for human review.
+        A temporary winner is selected using last-writer-wins logic,
+        but the conflict remains in the queue until manually resolved.
 
         Args:
             memory1: First memory version
@@ -359,10 +370,74 @@ class ConflictResolver:
 
         Returns:
             ConflictResolution marking need for manual review
+
+        Raises:
+            ValueError: If graph_palace is not configured
         """
-        raise NotImplementedError(
-            "MANUAL_QUEUE strategy not yet implemented. "
-            "Use LAST_WRITER_WINS for now."
+        if self.graph_palace is None:
+            raise ValueError(
+                "MANUAL_QUEUE strategy requires a GraphPalace instance. "
+                "Pass graph_palace parameter to ConflictResolver.__init__()"
+            )
+
+        # Extract instance IDs from memory objects
+        # Use the first instance_id from each memory, or 'unknown' if none
+        instance_id_source = (
+            memory1.instance_ids[0] if memory1.instance_ids else "unknown"
+        )
+        instance_id_target = (
+            memory2.instance_ids[0] if memory2.instance_ids else "unknown"
+        )
+
+        # Build conflict data with both memory versions
+        conflict_data = {
+            "memory1": {
+                "content": memory1.content,
+                "version": memory1.version,
+                "vector_clock": memory1.vector_clock,
+                "last_accessed": str(memory1.last_accessed) if memory1.last_accessed else None,
+                "instance_ids": memory1.instance_ids
+            },
+            "memory2": {
+                "content": memory2.content,
+                "version": memory2.version,
+                "vector_clock": memory2.vector_clock,
+                "last_accessed": str(memory2.last_accessed) if memory2.last_accessed else None,
+                "instance_ids": memory2.instance_ids
+            },
+            "conflict_type": "concurrent_modification"
+        }
+
+        # Queue the conflict for manual resolution
+        conflict_id = self.graph_palace.queue_conflict(
+            memory_id=memory1.id,
+            instance_id_source=instance_id_source,
+            instance_id_target=instance_id_target,
+            conflict_data=conflict_data
+        )
+
+        logger.warning(
+            f"Manual queue: conflict queued for {memory1.id}, "
+            f"queue_id={conflict_id}, source={instance_id_source}, target={instance_id_target}"
+        )
+
+        # Use last-writer-wins to pick a temporary winner
+        # This ensures the system can continue operating while waiting for manual resolution
+        temp_winner = self._resolve_last_writer_wins(memory1, memory2).winner
+
+        return ConflictResolution(
+            winner=temp_winner,
+            strategy_used=ConflictStrategy.MANUAL_QUEUE,
+            needs_manual_review=True,
+            conflict_metadata={
+                "reason": "queued for manual resolution",
+                "conflict_queue_id": conflict_id,
+                "temporary_winner": temp_winner.id,
+                "instance_id_source": instance_id_source,
+                "instance_id_target": instance_id_target,
+                "memory1_version": memory1.version,
+                "memory2_version": memory2.version
+            }
         )
 
     def set_strategy(self, strategy: ConflictStrategy) -> None:
