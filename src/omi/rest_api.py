@@ -43,6 +43,7 @@ from .api import MemoryTools, BeliefTools
 from .storage.graph_palace import GraphPalace
 from .embeddings import OllamaEmbedder, EmbeddingCache
 from .belief import BeliefNetwork, ContradictionDetector
+from .user_manager import UserManager, User
 
 logger = logging.getLogger(__name__)
 
@@ -52,45 +53,56 @@ logger = logging.getLogger(__name__)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")) -> str:
+async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")) -> User:
     """
-    Verify API key from X-API-Key header.
+    Verify API key from X-API-Key header and return associated user.
 
     Args:
         x_api_key: API key from request header
 
     Returns:
-        str: Validated API key
+        User: User object associated with the API key
 
     Raises:
         HTTPException: 401 Unauthorized if API key is missing or invalid
     """
-    # Get expected API key from environment or config
-    # For now, check environment variable; will be updated to use config.yaml
-    expected_key = os.environ.get("OMI_API_KEY")
-
-    # If no expected key is configured, allow all requests (development mode)
-    if expected_key is None:
-        logger.warning("No OMI_API_KEY configured - authentication disabled (development mode)")
-        return "development"
-
     # Check if API key was provided
     if x_api_key is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing API key. Provide X-API-Key header.",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
+        # Check for legacy environment variable for backward compatibility
+        expected_key = os.environ.get("OMI_API_KEY")
+        if expected_key is None:
+            # Development mode: no authentication
+            logger.warning("No API key provided and OMI_API_KEY not configured - authentication disabled (development mode)")
+            # Return a synthetic development user
+            return User(id="dev", username="development", email=None)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing API key. Provide X-API-Key header.",
+                headers={"WWW-Authenticate": "ApiKey"},
+            )
 
-    # Validate API key
-    if x_api_key != expected_key:
+    # Verify API key against database
+    user_manager = get_user_manager()
+    user = user_manager.verify_api_key(x_api_key)
+
+    if user is None:
+        # API key not found in database, check legacy environment variable
+        expected_key = os.environ.get("OMI_API_KEY")
+        if expected_key and x_api_key == expected_key:
+            # Legacy mode: API key matches environment variable
+            logger.warning("Using legacy OMI_API_KEY authentication - consider migrating to database-backed API keys")
+            # Return a synthetic legacy user
+            return User(id="legacy", username="legacy", email=None)
+
+        # Invalid API key
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    return x_api_key
+    return user
 
 
 # Pydantic models for request/response
@@ -167,6 +179,7 @@ class EndSessionResponse(BaseModel):
 # Initialize components
 _memory_tools_instance = None
 _belief_tools_instance = None
+_user_manager_instance = None
 
 def get_memory_tools() -> MemoryTools:
     """Initialize and return MemoryTools instance (lazy initialization)."""
@@ -214,6 +227,22 @@ def get_belief_tools() -> BeliefTools:
         _belief_tools_instance = BeliefTools(belief_network, detector)
 
     return _belief_tools_instance
+
+
+def get_user_manager() -> UserManager:
+    """Initialize and return UserManager instance (lazy initialization)."""
+    global _user_manager_instance
+
+    if _user_manager_instance is None:
+        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        db_path = base_path / 'palace.sqlite'
+
+        # Initialize UserManager
+        _user_manager_instance = UserManager(str(db_path))
+
+    return _user_manager_instance
 
 
 # Create FastAPI app
@@ -338,7 +367,7 @@ async def health() -> Dict[str, Any]:
 
 
 @app.post("/api/v1/store", response_model=StoreMemoryResponse, status_code=status.HTTP_201_CREATED, tags=["Memory Operations"], summary="Store a new memory")
-async def store_memory(request: StoreMemoryRequest, api_key: str = Depends(verify_api_key)):
+async def store_memory(request: StoreMemoryRequest, user: User = Depends(verify_api_key)):
     """Store a new memory with semantic embedding."""
     try:
         tools = get_memory_tools()
@@ -363,7 +392,7 @@ async def recall_memory(
     limit: int = Query(10, ge=1, le=100, description="Maximum number of results"),
     min_relevance: float = Query(0.7, ge=0.0, le=1.0, description="Minimum relevance threshold"),
     memory_type: Optional[str] = Query(None, description="Filter by type: fact|experience|belief|decision"),
-    api_key: str = Depends(verify_api_key)
+    user: User = Depends(verify_api_key)
 ):
     """Recall memories using semantic search with recency weighting."""
     try:
@@ -384,7 +413,7 @@ async def recall_memory(
 
 
 @app.post("/api/v1/beliefs", response_model=CreateBeliefResponse, status_code=status.HTTP_201_CREATED, tags=["Belief Management"], summary="Create a new belief")
-async def create_belief(request: CreateBeliefRequest, api_key: str = Depends(verify_api_key)):
+async def create_belief(request: CreateBeliefRequest, user: User = Depends(verify_api_key)):
     """Create a new belief with initial confidence."""
     try:
         tools = get_belief_tools()
@@ -402,7 +431,7 @@ async def create_belief(request: CreateBeliefRequest, api_key: str = Depends(ver
 
 
 @app.put("/api/v1/beliefs/{id}", response_model=UpdateBeliefResponse, tags=["Belief Management"], summary="Update belief with evidence")
-async def update_belief(id: str, request: UpdateBeliefRequest, api_key: str = Depends(verify_api_key)):
+async def update_belief(id: str, request: UpdateBeliefRequest, user: User = Depends(verify_api_key)):
     """Update a belief with new evidence using EMA confidence updates."""
     try:
         tools = get_belief_tools()
@@ -422,7 +451,7 @@ async def update_belief(id: str, request: UpdateBeliefRequest, api_key: str = De
 
 
 @app.post("/api/v1/sessions/start", response_model=StartSessionResponse, status_code=status.HTTP_200_OK, tags=["Session Lifecycle"], summary="Start a new session")
-async def start_session(request: StartSessionRequest, api_key: str = Depends(verify_api_key)):
+async def start_session(request: StartSessionRequest, user: User = Depends(verify_api_key)):
     """Start a new session."""
     try:
         import uuid
@@ -442,7 +471,7 @@ async def start_session(request: StartSessionRequest, api_key: str = Depends(ver
 
 
 @app.post("/api/v1/sessions/end", response_model=EndSessionResponse, status_code=status.HTTP_200_OK, tags=["Session Lifecycle"], summary="End a session")
-async def end_session(request: EndSessionRequest, api_key: str = Depends(verify_api_key)):
+async def end_session(request: EndSessionRequest, user: User = Depends(verify_api_key)):
     """End an existing session."""
     try:
         event = SessionEndedEvent(
