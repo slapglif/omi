@@ -425,17 +425,19 @@ def store(ctx: click.Context, content: str, memory_type: str, confidence: Option
 @cli.command()
 @click.argument('query')
 @click.option('--limit', '-l', default=10, help='Maximum number of results')
+@click.option('--offset', default=0, help='Number of results to skip (for pagination)')
 @click.option('--json-output', is_flag=True, help='Output as JSON')
 @click.option('--type', 'memory_type', default=None,
               type=click.Choice(['fact', 'experience', 'belief', 'decision']),
               help='Filter by memory type')
 @click.pass_context
-def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory_type: Optional[str]) -> None:
+def recall(ctx: click.Context, query: str, limit: int, offset: int, json_output: bool, memory_type: Optional[str]) -> None:
     """Search memories using semantic recall.
 
     Args:
         query: Search query text
         --limit: Maximum number of results (default: 10)
+        --offset: Number of results to skip for pagination (default: 0)
         --type: Filter by memory type (fact|experience|belief|decision)
         --json: Output as JSON (for scripts)
 
@@ -444,6 +446,7 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory
         omi recall "auth bug fix" --limit 5
         omi recall "recent decisions" --json
         omi recall "bugs" --type experience
+        omi recall "auth" --limit 10 --offset 10
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
