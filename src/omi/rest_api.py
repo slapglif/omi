@@ -45,6 +45,8 @@ from .embeddings import OllamaEmbedder, EmbeddingCache
 from .belief import BeliefNetwork, ContradictionDetector
 from .user_manager import UserManager, User
 from .rbac import RBACManager
+import sqlite3
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +265,45 @@ def get_rbac_manager() -> RBACManager:
     return _rbac_manager_instance
 
 
+def log_audit(user_id: str, action: str, resource: str, metadata: Optional[Dict[str, Any]] = None, success: bool = True) -> None:
+    """
+    Log an audit event to the audit_log table.
+
+    Args:
+        user_id: User who performed the action
+        action: Action performed (e.g., 'store_memory', 'recall_memory')
+        resource: Resource accessed (e.g., 'memory/abc', 'belief/xyz')
+        metadata: Optional additional metadata as JSON
+        success: Whether the action succeeded (default: True)
+    """
+    try:
+        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path.mkdir(parents=True, exist_ok=True)
+        db_path = base_path / 'palace.sqlite'
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+
+        audit_id = str(uuid.uuid4())
+
+        cursor.execute("""
+            INSERT INTO audit_log (id, user_id, action, resource, namespace, metadata)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            audit_id,
+            user_id,
+            action,
+            resource,
+            None,  # namespace not used in API context
+            json.dumps({"success": success, **(metadata or {})})
+        ))
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to log audit event: {e}", exc_info=True)
+
+
 # Create FastAPI app
 app = FastAPI(
     title="OMI REST API",
@@ -389,7 +430,16 @@ async def store_memory(request: StoreMemoryRequest, user: User = Depends(verify_
     """Store a new memory with semantic embedding."""
     # Check write permission on memory resource
     rbac = get_rbac_manager()
+
     if not rbac.check_permission(user.id, "write", "memory"):
+        # Log permission denied
+        log_audit(
+            user_id=user.id,
+            action="store_memory",
+            resource="memory",
+            metadata={"reason": "permission_denied", "memory_type": request.memory_type},
+            success=False
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"User '{user.username}' does not have permission to write memories"
@@ -403,8 +453,26 @@ async def store_memory(request: StoreMemoryRequest, user: User = Depends(verify_
             related_to=request.related_to,
             confidence=request.confidence
         )
+
+        # Log successful memory storage
+        log_audit(
+            user_id=user.id,
+            action="store_memory",
+            resource=f"memory/{memory_id}",
+            metadata={"memory_type": request.memory_type, "memory_id": memory_id},
+            success=True
+        )
+
         return StoreMemoryResponse(memory_id=memory_id)
     except Exception as e:
+        # Log failure
+        log_audit(
+            user_id=user.id,
+            action="store_memory",
+            resource="memory",
+            metadata={"error": str(e), "memory_type": request.memory_type},
+            success=False
+        )
         logger.error(f"Error storing memory: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -423,7 +491,16 @@ async def recall_memory(
     """Recall memories using semantic search with recency weighting."""
     # Check read permission on memory resource
     rbac = get_rbac_manager()
+
     if not rbac.check_permission(user.id, "read", "memory"):
+        # Log permission denied
+        log_audit(
+            user_id=user.id,
+            action="recall_memory",
+            resource="memory",
+            metadata={"reason": "permission_denied", "query": query[:100]},
+            success=False
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"User '{user.username}' does not have permission to read memories"
@@ -437,8 +514,26 @@ async def recall_memory(
             min_relevance=min_relevance,
             memory_type=memory_type
         )
+
+        # Log successful memory recall
+        log_audit(
+            user_id=user.id,
+            action="recall_memory",
+            resource="memory",
+            metadata={"query": query[:100], "limit": limit, "results_count": len(memories)},
+            success=True
+        )
+
         return RecallMemoryResponse(memories=memories, count=len(memories))
     except Exception as e:
+        # Log failure
+        log_audit(
+            user_id=user.id,
+            action="recall_memory",
+            resource="memory",
+            metadata={"error": str(e), "query": query[:100]},
+            success=False
+        )
         logger.error(f"Error recalling memories: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -451,7 +546,16 @@ async def create_belief(request: CreateBeliefRequest, user: User = Depends(verif
     """Create a new belief with initial confidence."""
     # Check write permission on belief resource
     rbac = get_rbac_manager()
+
     if not rbac.check_permission(user.id, "write", "belief"):
+        # Log permission denied
+        log_audit(
+            user_id=user.id,
+            action="create_belief",
+            resource="belief",
+            metadata={"reason": "permission_denied"},
+            success=False
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"User '{user.username}' does not have permission to write beliefs"
@@ -463,8 +567,26 @@ async def create_belief(request: CreateBeliefRequest, user: User = Depends(verif
             content=request.content,
             initial_confidence=request.initial_confidence
         )
+
+        # Log successful belief creation
+        log_audit(
+            user_id=user.id,
+            action="create_belief",
+            resource=f"belief/{belief_id}",
+            metadata={"belief_id": belief_id, "initial_confidence": request.initial_confidence},
+            success=True
+        )
+
         return CreateBeliefResponse(belief_id=belief_id)
     except Exception as e:
+        # Log failure
+        log_audit(
+            user_id=user.id,
+            action="create_belief",
+            resource="belief",
+            metadata={"error": str(e)},
+            success=False
+        )
         logger.error(f"Error creating belief: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -477,7 +599,16 @@ async def update_belief(id: str, request: UpdateBeliefRequest, user: User = Depe
     """Update a belief with new evidence using EMA confidence updates."""
     # Check write permission on belief resource
     rbac = get_rbac_manager()
+
     if not rbac.check_permission(user.id, "write", "belief"):
+        # Log permission denied
+        log_audit(
+            user_id=user.id,
+            action="update_belief",
+            resource=f"belief/{id}",
+            metadata={"reason": "permission_denied", "belief_id": id},
+            success=False
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"User '{user.username}' does not have permission to write beliefs"
@@ -491,8 +622,31 @@ async def update_belief(id: str, request: UpdateBeliefRequest, user: User = Depe
             supports=request.supports,
             strength=request.strength
         )
+
+        # Log successful belief update
+        log_audit(
+            user_id=user.id,
+            action="update_belief",
+            resource=f"belief/{id}",
+            metadata={
+                "belief_id": id,
+                "evidence_memory_id": request.evidence_memory_id,
+                "supports": request.supports,
+                "new_confidence": new_confidence
+            },
+            success=True
+        )
+
         return UpdateBeliefResponse(new_confidence=new_confidence)
     except Exception as e:
+        # Log failure
+        log_audit(
+            user_id=user.id,
+            action="update_belief",
+            resource=f"belief/{id}",
+            metadata={"error": str(e), "belief_id": id},
+            success=False
+        )
         logger.error(f"Error updating belief: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -505,7 +659,16 @@ async def start_session(request: StartSessionRequest, user: User = Depends(verif
     """Start a new session."""
     # Check write permission on memory resource (sessions track memory operations)
     rbac = get_rbac_manager()
+
     if not rbac.check_permission(user.id, "write", "memory"):
+        # Log permission denied
+        log_audit(
+            user_id=user.id,
+            action="start_session",
+            resource="session",
+            metadata={"reason": "permission_denied"},
+            success=False
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"User '{user.username}' does not have permission to start sessions"
@@ -519,8 +682,26 @@ async def start_session(request: StartSessionRequest, user: User = Depends(verif
             metadata=request.metadata
         )
         get_event_bus().publish(event)
+
+        # Log successful session start
+        log_audit(
+            user_id=user.id,
+            action="start_session",
+            resource=f"session/{session_id}",
+            metadata={"session_id": session_id},
+            success=True
+        )
+
         return StartSessionResponse(session_id=session_id)
     except Exception as e:
+        # Log failure
+        log_audit(
+            user_id=user.id,
+            action="start_session",
+            resource="session",
+            metadata={"error": str(e)},
+            success=False
+        )
         logger.error(f"Error starting session: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -533,7 +714,16 @@ async def end_session(request: EndSessionRequest, user: User = Depends(verify_ap
     """End an existing session."""
     # Check write permission on memory resource (sessions track memory operations)
     rbac = get_rbac_manager()
+
     if not rbac.check_permission(user.id, "write", "memory"):
+        # Log permission denied
+        log_audit(
+            user_id=user.id,
+            action="end_session",
+            resource=f"session/{request.session_id}",
+            metadata={"reason": "permission_denied", "session_id": request.session_id},
+            success=False
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"User '{user.username}' does not have permission to end sessions"
@@ -546,8 +736,26 @@ async def end_session(request: EndSessionRequest, user: User = Depends(verify_ap
             metadata=request.metadata
         )
         get_event_bus().publish(event)
+
+        # Log successful session end
+        log_audit(
+            user_id=user.id,
+            action="end_session",
+            resource=f"session/{request.session_id}",
+            metadata={"session_id": request.session_id, "duration_seconds": request.duration_seconds},
+            success=True
+        )
+
         return EndSessionResponse(session_id=request.session_id)
     except Exception as e:
+        # Log failure
+        log_audit(
+            user_id=user.id,
+            action="end_session",
+            resource=f"session/{request.session_id}",
+            metadata={"error": str(e), "session_id": request.session_id},
+            success=False
+        )
         logger.error(f"Error ending session: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
