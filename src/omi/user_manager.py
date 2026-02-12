@@ -139,8 +139,35 @@ class UserManager:
             # Initialize database schema
             init_database(self._conn, enable_wal)
 
-        # Initialize RBAC manager
+        # Initialize RBAC manager (note: for :memory: databases, RBACManager
+        # creates its own connection, so roles need to be initialized here too)
         self.rbac = RBACManager(db_path)
+
+        # For :memory: databases, we need to ensure roles are initialized in our connection
+        if db_path == ':memory:':
+            self._init_default_roles()
+
+    def _init_default_roles(self) -> None:
+        """
+        Initialize default roles in database if they don't exist.
+
+        Creates the four built-in roles: admin, developer, reader, auditor
+        This is needed for :memory: databases where each connection is separate.
+        """
+        roles_data = [
+            ("admin", "admin", "Full access to all operations"),
+            ("developer", "developer", "Read-write access to own namespaces"),
+            ("reader", "reader", "Read-only access"),
+            ("auditor", "auditor", "Read-only access + security reports"),
+        ]
+
+        with self._db_lock:
+            for role_id, role_name, description in roles_data:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO roles (id, name, description) VALUES (?, ?, ?)",
+                    (role_id, role_name, description)
+                )
+            self._conn.commit()
 
     def create_user(self, username: str, email: Optional[str] = None) -> str:
         """
@@ -376,15 +403,28 @@ class UserManager:
         Returns:
             List of permission dictionaries with 'role', 'action', 'resource' keys
         """
-        permissions = self.rbac.get_user_permissions(user_id, namespace)
-        return [
-            {
-                "role": perm.role.value,
-                "action": perm.action,
-                "resource": perm.resource
-            }
-            for perm in permissions
-        ]
+        # Get user's roles
+        roles = self.get_user_roles(user_id, namespace)
+
+        # Import permission matrix from RBACManager
+        from .rbac import RBACManager, Role
+
+        permissions = []
+        for role_name, role_namespace in roles:
+            try:
+                role_enum = Role.from_string(role_name)
+                role_permissions = RBACManager.PERMISSION_MATRIX.get(role_enum, [])
+                for action, resource in role_permissions:
+                    permissions.append({
+                        "role": role_name,
+                        "action": action,
+                        "resource": resource
+                    })
+            except ValueError:
+                # Skip invalid roles
+                pass
+
+        return permissions
 
     def create_api_key(self, user_id: str) -> Tuple[str, str]:
         """
