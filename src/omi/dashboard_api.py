@@ -247,7 +247,8 @@ async def get_memories(
     offset: int = Query(default=0, ge=0, description="Number of memories to skip"),
     memory_type: Optional[str] = Query(default=None, description="Filter by memory type (fact, experience, belief, decision)"),
     order_by: str = Query(default="created_at", description="Field to order by (created_at, access_count, last_accessed)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve memories with optional filters.
@@ -368,7 +369,8 @@ async def get_edges(
     offset: int = Query(default=0, ge=0, description="Number of edges to skip"),
     edge_type: Optional[str] = Query(default=None, description="Filter by edge type (SUPPORTS, CONTRADICTS, RELATED_TO, DEPENDS_ON, POSTED, DISCUSSED)"),
     order_by: str = Query(default="created_at", description="Field to order by (created_at, strength)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve relationship edges with optional filters.
@@ -483,7 +485,8 @@ async def get_beliefs(
     limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of beliefs to return"),
     offset: int = Query(default=0, ge=0, description="Number of beliefs to skip"),
     order_by: str = Query(default="last_updated", description="Field to order by (confidence, created_at, last_updated, evidence_count)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve beliefs from the belief network.
@@ -578,7 +581,8 @@ async def get_beliefs(
 
 @router.get("/graph")
 async def get_graph(
-    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of memories and edges to return")
+    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of memories and edges to return"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve complete graph data (memories + edges) in one call.
@@ -684,7 +688,9 @@ async def get_graph(
 
 
 @router.get("/stats")
-async def get_stats() -> Dict[str, Any]:
+async def get_stats(
+    api_key: str = Depends(verify_dashboard_api_key)
+) -> Dict[str, Any]:
     """
     Get database storage statistics.
 
@@ -747,7 +753,8 @@ async def get_stats() -> Dict[str, Any]:
 async def search_memories(
     q: str = Query(..., description="Search query text", min_length=1),
     limit: int = Query(default=10, ge=1, le=100, description="Maximum number of results to return"),
-    min_relevance: float = Query(default=0.5, ge=0.0, le=1.0, description="Minimum relevance threshold")
+    min_relevance: float = Query(default=0.5, ge=0.0, le=1.0, description="Minimum relevance threshold"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Semantic search for memories using embeddings.
