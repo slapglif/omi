@@ -349,6 +349,121 @@ class UsagePolicy:
         return (access_score * 0.6) + (recency_score * 0.4)
 
 
+class ConfidencePolicy:
+    """
+    Confidence threshold policy for memory lifecycle management.
+
+    Evaluates memories (typically beliefs) against a minimum confidence threshold
+    and identifies memories that should be acted upon (archived, deleted, etc.).
+
+    This policy is particularly useful for cleaning up low-confidence beliefs
+    or flagging uncertain information for review.
+
+    Example:
+        policy = ConfidencePolicy(min_confidence=0.3)
+        low_confidence_memories = policy.evaluate(all_memories)
+        # Returns memories with confidence < 0.3
+    """
+
+    def __init__(self, min_confidence: float, memory_type_filter: Optional[str] = None):
+        """
+        Initialize confidence policy.
+
+        Args:
+            min_confidence: Minimum confidence threshold (0.0-1.0). Memories below this are candidates.
+            memory_type_filter: Optional filter for specific memory types (typically "belief")
+
+        Raises:
+            ValueError: If min_confidence is not between 0.0 and 1.0
+        """
+        if not 0.0 <= min_confidence <= 1.0:
+            raise ValueError("min_confidence must be between 0.0 and 1.0")
+
+        self.min_confidence = min_confidence
+        self.memory_type_filter = memory_type_filter
+
+    def evaluate(self, memories: List[Any]) -> List[str]:
+        """
+        Evaluate memories against confidence policy.
+
+        Args:
+            memories: List of Memory objects to evaluate
+
+        Returns:
+            List of memory IDs that fall below the confidence threshold
+        """
+        matching_ids = []
+
+        for memory in memories:
+            # Skip if memory type doesn't match filter
+            if self.memory_type_filter and hasattr(memory, 'memory_type'):
+                if memory.memory_type != self.memory_type_filter:
+                    continue
+
+            # Check confidence threshold
+            # Only consider memories that have a confidence value
+            if hasattr(memory, 'confidence') and memory.confidence is not None:
+                if memory.confidence < self.min_confidence:
+                    memory_id = memory.id if hasattr(memory, 'id') else str(memory)
+                    matching_ids.append(memory_id)
+
+        return matching_ids
+
+    def is_below_threshold(self, memory: Any) -> bool:
+        """
+        Check if a single memory falls below the confidence threshold.
+
+        Args:
+            memory: Memory object to check
+
+        Returns:
+            True if memory has confidence below min_confidence, False otherwise
+        """
+        # Check memory type filter
+        if self.memory_type_filter and hasattr(memory, 'memory_type'):
+            if memory.memory_type != self.memory_type_filter:
+                return False
+
+        # Check confidence threshold
+        if not hasattr(memory, 'confidence') or memory.confidence is None:
+            return False
+
+        return memory.confidence < self.min_confidence
+
+    def confidence_margin(self, memory: Any) -> Optional[float]:
+        """
+        Calculate the margin between memory confidence and threshold.
+
+        Args:
+            memory: Memory object to check
+
+        Returns:
+            Confidence margin (positive = above threshold, negative = below threshold),
+            None if no confidence value
+        """
+        if not hasattr(memory, 'confidence') or memory.confidence is None:
+            return None
+
+        return memory.confidence - self.min_confidence
+
+    def confidence_score(self, memory: Any) -> Optional[float]:
+        """
+        Calculate a normalized confidence score for the memory (0.0 = no confidence, 1.0 = full confidence).
+
+        This is simply the memory's confidence value if it exists.
+
+        Args:
+            memory: Memory object to score
+
+        Returns:
+            Confidence score 0.0-1.0, None if no confidence value
+        """
+        if not hasattr(memory, 'confidence') or memory.confidence is None:
+            return None
+
+        return memory.confidence
+
+
 # Export all policy types, actions, and classes
 __all__ = [
     "PolicyType",
@@ -357,4 +472,5 @@ __all__ = [
     "Policy",
     "RetentionPolicy",
     "UsagePolicy",
+    "ConfidencePolicy",
 ]
