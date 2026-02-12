@@ -14,6 +14,7 @@ import click
 from omi import NOWStore, DailyLogStore, GraphPalace
 from omi.security import PoisonDetector
 from omi.belief import BeliefNetwork, ContradictionDetector, Evidence
+from omi.summarizer import load_compression_config, MemorySummarizer
 from .event_bus import get_event_bus
 from .events import SessionStartedEvent, SessionEndedEvent
 
@@ -1278,6 +1279,49 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
                 click.echo(" ⚠ No session memories found")
         except Exception as e:
             click.echo(click.style(f" ⚠ Failed to retrieve session memories: {e}", fg="yellow"))
+
+    # Compress session memories if enabled
+    compression_result: Optional[Dict[str, Any]] = None
+    if session_memories:
+        try:
+            compression_config = load_compression_config(base_path)
+
+            if compression_config.get('enabled', False):
+                click.echo(" → Compressing session memories...")
+
+                # Get provider and model from config
+                provider = compression_config.get('provider', 'ollama')
+                model = compression_config.get('model')
+                api_key = compression_config.get('api_key')
+                max_tokens = compression_config.get('max_summary_tokens', 150)
+
+                # Create summarizer instance
+                summarizer = MemorySummarizer(
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    max_tokens=max_tokens
+                )
+
+                # Compress memories
+                compression_result = summarizer.compress_session_memories(
+                    session_memories,
+                    config=compression_config
+                )
+
+                # Show compression stats
+                if compression_result:
+                    click.echo(click.style(
+                        f" ✓ Compressed {compression_result['count']} memories: "
+                        f"{compression_result['original_tokens']} tokens → "
+                        f"{compression_result['compressed_tokens']} tokens "
+                        f"({compression_result['savings_percent']}% savings)",
+                        fg="green"
+                    ))
+            else:
+                click.echo(" ⚠ Compression disabled in config")
+        except Exception as e:
+            click.echo(click.style(f" ⚠ Compression failed: {e}", fg="yellow"))
 
     # Update NOW.md timestamp and get current task for log
     from .persistence import NOWEntry
