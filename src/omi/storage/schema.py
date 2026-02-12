@@ -70,6 +70,29 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
             FOREIGN KEY (namespace) REFERENCES shared_namespaces(namespace) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL,
+            namespace TEXT,  -- NULL for global subscriptions
+            memory_id TEXT,  -- NULL for namespace-wide subscriptions
+            event_types TEXT,  -- JSON array of event types to notify on
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (namespace) REFERENCES shared_namespaces(namespace) ON DELETE CASCADE,
+            FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL,
+            action_type TEXT NOT NULL,  -- read, write, delete, share, subscribe, etc.
+            resource_type TEXT NOT NULL,  -- memory, namespace, subscription, etc.
+            resource_id TEXT,  -- The specific resource affected
+            namespace TEXT,  -- If applicable
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            metadata TEXT,  -- JSON for additional context
+            FOREIGN KEY (namespace) REFERENCES shared_namespaces(namespace) ON DELETE SET NULL
+        );
+
         -- Indexes for performance
         CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
         CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
@@ -85,6 +108,16 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
         CREATE INDEX IF NOT EXISTS idx_namespace_permissions_agent_id ON namespace_permissions(agent_id);
         CREATE INDEX IF NOT EXISTS idx_namespace_permissions_namespace ON namespace_permissions(namespace);
         CREATE INDEX IF NOT EXISTS idx_namespace_permissions_level ON namespace_permissions(permission_level);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_agent_id ON subscriptions(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_namespace ON subscriptions(namespace);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_memory_id ON subscriptions(memory_id);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_created_at ON subscriptions(created_at);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_agent_id ON audit_log(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_action_type ON audit_log(action_type);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_resource_type ON audit_log(resource_type);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_resource_id ON audit_log(resource_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_namespace ON audit_log(namespace);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
     """)
 
     # Create standalone FTS5 virtual table for full-text search
