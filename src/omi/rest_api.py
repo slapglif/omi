@@ -44,9 +44,13 @@ from .api import MemoryTools, BeliefTools
 from .storage.graph_palace import GraphPalace
 from .embeddings import OllamaEmbedder, EmbeddingCache
 from .belief import BeliefNetwork, ContradictionDetector
-from .auth import APIKeyManager
+from .auth import APIKeyManager, RateLimiter
 
 logger = logging.getLogger(__name__)
+
+
+# Global rate limiter instance (60 second sliding window)
+rate_limiter = RateLimiter(window_seconds=60)
 
 
 # API Key Authentication
@@ -130,6 +134,19 @@ async def verify_api_key(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or revoked API key",
             headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Check rate limit for this API key
+    allowed, retry_after = rate_limiter.check_rate_limit(
+        api_key=provided_key,
+        limit=validated_key.rate_limit
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
         )
 
     return provided_key
