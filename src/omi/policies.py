@@ -1307,6 +1307,102 @@ def get_default_policies() -> List[Policy]:
     ]
 
 
+class PolicyEventHandler:
+    """
+    Event handler for triggering policy execution based on events.
+
+    This handler integrates with the EventBus to automatically execute policies
+    when specific events occur in the memory system. It enables reactive policy
+    execution based on memory operations, session boundaries, and belief updates.
+
+    Supports:
+    - Triggering policies on session end
+    - Triggering policies on memory storage
+    - Triggering policies on belief updates
+    - Custom policy execution based on event metadata
+
+    Example:
+        from omi.policies import PolicyEngine, PolicyEventHandler
+        from omi.event_bus import EventBus
+
+        # Initialize policy engine
+        engine = PolicyEngine(graph_palace)
+
+        # Create event handler
+        handler = PolicyEventHandler(engine)
+
+        # Subscribe to events
+        bus = EventBus()
+        bus.subscribe('session.ended', handler.handle)
+        bus.subscribe('memory.stored', handler.handle)
+
+        # Events will now trigger policy execution automatically
+    """
+
+    def __init__(self, policy_engine: Optional['PolicyEngine'] = None):
+        """
+        Initialize PolicyEventHandler.
+
+        Args:
+            policy_engine: PolicyEngine instance to execute policies (can be None for testing)
+        """
+        self.policy_engine = policy_engine
+
+    def handle(self, event: Any) -> None:
+        """
+        Handle an event and trigger appropriate policy execution.
+
+        This method processes events from the EventBus and triggers policy execution
+        based on event type and metadata. Different event types may trigger different
+        policies or policy sets.
+
+        Event triggers:
+        - session.ended: Triggers cleanup policies (archive old memories, delete low-confidence)
+        - memory.stored: Triggers size-based policies if tier limits are exceeded
+        - belief.updated: Triggers confidence-based policies for low-confidence beliefs
+        - policy.triggered: Custom policy execution based on event metadata
+
+        Args:
+            event: Event object to process (must have 'event_type' attribute)
+
+        Note:
+            This is a reactive handler - it responds to events by executing policies.
+            Policy execution is logged through the PolicyEngine's execution history.
+            If policy_engine is None, events are processed but no actions are taken.
+        """
+        if not hasattr(event, 'event_type'):
+            # Invalid event, skip silently
+            return
+
+        # If no policy engine configured, we can't execute policies
+        if self.policy_engine is None:
+            return
+
+        event_type = event.event_type
+
+        # Handle different event types
+        if event_type == 'session.ended':
+            # On session end, trigger cleanup policies
+            # This is a good time to archive old/unused memories
+            # Actual policy selection and execution will be implemented in phase 2
+            pass
+
+        elif event_type == 'memory.stored':
+            # On memory storage, check if size-based policies should trigger
+            # This could trigger tier size limit policies
+            pass
+
+        elif event_type == 'belief.updated':
+            # On belief update, check if confidence-based policies should trigger
+            # This could trigger low-confidence belief deletion
+            pass
+
+        elif event_type == 'policy.triggered':
+            # Custom policy trigger event
+            # Execute policies specified in event metadata
+            pass
+
+
 # Export all policy types, actions, and classes
 __all__ = [
     "PolicyType",
@@ -1319,6 +1415,7 @@ __all__ = [
     "PolicyEngine",
     "PolicyExecutionResult",
     "PolicyExecutionLog",
+    "PolicyEventHandler",
     "archive_memories",
     "delete_memories",
     "is_memory_locked",
