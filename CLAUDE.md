@@ -44,18 +44,16 @@ Tier 3: Graph Palace — SQLite with FTS5, vector embeddings, edges, centrality
 Tier 4: MoltVault  — tar.gz backup to local filesystem or R2/S3
 ```
 
-### Two Parallel Implementations
+### Core Memory Components
 
-There are **two GraphPalace classes** — this is the most important architectural detail:
+The primary memory infrastructure consists of two main classes:
 
-| Module | Location | Purpose |
-|--------|----------|---------|
-| `persistence.GraphPalace` | `src/omi/persistence.py` | Minimal stub with basic LIKE search. Used by `api.py` and `cli.py` imports. |
-| `storage.GraphPalace` | `src/omi/storage/graph_palace.py` | Full implementation with FTS5, vector search, cosine similarity, BFS traversal, centrality scoring. |
+| Class | Location | Purpose |
+|-------|----------|---------|
+| `GraphPalace` | `src/omi/storage/graph_palace.py` | Full-featured graph storage with FTS5 search, vector embeddings, cosine similarity, BFS traversal, and centrality scoring. |
+| `BeliefNetwork` | `src/omi/belief.py` | Confidence tracking and belief propagation. Takes a `GraphPalace` instance and provides EMA-based belief updates with asymmetric learning rates. |
 
-The `BeliefNetwork` class is in `src/omi/belief.py` and is used by `api.py` MCP tools. It takes a `GraphPalace` instance.
-
-The `__init__.py` re-exports from `storage.graph_palace` as the primary implementation, but `api.py` and `cli.py` import from `persistence.py`. Be aware of which class you're working with.
+Both classes are used by `api.py` MCP tools and `cli.py` commands. The `__init__.py` re-exports `GraphPalace` from `storage.graph_palace` for convenient importing.
 
 ### Key Modules
 
