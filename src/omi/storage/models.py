@@ -24,6 +24,8 @@ class Memory:
     access_count: int = 0
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
+    vector_clock: Optional[Dict[str, int]] = None  # For distributed conflict resolution
+    version: int = 1  # Monotonically increasing version number
 
     def __post_init__(self):
         if self.created_at is None:
@@ -34,6 +36,8 @@ class Memory:
             self.content_hash = hashlib.sha256(self.content.encode()).hexdigest()
         if self.instance_ids is None:
             self.instance_ids = []
+        if self.vector_clock is None:
+            self.vector_clock = {}
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -47,7 +51,9 @@ class Memory:
             "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
-            "content_hash": self.content_hash
+            "content_hash": self.content_hash,
+            "vector_clock": self.vector_clock,
+            "version": self.version
         }
 
 

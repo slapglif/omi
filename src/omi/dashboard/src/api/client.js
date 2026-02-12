@@ -229,6 +229,182 @@ export async function checkHealth() {
   return handleResponse(response);
 }
 
+/**
+ * Fetch distributed sync status
+ *
+ * @returns {Promise<Object>} Sync status including topology, lag metrics, and instance list
+ * @throws {Error} If request fails
+ */
+export async function fetchSyncStatus() {
+  const url = '/api/sync/status';
+  const response = await fetch(url);
+  return handleResponse(response);
+}
+
+/**
+ * Start incremental sync (real-time event-based synchronization)
+ *
+ * @returns {Promise<Object>} Operation result with status and message
+ * @throws {Error} If request fails
+ */
+export async function startIncrementalSync() {
+  const url = '/api/sync/incremental/start';
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  });
+  return handleResponse(response);
+}
+
+/**
+ * Stop incremental sync
+ *
+ * @returns {Promise<Object>} Operation result with status and message
+ * @throws {Error} If request fails
+ */
+export async function stopIncrementalSync() {
+  const url = '/api/sync/incremental/stop';
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  });
+  return handleResponse(response);
+}
+
+/**
+ * Import memory snapshot from another OMI instance (bulk sync)
+ *
+ * @param {string} instanceId - Source instance ID
+ * @param {string} endpoint - Source instance network endpoint (URL)
+ * @returns {Promise<Object>} Sync result with success status and message
+ * @throws {Error} If request fails or parameters are invalid
+ */
+export async function bulkSyncFrom(instanceId, endpoint) {
+  if (!instanceId || !endpoint) {
+    throw new Error('Both instanceId and endpoint are required for bulk sync');
+  }
+
+  const url = '/api/sync/bulk/from';
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      instance_id: instanceId,
+      endpoint: endpoint
+    })
+  });
+  return handleResponse(response);
+}
+
+/**
+ * Export memory snapshot to another OMI instance (bulk sync)
+ *
+ * @param {string} instanceId - Target instance ID
+ * @param {string} endpoint - Target instance network endpoint (URL)
+ * @returns {Promise<Object>} Sync result with success status and message
+ * @throws {Error} If request fails or parameters are invalid
+ */
+export async function bulkSyncTo(instanceId, endpoint) {
+  if (!instanceId || !endpoint) {
+    throw new Error('Both instanceId and endpoint are required for bulk sync');
+  }
+
+  const url = '/api/sync/bulk/to';
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      instance_id: instanceId,
+      endpoint: endpoint
+    })
+  });
+  return handleResponse(response);
+}
+
+/**
+ * Register an OMI instance to the sync cluster
+ *
+ * @param {string} instanceId - Unique identifier for the instance
+ * @param {string} endpoint - Network endpoint (URL), optional
+ * @returns {Promise<Object>} Registration result
+ * @throws {Error} If request fails or instanceId is invalid
+ */
+export async function registerInstance(instanceId, endpoint = null) {
+  if (!instanceId) {
+    throw new Error('instanceId is required to register an instance');
+  }
+
+  const url = '/api/sync/instances/register';
+  const body = { instance_id: instanceId };
+  if (endpoint) {
+    body.endpoint = endpoint;
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  return handleResponse(response);
+}
+
+/**
+ * Remove an OMI instance from the sync cluster
+ *
+ * @param {string} instanceId - ID of instance to unregister
+ * @returns {Promise<Object>} Unregistration result
+ * @throws {Error} If request fails or instanceId is invalid
+ */
+export async function unregisterInstance(instanceId) {
+  if (!instanceId) {
+    throw new Error('instanceId is required to unregister an instance');
+  }
+
+  const url = `/api/sync/instances/${instanceId}`;
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  });
+  return handleResponse(response);
+}
+
+/**
+ * Reconcile memory stores after network partition with conflict resolution
+ *
+ * @param {string} instanceId - ID of instance to reconcile with
+ * @returns {Promise<Object>} Reconciliation result
+ * @throws {Error} If request fails or instanceId is invalid
+ */
+export async function reconcilePartition(instanceId) {
+  if (!instanceId) {
+    throw new Error('instanceId is required to reconcile partition');
+  }
+
+  const url = '/api/sync/reconcile';
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      instance_id: instanceId
+    })
+  });
+  return handleResponse(response);
+}
+
 // Export all functions as named exports
 export default {
   fetchGraph,
@@ -237,5 +413,13 @@ export default {
   fetchBeliefs,
   fetchStats,
   searchMemories,
-  checkHealth
+  checkHealth,
+  fetchSyncStatus,
+  startIncrementalSync,
+  stopIncrementalSync,
+  bulkSyncFrom,
+  bulkSyncTo,
+  registerInstance,
+  unregisterInstance,
+  reconcilePartition
 };

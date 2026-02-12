@@ -11,11 +11,14 @@ import hashlib
 import json
 import tempfile
 import shutil
+import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, BinaryIO, Iterator
 from dataclasses import dataclass, asdict
 from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
 
 # Encryption imports
 try:
@@ -279,6 +282,28 @@ class BackupMetadata:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BackupMetadata":
+        return cls(**data)
+
+
+@dataclass
+class SyncSnapshotMetadata:
+    """Metadata for a sync snapshot used in distributed synchronization"""
+    snapshot_id: str  # Unique identifier for this snapshot
+    instance_id: str  # ID of the instance that created this snapshot
+    created_at: str  # ISO format timestamp
+    file_size: int  # Size in bytes
+    checksum: str  # SHA-256 checksum
+    encrypted: bool  # Whether snapshot is encrypted
+    files_included: List[str]  # List of files in snapshot
+    vector_clock: Dict[str, int]  # Vector clock at snapshot time
+    sync_metadata: Dict[str, Any]  # Additional sync-specific metadata
+    retention_days: int  # Days to keep this snapshot (default: 7)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SyncSnapshotMetadata":
         return cls(**data)
 
 
@@ -697,31 +722,52 @@ class MoltVault:
     def __init__(
         self,
         base_path: Path,
-        bucket: str = "moltbot-data",
-        endpoint: str = "https://4c2932bc3381be38d5266241b16be092.r2.cloudflarestorage.com",
+        config: Optional[Dict[str, Any]] = None,
+        bucket: Optional[str] = None,
+        endpoint: Optional[str] = None,
         access_key: Optional[str] = None,
         secret_key: Optional[str] = None,
-        region: str = "auto",
+        region: Optional[str] = None,
     ) -> None:
         """
         Initialize MoltVault
 
+        Supports two initialization patterns:
+        1. Direct parameters: MoltVault(path, bucket="my-bucket", endpoint="...")
+        2. Config dict: MoltVault(path, {"backup": {"bucket": "my-bucket", ...}})
+
         Args:
             base_path: Path to OMI data directory
+            config: Optional configuration dict (takes precedence over individual params)
             bucket: S3/R2 bucket name
             endpoint: S3-compatible endpoint URL
             access_key: S3 access key (default: R2_ACCESS_KEY_ID env var)
             secret_key: S3 secret key (default: R2_SECRET_ACCESS_KEY env var)
             region: S3 region
+
+        Example:
+            >>> # Direct parameters
+            >>> vault = MoltVault(Path("/data"), bucket="my-bucket")
+            >>> # Config dict
+            >>> vault = MoltVault(Path("/data"), {"backup": {"bucket": "my-bucket"}})
         """
         self.base_path: Path = Path(base_path)
-        self.bucket: str = bucket
-        self.endpoint: str = endpoint
-        self.region: str = region
 
-        # Get credentials from env or parameters
-        self.access_key: Optional[str] = access_key or os.getenv("R2_ACCESS_KEY_ID")
-        self.secret_key: Optional[str] = secret_key or os.getenv("R2_SECRET_ACCESS_KEY")
+        # Extract configuration from config dict if provided
+        if config and isinstance(config, dict) and 'backup' in config:
+            backup_config = config['backup']
+            self.bucket = backup_config.get('bucket', "moltbot-data")
+            self.endpoint = backup_config.get('endpoint', "https://4c2932bc3381be38d5266241b16be092.r2.cloudflarestorage.com")
+            self.region = backup_config.get('region', "auto")
+            self.access_key = backup_config.get('access_key') or os.getenv("R2_ACCESS_KEY_ID")
+            self.secret_key = backup_config.get('secret_key') or os.getenv("R2_SECRET_ACCESS_KEY")
+        else:
+            # Use direct parameters with defaults
+            self.bucket: str = bucket or "moltbot-data"
+            self.endpoint: str = endpoint or "https://4c2932bc3381be38d5266241b16be092.r2.cloudflarestorage.com"
+            self.region: str = region or "auto"
+            self.access_key: Optional[str] = access_key or os.getenv("R2_ACCESS_KEY_ID")
+            self.secret_key: Optional[str] = secret_key or os.getenv("R2_SECRET_ACCESS_KEY")
 
         # State tracking
         self._backend: Optional[StorageBackend] = None
@@ -1174,6 +1220,413 @@ class MoltVault:
                     kept += 1
             except Exception:
                 kept += 1
+
+        return {"deleted": deleted, "kept": kept}
+
+    def create_sync_snapshot(
+        self,
+        instance_id: str,
+        vector_clock: Optional[Dict[str, int]] = None,
+        sync_metadata: Optional[Dict[str, Any]] = None,
+        encrypt: Optional[bool] = None,
+    ) -> SyncSnapshotMetadata:
+        """
+        Create a sync-specific snapshot for distributed synchronization.
+
+        Similar to backup() but optimized for sync operations:
+        - Always includes palace.sqlite (critical for sync)
+        - Optionally includes NOW.md and memory logs
+        - Includes vector clock and sync metadata
+        - Uses 'sync/' prefix instead of 'backups/' prefix
+
+        Args:
+            instance_id: ID of the instance creating this snapshot
+            vector_clock: Optional vector clock state at snapshot time
+            sync_metadata: Optional additional sync-specific metadata
+            encrypt: Force encryption (default: auto-detect from MOLTVAULT_KEY)
+
+        Returns:
+            SyncSnapshotMetadata with details of created snapshot
+
+        Raises:
+            ValueError: If no files found to snapshot
+            ImportError: If encryption requested but cryptography unavailable
+            RuntimeError: If upload to storage fails
+
+        Example:
+            >>> vault = MoltVault(Path("/data/omi"))
+            >>> metadata = vault.create_sync_snapshot(
+            ...     instance_id="instance-1",
+            ...     vector_clock={"instance-1": 42, "instance-2": 30}
+            ... )
+            >>> print(metadata.snapshot_id)
+            'sync_instance-1_20240101_120000'
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_dir = Path(tmpdir)
+
+            # Get files for sync snapshot (always include database)
+            files = []
+
+            # Critical: palace.sqlite is required for sync
+            db_path = self.base_path / "palace.sqlite"
+            if not db_path.exists():
+                raise ValueError(
+                    f"Database not found at {db_path}. Cannot create sync snapshot."
+                )
+            files.append(db_path)
+
+            # Optional: Include NOW.md if it exists
+            now_path = self.base_path / "NOW.md"
+            if now_path.exists():
+                files.append(now_path)
+
+            # Optional: Include recent memory logs (last 7 days)
+            memory_dir = self.base_path / "memory"
+            if memory_dir.exists() and memory_dir.is_dir():
+                cutoff_date = datetime.now() - timedelta(days=7)
+                for log_file in memory_dir.glob("*.md"):
+                    try:
+                        mtime = datetime.fromtimestamp(log_file.stat().st_mtime)
+                        if mtime > cutoff_date:
+                            files.append(log_file)
+                    except (OSError, FileNotFoundError):
+                        continue
+
+            # Include integrity hash files
+            for hash_file in self.base_path.glob(".*.hash"):
+                if hash_file.exists():
+                    files.append(hash_file)
+
+            if not files:
+                raise ValueError("No files found for sync snapshot")
+
+            # Create archive
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archive_name = f"omi_sync_{instance_id}_{timestamp}.tar.gz"
+            archive_path = temp_dir / archive_name
+
+            with tarfile.open(archive_path, "w:gz") as tar:
+                for file_path in files:
+                    if file_path.exists():
+                        arcname = file_path.relative_to(self.base_path)
+                        tar.add(file_path, arcname=arcname)
+
+            # Encrypt if needed
+            use_encryption = encrypt if encrypt is not None else self._encryption is not None
+            if use_encryption:
+                if not CRYPTO_AVAILABLE:
+                    raise ImportError("cryptography package required for encryption")
+                if not self._encryption:
+                    raise ValueError("MOLTVAULT_KEY required for encryption")
+                archive_path = self._encrypt_file(archive_path, temp_dir)
+
+            # Calculate metadata
+            snapshot_id = f"sync_{instance_id}_{timestamp}"
+            file_size = archive_path.stat().st_size
+            checksum = self._calculate_checksum(archive_path)
+
+            # Create metadata
+            metadata = SyncSnapshotMetadata(
+                snapshot_id=snapshot_id,
+                instance_id=instance_id,
+                created_at=datetime.now().isoformat(),
+                file_size=file_size,
+                checksum=checksum,
+                encrypted=use_encryption,
+                files_included=[str(f.relative_to(self.base_path)) for f in files],
+                vector_clock=vector_clock or {},
+                sync_metadata=sync_metadata or {},
+                retention_days=7,  # Sync snapshots have shorter retention
+            )
+
+            # Upload to storage using 'sync/' prefix
+            backend = self._get_backend()
+
+            s3_key = f"sync/{snapshot_id}.tar.gz"
+            if use_encryption:
+                s3_key += ".enc"
+            meta_key = f"sync/{snapshot_id}.json"
+
+            # Upload archive with metadata
+            backend.upload(
+                local_path=archive_path,
+                key=s3_key,
+                metadata={
+                    "snapshot-type": "sync",
+                    "instance-id": instance_id,
+                    "created-at": metadata.created_at,
+                    "checksum": checksum,
+                }
+            )
+
+            # Upload metadata JSON
+            meta_file = temp_dir / f"{snapshot_id}.json"
+            meta_file.write_text(json.dumps(metadata.to_dict(), indent=2))
+            backend.upload(
+                local_path=meta_file,
+                key=meta_key,
+            )
+
+            logger.info(
+                f"Created sync snapshot {snapshot_id} for instance {instance_id} "
+                f"({file_size} bytes, {len(files)} files)"
+            )
+
+            return metadata
+
+    def list_sync_snapshots(
+        self,
+        instance_id: Optional[str] = None
+    ) -> List[SyncSnapshotMetadata]:
+        """
+        List available sync snapshots.
+
+        Args:
+            instance_id: Optional filter by instance ID
+
+        Returns:
+            List of SyncSnapshotMetadata sorted by creation time (newest first)
+
+        Example:
+            >>> vault = MoltVault(Path("/data/omi"))
+            >>> snapshots = vault.list_sync_snapshots(instance_id="instance-1")
+            >>> for snapshot in snapshots:
+            ...     print(f"{snapshot.snapshot_id}: {snapshot.file_size} bytes")
+        """
+        backend = self._get_backend()
+
+        snapshots = []
+        prefix = "sync/"
+
+        try:
+            objects = backend.list(prefix=prefix)
+
+            if not objects:
+                return []
+
+            # Find metadata files
+            for obj in objects:
+                key = obj.key
+                if not key.endswith(".json"):
+                    continue
+
+                # Filter by instance_id if specified
+                if instance_id and f"sync_{instance_id}_" not in key:
+                    continue
+
+                try:
+                    # Download metadata to temporary file
+                    with tempfile.NamedTemporaryFile(mode='w+b', delete=False) as tmp:
+                        tmp_path = Path(tmp.name)
+
+                    try:
+                        backend.download(key=f"{prefix}{key}", local_path=tmp_path)
+                        meta_data = json.loads(tmp_path.read_text())
+                        snapshots.append(SyncSnapshotMetadata.from_dict(meta_data))
+                    finally:
+                        tmp_path.unlink(missing_ok=True)
+
+                except Exception as e:
+                    logger.warning(f"Failed to read sync snapshot metadata {key}: {e}")
+                    continue
+
+            # Sort by creation time (newest first)
+            snapshots.sort(key=lambda x: x.created_at, reverse=True)
+
+        except StorageError as e:
+            logger.error(f"Failed to list sync snapshots: {e}")
+            raise RuntimeError(f"Failed to list sync snapshots: {e}")
+
+        return snapshots
+
+    def download_sync_snapshot(
+        self,
+        snapshot_id: str,
+        target_path: Optional[Path] = None,
+        verify: bool = True,
+    ) -> Path:
+        """
+        Download and extract a sync snapshot.
+
+        Args:
+            snapshot_id: ID of snapshot to download
+            target_path: Where to extract (default: base_path)
+            verify: Verify checksum integrity
+
+        Returns:
+            Path to extracted directory
+
+        Raises:
+            ValueError: If snapshot not found or checksum mismatch
+            RuntimeError: If download or extraction fails
+
+        Example:
+            >>> vault = MoltVault(Path("/data/omi"))
+            >>> restored_path = vault.download_sync_snapshot(
+            ...     snapshot_id="sync_instance-1_20240101_120000"
+            ... )
+            >>> print(f"Restored to {restored_path}")
+        """
+        backend = self._get_backend()
+
+        # Determine paths
+        s3_key = f"sync/{snapshot_id}.tar.gz"
+        meta_key = f"sync/{snapshot_id}.json"
+
+        # Download metadata first
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_dir = Path(tmpdir)
+            meta_path = temp_dir / f"{snapshot_id}.json"
+
+            try:
+                backend.download(key=meta_key, local_path=meta_path)
+                metadata = SyncSnapshotMetadata.from_dict(
+                    json.loads(meta_path.read_text())
+                )
+            except (KeyError, StorageError) as e:
+                raise ValueError(f"Sync snapshot {snapshot_id} not found: {e}")
+
+            # Adjust for encrypted snapshots
+            if metadata.encrypted:
+                if not CRYPTO_AVAILABLE:
+                    raise ImportError("cryptography package required for decryption")
+                if not self._encryption:
+                    raise ValueError("MOLTVAULT_KEY required to decrypt snapshot")
+                s3_key += ".enc"
+
+            # Use base_path or provided target
+            if target_path:
+                extract_path = Path(target_path)
+            else:
+                extract_path = self.base_path
+
+            archive_path = temp_dir / f"{snapshot_id}.tar.gz"
+
+            # Download archive
+            try:
+                backend.download(key=s3_key, local_path=archive_path)
+            except (KeyError, StorageError) as e:
+                raise RuntimeError(f"Failed to download sync snapshot: {e}")
+
+            # Verify checksum
+            if verify:
+                actual_checksum = self._calculate_checksum(archive_path)
+                if actual_checksum != metadata.checksum:
+                    raise ValueError(
+                        f"Checksum mismatch! Expected {metadata.checksum}, "
+                        f"got {actual_checksum}"
+                    )
+
+            # Decrypt if needed
+            if metadata.encrypted:
+                archive_path = self._decrypt_file(archive_path, temp_dir)
+
+            # Ensure extract path exists
+            extract_path.mkdir(parents=True, exist_ok=True)
+
+            # Extract archive
+            with tarfile.open(archive_path, "r:gz") as tar:
+                # Security: validate members
+                for member in tar.getmembers():
+                    # Check for path traversal
+                    member_path = extract_path / member.name
+                    try:
+                        member_path.relative_to(extract_path)
+                    except ValueError:
+                        raise ValueError(
+                            f"Malicious archive: path traversal detected in {member.name}"
+                        )
+                tar.extractall(path=extract_path)
+
+            logger.info(
+                f"Downloaded and extracted sync snapshot {snapshot_id} to {extract_path}"
+            )
+
+        return extract_path
+
+    def delete_sync_snapshot(self, snapshot_id: str) -> bool:
+        """
+        Delete a sync snapshot from storage.
+
+        Args:
+            snapshot_id: ID of snapshot to delete
+
+        Returns:
+            True if successfully deleted, False otherwise
+
+        Example:
+            >>> vault = MoltVault(Path("/data/omi"))
+            >>> success = vault.delete_sync_snapshot("sync_instance-1_20240101_120000")
+        """
+        backend = self._get_backend()
+
+        try:
+            # Delete archive and metadata
+            s3_key = f"sync/{snapshot_id}.tar.gz"
+            meta_key = f"sync/{snapshot_id}.json"
+
+            # Try both encrypted and non-encrypted versions
+            try:
+                backend.delete(s3_key)
+            except StorageError:
+                try:
+                    backend.delete(f"{s3_key}.enc")
+                except StorageError:
+                    pass
+
+            backend.delete(meta_key)
+
+            logger.info(f"Deleted sync snapshot {snapshot_id}")
+            return True
+
+        except StorageError as e:
+            logger.error(f"Failed to delete sync snapshot {snapshot_id}: {e}")
+            return False
+
+    def cleanup_sync_snapshots(self, dry_run: bool = False) -> Dict[str, int]:
+        """
+        Apply retention policy cleanup to sync snapshots.
+
+        Sync snapshots are kept for 7 days by default.
+
+        Args:
+            dry_run: If True, only report what would be deleted
+
+        Returns:
+            Dict with 'deleted' and 'kept' counts
+
+        Example:
+            >>> vault = MoltVault(Path("/data/omi"))
+            >>> result = vault.cleanup_sync_snapshots(dry_run=True)
+            >>> print(f"Would delete {result['deleted']} snapshots")
+        """
+        snapshots = self.list_sync_snapshots()
+
+        now = datetime.now()
+        deleted = 0
+        kept = 0
+
+        for snapshot in snapshots:
+            try:
+                created = datetime.fromisoformat(snapshot.created_at)
+                age_days = (now - created).days
+
+                if age_days > snapshot.retention_days:
+                    if not dry_run:
+                        self.delete_sync_snapshot(snapshot.snapshot_id)
+                    deleted += 1
+                else:
+                    kept += 1
+            except Exception as e:
+                logger.warning(
+                    f"Failed to process snapshot {snapshot.snapshot_id} for cleanup: {e}"
+                )
+                kept += 1
+
+        logger.info(
+            f"Sync snapshot cleanup: deleted={deleted}, kept={kept} (dry_run={dry_run})"
+        )
 
         return {"deleted": deleted, "kept": kept}
 

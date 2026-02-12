@@ -23,6 +23,10 @@ from collections import deque
 import numpy as np
 import struct
 
+# Event bus integration for incremental sync
+from ..events import MemoryStoredEvent
+from ..event_bus import get_event_bus
+
 
 @dataclass
 class Memory:
@@ -37,6 +41,8 @@ class Memory:
     access_count: int = 0
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
+    vector_clock: Optional[Dict[str, int]] = None  # For distributed conflict resolution
+    version: int = 1  # Monotonically increasing version number
 
     def __post_init__(self) -> None:
         if self.created_at is None:
@@ -47,6 +53,8 @@ class Memory:
             self.content_hash = hashlib.sha256(self.content.encode()).hexdigest()
         if self.instance_ids is None:
             self.instance_ids = []
+        if self.vector_clock is None:
+            self.vector_clock = {}
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -60,7 +68,9 @@ class Memory:
             "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
-            "content_hash": self.content_hash
+            "content_hash": self.content_hash,
+            "vector_clock": self.vector_clock,
+            "version": self.version
         }
 
 
@@ -163,7 +173,8 @@ class GraphPalace:
                 last_accessed TIMESTAMP,
                 access_count INTEGER DEFAULT 0,
                 instance_ids TEXT,  -- JSON array
-                content_hash TEXT  -- SHA-256 for integrity
+                content_hash TEXT,  -- SHA-256 for integrity
+                is_foundational INTEGER DEFAULT 0  -- Boolean flag for foundational memories
             );
 
             CREATE TABLE IF NOT EXISTS edges (
@@ -177,16 +188,71 @@ class GraphPalace:
                 FOREIGN KEY (target_id) REFERENCES memories(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS consensus_votes (
+                memory_id TEXT NOT NULL,
+                instance_id TEXT NOT NULL,
+                vote INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (memory_id, instance_id),
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS instance_registry (
+                instance_id TEXT PRIMARY KEY,
+                hostname TEXT,
+                topology_type TEXT CHECK(topology_type IN ('leader','follower','multi-leader')),
+                status TEXT CHECK(status IN ('active','inactive','partitioned')) DEFAULT 'active',
+                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS sync_log (
+                id TEXT PRIMARY KEY,
+                instance_id TEXT NOT NULL,
+                memory_id TEXT,
+                operation TEXT CHECK(operation IN ('store','update','delete','bulk_sync')),
+                status TEXT CHECK(status IN ('success','failure','pending')) DEFAULT 'pending',
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (instance_id) REFERENCES instance_registry(instance_id) ON DELETE CASCADE,
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS conflict_queue (
+                id TEXT PRIMARY KEY,
+                memory_id TEXT NOT NULL,
+                instance_id_source TEXT NOT NULL,
+                instance_id_target TEXT NOT NULL,
+                conflict_data TEXT,
+                resolution_status TEXT CHECK(resolution_status IN ('pending','resolved','ignored')) DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP,
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+                FOREIGN KEY (instance_id_source) REFERENCES instance_registry(instance_id) ON DELETE CASCADE,
+                FOREIGN KEY (instance_id_target) REFERENCES instance_registry(instance_id) ON DELETE CASCADE
+            );
+
             -- Indexes for performance
             CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
             CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
             CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed);
             CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
             CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
+            CREATE INDEX IF NOT EXISTS idx_memories_is_foundational ON memories(is_foundational);
             CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
             CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
             CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
             CREATE INDEX IF NOT EXISTS idx_edges_bidirectional ON edges(source_id, target_id);
+            CREATE INDEX IF NOT EXISTS idx_consensus_votes_memory ON consensus_votes(memory_id);
+            CREATE INDEX IF NOT EXISTS idx_instance_registry_status ON instance_registry(status);
+            CREATE INDEX IF NOT EXISTS idx_instance_registry_last_seen ON instance_registry(last_seen);
+            CREATE INDEX IF NOT EXISTS idx_sync_log_instance ON sync_log(instance_id);
+            CREATE INDEX IF NOT EXISTS idx_sync_log_memory ON sync_log(memory_id);
+            CREATE INDEX IF NOT EXISTS idx_sync_log_created ON sync_log(created_at);
+            CREATE INDEX IF NOT EXISTS idx_sync_log_status ON sync_log(status);
+            CREATE INDEX IF NOT EXISTS idx_conflict_queue_memory ON conflict_queue(memory_id);
+            CREATE INDEX IF NOT EXISTS idx_conflict_queue_status ON conflict_queue(resolution_status);
+            CREATE INDEX IF NOT EXISTS idx_conflict_queue_created ON conflict_queue(created_at);
         """)
 
         # Create standalone FTS5 virtual table for full-text search
@@ -244,16 +310,16 @@ class GraphPalace:
 
     def store_memory(self,
                    content: str,
-                   embedding: Optional[List[float]] = None,
                    memory_type: str = "experience",
+                   embedding: Optional[List[float]] = None,
                    confidence: Optional[float] = None) -> str:
         """
         Store a memory in the palace.
 
         Args:
             content: The memory content text
-            embedding: Vector embedding (1024-dim for bge-m3)
             memory_type: One of (fact, experience, belief, decision)
+            embedding: Vector embedding (1024-dim for bge-m3)
             confidence: 0.0-1.0 for beliefs
 
         Returns:
@@ -299,6 +365,16 @@ class GraphPalace:
         # Cache the embedding for fast access
         if embedding:
             self._embedding_cache[memory_id] = embedding
+
+        # Publish event for incremental sync
+        # SyncEventHandler will pick up this event and propagate to other instances
+        event = MemoryStoredEvent(
+            memory_id=memory_id,
+            content=content,
+            memory_type=memory_type,
+            confidence=confidence
+        )
+        get_event_bus().publish(event)
 
         return memory_id
 
@@ -1071,6 +1147,162 @@ class GraphPalace:
                 memories.append(memory)
 
         return memories
+
+    def add_consensus_vote(self, memory_id: str, instance_id: str, vote: int) -> None:
+        """
+        Add or update a consensus vote for a memory from an instance.
+
+        Args:
+            memory_id: Memory UUID
+            instance_id: Instance identifier
+            vote: Vote value (typically 1 for support, -1 for oppose, 0 for neutral)
+        """
+        with self._db_lock:
+            self._conn.execute("""
+                INSERT INTO consensus_votes (memory_id, instance_id, vote)
+                VALUES (?, ?, ?)
+                ON CONFLICT(memory_id, instance_id)
+                DO UPDATE SET vote=excluded.vote, created_at=CURRENT_TIMESTAMP
+            """, (memory_id, instance_id, vote))
+            self._conn.commit()
+
+    def get_consensus_votes(self, memory_id: str) -> int:
+        """
+        Get the total consensus vote count for a memory.
+
+        Args:
+            memory_id: Memory UUID
+
+        Returns:
+            Total sum of all votes for this memory
+        """
+        cursor = self._conn.execute("""
+            SELECT COALESCE(SUM(vote), 0) FROM consensus_votes
+            WHERE memory_id = ?
+        """, (memory_id,))
+        result = cursor.fetchone()
+        return int(result[0]) if result else 0
+
+    def mark_as_foundational(self, memory_id: str) -> None:
+        """
+        Mark a memory as foundational (protected/trusted).
+
+        Foundational memories have achieved multi-instance consensus
+        and are considered core/trusted memories.
+
+        Args:
+            memory_id: Memory UUID
+        """
+        with self._db_lock:
+            self._conn.execute("""
+                UPDATE memories SET is_foundational = 1
+                WHERE id = ?
+            """, (memory_id,))
+            self._conn.commit()
+
+    def queue_conflict(
+        self,
+        memory_id: str,
+        instance_id_source: str,
+        instance_id_target: str,
+        conflict_data: Dict[str, Any]
+    ) -> str:
+        """
+        Add a conflict to the manual resolution queue.
+
+        Used when automatic conflict resolution fails and requires human intervention.
+
+        Args:
+            memory_id: Memory ID that has a conflict
+            instance_id_source: Instance ID of the first conflicting version
+            instance_id_target: Instance ID of the second conflicting version
+            conflict_data: Dict with conflict details (memory versions, timestamps, etc.)
+
+        Returns:
+            Conflict queue ID (UUID)
+        """
+        conflict_id = str(uuid.uuid4())
+        conflict_data_json = json.dumps(conflict_data)
+        now = datetime.now().isoformat()
+
+        with self._db_lock:
+            self._conn.execute("""
+                INSERT INTO conflict_queue
+                (id, memory_id, instance_id_source, instance_id_target, conflict_data, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (conflict_id, memory_id, instance_id_source, instance_id_target, conflict_data_json, now))
+            self._conn.commit()
+
+        return conflict_id
+
+    def get_queued_conflicts(self, status: str = 'pending') -> List[Dict[str, Any]]:
+        """
+        Retrieve conflicts from the manual resolution queue.
+
+        Args:
+            status: Filter by resolution_status ('pending', 'resolved', 'ignored')
+
+        Returns:
+            List of conflict dicts with all queue fields
+        """
+        cursor = self._conn.execute("""
+            SELECT id, memory_id, instance_id_source, instance_id_target,
+                   conflict_data, resolution_status, created_at, resolved_at
+            FROM conflict_queue
+            WHERE resolution_status = ?
+            ORDER BY created_at ASC
+        """, (status,))
+
+        conflicts = []
+        for row in cursor:
+            conflicts.append({
+                'id': row[0],
+                'memory_id': row[1],
+                'instance_id_source': row[2],
+                'instance_id_target': row[3],
+                'conflict_data': json.loads(row[4]) if row[4] else {},
+                'resolution_status': row[5],
+                'created_at': row[6],
+                'resolved_at': row[7]
+            })
+
+        return conflicts
+
+    def resolve_queued_conflict(
+        self,
+        conflict_id: str,
+        resolution_status: str
+    ) -> bool:
+        """
+        Mark a queued conflict as resolved or ignored.
+
+        Args:
+            conflict_id: Conflict queue ID
+            resolution_status: New status ('resolved' or 'ignored')
+
+        Returns:
+            True if updated, False if conflict not found
+
+        Raises:
+            ValueError: If resolution_status is invalid
+        """
+        if resolution_status not in ('resolved', 'ignored'):
+            raise ValueError(
+                f"Invalid resolution_status: {resolution_status}. "
+                "Must be 'resolved' or 'ignored'"
+            )
+
+        now = datetime.now().isoformat()
+
+        with self._db_lock:
+            cursor = self._conn.execute("""
+                UPDATE conflict_queue
+                SET resolution_status = ?, resolved_at = ?
+                WHERE id = ?
+            """, (resolution_status, now, conflict_id))
+            self._conn.commit()
+
+        return cursor.rowcount > 0
 
     def vacuum(self) -> None:
         """Optimize database ( reclaim space )."""
