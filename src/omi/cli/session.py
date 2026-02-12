@@ -2,14 +2,16 @@
 import os
 import sys
 import json
+import sqlite3
 from pathlib import Path
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
 import click
 
 # OMI imports
 from omi import NOWStore, DailyLogStore, GraphPalace
 from omi.security import PoisonDetector
+from omi.summarizer import load_compression_config, MemorySummarizer
 from ..event_bus import get_event_bus
 from ..events import SessionStartedEvent, SessionEndedEvent
 
@@ -88,6 +90,14 @@ events:
     #     events: ["memory.stored", "session.started", "session.ended"]
     #     # headers:
     #     #   Authorization: Bearer ${WEBHOOK_TOKEN}
+
+compression:
+  enabled: true
+  provider: ollama  # or openai
+  model: llama3.2:3b  # Model to use for compression
+  # api_key: ${OPENAI_API_KEY}  # Set via environment variable for OpenAI
+  max_summary_tokens: 150  # Maximum tokens in compressed summary
+  # summarization_prompt: "Summarize concisely:"  # Optional custom prompt
 """
     config_path = base_path / "config.yaml"
     if not config_path.exists():
@@ -294,6 +304,83 @@ def session_end(ctx, no_backup: bool) -> None:
 
     echo_normal(click.style("Ending OMI session...", fg="cyan", bold=True), verbosity)
 
+    # Query session memories from Graph Palace
+    session_memories: List[Dict[str, Any]] = []
+    db_path = base_path / "palace.sqlite"
+    if db_path.exists():
+        try:
+            # Query memories from the last 24 hours (session window)
+            session_start_threshold = datetime.now() - timedelta(hours=24)
+
+            # Get all memories and filter by timestamp
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.execute("""
+                    SELECT id, content, memory_type, confidence, created_at
+                    FROM memories
+                    WHERE created_at >= ?
+                    ORDER BY created_at DESC
+                """, (session_start_threshold.isoformat(),))
+
+                rows = cursor.fetchall()
+                for row in rows:
+                    session_memories.append({
+                        'id': row[0],
+                        'content': row[1],
+                        'memory_type': row[2],
+                        'confidence': row[3],
+                        'created_at': row[4]
+                    })
+
+            if session_memories:
+                echo_verbose(f" ✓ Retrieved {len(session_memories)} session memories", verbosity)
+            else:
+                echo_verbose(" ⚠ No session memories found", verbosity)
+        except Exception as e:
+            echo_verbose(click.style(f" ⚠ Failed to retrieve session memories: {e}", fg="yellow"), verbosity)
+
+    # Compress session memories if enabled
+    compression_result: Optional[Dict[str, Any]] = None
+    if session_memories:
+        try:
+            compression_config = load_compression_config(base_path)
+
+            if compression_config.get('enabled', False):
+                echo_verbose(" → Compressing session memories...", verbosity)
+
+                # Get provider and model from config
+                provider = compression_config.get('provider', 'ollama')
+                model = compression_config.get('model')
+                api_key = compression_config.get('api_key')
+                max_tokens = compression_config.get('max_summary_tokens', 150)
+
+                # Create summarizer instance
+                summarizer = MemorySummarizer(
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    max_tokens=max_tokens
+                )
+
+                # Compress memories
+                compression_result = summarizer.compress_session_memories(
+                    session_memories,
+                    config=compression_config
+                )
+
+                # Show compression stats
+                if compression_result:
+                    echo_normal(click.style(
+                        f" ✓ Compressed {compression_result['count']} memories: "
+                        f"{compression_result['original_tokens']} tokens → "
+                        f"{compression_result['compressed_tokens']} tokens "
+                        f"({compression_result['savings_percent']}% savings)",
+                        fg="green"
+                    ), verbosity)
+            else:
+                echo_verbose(" ⚠ Compression disabled in config", verbosity)
+        except Exception as e:
+            echo_verbose(click.style(f" ⚠ Compression failed: {e}", fg="yellow"), verbosity)
+
     # Update NOW.md timestamp and get current task for log
     now_storage = NOWStore(base_path)
     now_entry = None
@@ -316,6 +403,25 @@ def session_end(ctx, no_backup: bool) -> None:
     entry_content = f"Session ended at {datetime.now().isoformat()}"
     if now_entry and now_entry.current_task:
         entry_content += f"\nLast task: {now_entry.current_task}"
+
+    # Add compressed session memories if available
+    if compression_result and compression_result.get('compressed_memories'):
+        entry_content += "\n\n## Session Memories (Compressed)\n"
+        entry_content += f"*Compressed {compression_result['count']} memories: "
+        entry_content += f"{compression_result['original_tokens']} tokens → "
+        entry_content += f"{compression_result['compressed_tokens']} tokens "
+        entry_content += f"({compression_result['savings_percent']}% savings)*\n\n"
+
+        for mem in compression_result['compressed_memories']:
+            # Format each compressed memory with metadata
+            memory_type = mem.get('memory_type', 'unknown')
+            original_tokens = mem.get('_original_tokens', 0)
+            compressed_tokens = mem.get('_compressed_tokens', 0)
+
+            entry_content += f"### {memory_type.capitalize()}\n"
+            entry_content += f"{mem['content']}\n\n"
+            entry_content += f"*[{original_tokens} → {compressed_tokens} tokens]*\n\n"
+
     log_path = daily_store.append(entry_content)
     echo_verbose(f" ✓ Appended to daily log: {log_path.name}", verbosity)
 
