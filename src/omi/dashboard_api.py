@@ -136,18 +136,18 @@ async def dashboard_health() -> Dict[str, str]:
 
 @router.get("/memories")
 async def get_memories(
-    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of memories to return"),
-    offset: int = Query(default=0, ge=0, description="Number of memories to skip"),
+    limit: int = Query(default=50, ge=1, le=500, description="Maximum number of memories to return"),
+    cursor: Optional[str] = Query(default=None, description="Pagination cursor from previous response"),
     memory_type: Optional[str] = Query(default=None, description="Filter by memory type (fact, experience, belief, decision)"),
     order_by: str = Query(default="created_at", description="Field to order by (created_at, access_count, last_accessed)"),
     order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
 ) -> Dict[str, Any]:
     """
-    Retrieve memories with optional filters.
+    Retrieve memories with cursor-based pagination.
 
     Query Parameters:
-        limit: Maximum number of memories to return (1-1000, default 100)
-        offset: Number of memories to skip for pagination (default 0)
+        limit: Maximum number of memories to return (1-500, default 50)
+        cursor: Pagination cursor from previous response (for next page)
         memory_type: Filter by type (fact, experience, belief, decision)
         order_by: Field to order by (created_at, access_count, last_accessed)
         order_dir: Order direction (asc, desc)
@@ -155,95 +155,34 @@ async def get_memories(
     Returns:
         Dict containing:
             - memories: List of memory objects
-            - total: Total count of memories matching filters
-            - limit: Applied limit
-            - offset: Applied offset
+            - total_count: Total count of memories matching filters
+            - next_cursor: Cursor for next page (empty if no more results)
+            - has_more: Boolean indicating if more results exist
 
     Raises:
         HTTPException: If database access fails or invalid parameters provided
     """
-    # Validate memory_type if provided
-    if memory_type is not None:
-        valid_types = {"fact", "experience", "belief", "decision"}
-        if memory_type not in valid_types:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid memory_type: {memory_type}. Must be one of: {valid_types}"
-            )
-
-    # Validate order_by
-    valid_order_fields = {"created_at", "access_count", "last_accessed"}
-    if order_by not in valid_order_fields:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
-        )
-
-    # Validate order_dir
-    order_dir_upper = order_dir.upper()
-    if order_dir_upper not in {"ASC", "DESC"}:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
-        )
-
     try:
         palace = get_palace_instance()
 
-        # Build SQL query
-        base_query = """
-            SELECT id, content, embedding, memory_type, confidence,
-                   created_at, last_accessed, access_count, instance_ids, content_hash
-            FROM memories
-        """
-        count_query = "SELECT COUNT(*) FROM memories"
-        params: List[Any] = []
+        # Call list_memories with cursor-based pagination
+        # This method handles all validation internally
+        result = palace.list_memories(
+            limit=limit,
+            cursor=cursor,
+            memory_type=memory_type,
+            order_by=order_by,
+            order_dir=order_dir
+        )
 
-        # Add WHERE clause if filtering by memory_type
-        if memory_type is not None:
-            where_clause = " WHERE memory_type = ?"
-            base_query += where_clause
-            count_query += where_clause
-            params.append(memory_type)
+        return result
 
-        # Get total count
-        with palace._db_lock:
-            cursor = palace._conn.execute(count_query, params)
-            total_count = cursor.fetchone()[0]
-
-            # Add ORDER BY and pagination
-            base_query += f" ORDER BY {order_by} {order_dir_upper}"
-            base_query += " LIMIT ? OFFSET ?"
-            params.extend([limit, offset])
-
-            # Execute query
-            cursor = palace._conn.execute(base_query, params)
-            rows = cursor.fetchall()
-
-        # Convert rows to Memory objects
-        memories = []
-        for row in rows:
-            # Don't include embedding in response (too large)
-            memory = {
-                "id": row[0],
-                "content": row[1],
-                "memory_type": row[3],
-                "confidence": row[4],
-                "created_at": row[5],
-                "last_accessed": row[6],
-                "access_count": row[7],
-                "instance_ids": row[8] if row[8] else "[]",
-                "content_hash": row[9]
-            }
-            memories.append(memory)
-
-        return {
-            "memories": memories,
-            "total_count": total_count,
-            "limit": limit,
-            "offset": offset
-        }
-
+    except ValueError as e:
+        # Validation errors from list_memories
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
