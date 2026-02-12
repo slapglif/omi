@@ -29,11 +29,11 @@ Main Python package for OMI. Contains all library code: CLI, MCP API tools, tier
 ## For AI Agents
 
 ### Critical: Two Parallel Implementations
-There are **two GraphPalace classes** and **two BeliefNetwork classes**:
+There are **two GraphPalace classes**:
 - `persistence.GraphPalace` — Minimal stub used by `api.py` and `cli.py`. Basic LIKE search.
 - `storage.graph_palace.GraphPalace` — Full implementation with FTS5, vector cosine similarity, BFS, centrality. Exported from `__init__.py`.
-- `belief.BeliefNetwork` — Used by `api.py`. Takes a persistence.GraphPalace.
-- `graph.belief_network.BeliefNetwork` — Standalone with its own SQLite schema.
+
+The **BeliefNetwork** class is in `belief.py` and is used by `api.py`. It takes a `GraphPalace` instance.
 
 Always check which class you're modifying or calling.
 
