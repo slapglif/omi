@@ -1347,6 +1347,25 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
     entry_content = f"Session ended at {datetime.now().isoformat()}"
     if now_entry and now_entry.current_task:
         entry_content += f"\nLast task: {now_entry.current_task}"
+
+    # Add compressed session memories if available
+    if compression_result and compression_result.get('compressed_memories'):
+        entry_content += "\n\n## Session Memories (Compressed)\n"
+        entry_content += f"*Compressed {compression_result['count']} memories: "
+        entry_content += f"{compression_result['original_tokens']} tokens → "
+        entry_content += f"{compression_result['compressed_tokens']} tokens "
+        entry_content += f"({compression_result['savings_percent']}% savings)*\n\n"
+
+        for mem in compression_result['compressed_memories']:
+            # Format each compressed memory with metadata
+            memory_type = mem.get('memory_type', 'unknown')
+            original_tokens = mem.get('_original_tokens', 0)
+            compressed_tokens = mem.get('_compressed_tokens', 0)
+
+            entry_content += f"### {memory_type.capitalize()}\n"
+            entry_content += f"{mem['content']}\n\n"
+            entry_content += f"*[{original_tokens} → {compressed_tokens} tokens]*\n\n"
+
     log_path = daily_store.append(entry_content)
     click.echo(f" ✓ Appended to daily log: {log_path.name}")
     
