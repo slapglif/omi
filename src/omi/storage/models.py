@@ -24,6 +24,9 @@ class Memory:
     access_count: int = 0
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
+    version_number: Optional[int] = None  # Version tracking
+    version_id: Optional[str] = None  # Version identifier
+    previous_version_id: Optional[str] = None  # Link to previous version
 
     def __post_init__(self):
         if self.created_at is None:
@@ -47,7 +50,10 @@ class Memory:
             "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
-            "content_hash": self.content_hash
+            "content_hash": self.content_hash,
+            "version_number": self.version_number,
+            "version_id": self.version_id,
+            "previous_version_id": self.previous_version_id
         }
 
 
