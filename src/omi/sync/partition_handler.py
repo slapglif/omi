@@ -484,6 +484,57 @@ class PartitionHandler:
 
             return False
 
+    def get_unreconciled_partitions(self) -> List[PartitionEvent]:
+        """
+        Get all partition events that need reconciliation.
+
+        Returns only ended (not active) partitions that haven't been reconciled yet.
+        Used by SyncManager to trigger reconciliation processes.
+
+        Returns:
+            List of unreconciled PartitionEvent objects
+
+        Example:
+            handler = PartitionHandler('instance-1')
+            unreconciled = handler.get_unreconciled_partitions()
+            for event in unreconciled:
+                print(f"Need to reconcile with {event.instance_id}")
+        """
+        with self._lock:
+            return [
+                event for event in self._partition_history
+                if not event.reconciled
+            ]
+
+    def needs_reconciliation(self, instance_id: str) -> bool:
+        """
+        Check if an instance needs reconciliation.
+
+        An instance needs reconciliation if there's an ended partition
+        that hasn't been reconciled yet.
+
+        Args:
+            instance_id: ID of the instance to check
+
+        Returns:
+            True if reconciliation needed, False otherwise
+
+        Example:
+            if handler.needs_reconciliation('instance-2'):
+                manager.reconcile_partition('instance-2')
+        """
+        with self._lock:
+            # Check if there's an active partition (can't reconcile yet)
+            if instance_id in self._active_partitions:
+                return False
+
+            # Check for unreconciled historical partitions
+            for event in reversed(self._partition_history):
+                if event.instance_id == instance_id:
+                    return not event.reconciled
+
+            return False
+
     def clear_history(self, keep_unreconciled: bool = True) -> int:
         """
         Clear partition history.
