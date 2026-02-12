@@ -109,9 +109,11 @@ class StoreMemoryResponse(BaseModel):
 
 
 class RecallMemoryResponse(BaseModel):
-    """Response containing recalled memories."""
+    """Response containing recalled memories with pagination."""
     memories: List[dict] = Field(..., description="List of recalled memories")
     count: int = Field(..., description="Number of memories returned")
+    next_cursor: str = Field(default="", description="Cursor for next page (empty if no more results)")
+    has_more: bool = Field(..., description="Boolean indicating if more results exist")
 
 
 class CreateBeliefRequest(BaseModel):
@@ -360,21 +362,44 @@ async def store_memory(request: StoreMemoryRequest, api_key: str = Depends(verif
 @app.get("/api/v1/recall", response_model=RecallMemoryResponse, tags=["Memory Operations"], summary="Recall memories by semantic search")
 async def recall_memory(
     query: str = Query(..., description="Natural language search query"),
-    limit: int = Query(10, ge=1, le=100, description="Maximum number of results"),
+    limit: int = Query(10, ge=1, le=500, description="Maximum number of results per page"),
     min_relevance: float = Query(0.7, ge=0.0, le=1.0, description="Minimum relevance threshold"),
     memory_type: Optional[str] = Query(None, description="Filter by type: fact|experience|belief|decision"),
+    cursor: Optional[str] = Query(None, description="Pagination cursor from previous response"),
     api_key: str = Depends(verify_api_key)
 ):
-    """Recall memories using semantic search with recency weighting."""
+    """
+    Recall memories using semantic search with recency weighting and pagination.
+
+    Query Parameters:
+        query: Natural language search query
+        limit: Maximum number of results per page (1-500, default 10)
+        min_relevance: Minimum relevance threshold (0.0-1.0, default 0.7)
+        memory_type: Filter by type (fact, experience, belief, decision)
+        cursor: Pagination cursor from previous response (for next page)
+
+    Returns:
+        Dict containing:
+            - memories: List of recalled memories for this page
+            - count: Number of memories returned in this page
+            - next_cursor: Cursor for next page (empty if no more results)
+            - has_more: Boolean indicating if more results exist
+    """
     try:
         tools = get_memory_tools()
-        memories = tools.recall(
+        result = tools.recall(
             query=query,
             limit=limit,
             min_relevance=min_relevance,
-            memory_type=memory_type
+            memory_type=memory_type,
+            cursor=cursor
         )
-        return RecallMemoryResponse(memories=memories, count=len(memories))
+        return RecallMemoryResponse(
+            memories=result["memories"],
+            count=len(result["memories"]),
+            next_cursor=result.get("next_cursor", ""),
+            has_more=result.get("has_more", False)
+        )
     except Exception as e:
         logger.error(f"Error recalling memories: {e}", exc_info=True)
         raise HTTPException(
