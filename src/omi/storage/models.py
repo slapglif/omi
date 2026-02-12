@@ -24,6 +24,7 @@ class Memory:
     access_count: int = 0
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
+    archived: bool = False  # Whether memory is archived (excluded from default search)
 
     def __post_init__(self):
         if self.created_at is None:
@@ -47,7 +48,8 @@ class Memory:
             "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
-            "content_hash": self.content_hash
+            "content_hash": self.content_hash,
+            "archived": self.archived
         }
 
 

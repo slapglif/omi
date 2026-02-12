@@ -40,7 +40,8 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
             last_accessed TIMESTAMP,
             access_count INTEGER DEFAULT 0,
             instance_ids TEXT,  -- JSON array
-            content_hash TEXT  -- SHA-256 for integrity
+            content_hash TEXT,  -- SHA-256 for integrity
+            archived INTEGER DEFAULT 0  -- 0=active, 1=archived (excluded from default search)
         );
 
         CREATE TABLE IF NOT EXISTS edges (
@@ -60,6 +61,7 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
         CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed);
         CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
         CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
+        CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(archived);
         CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
         CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
         CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
