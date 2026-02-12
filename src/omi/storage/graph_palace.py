@@ -38,6 +38,7 @@ class Memory:
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
     archived: bool = False  # Whether memory is archived (excluded from default search)
+    locked: bool = False  # Whether memory is locked (exempt from policy actions)
 
     def __post_init__(self) -> None:
         if self.created_at is None:
@@ -62,7 +63,8 @@ class Memory:
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
             "content_hash": self.content_hash,
-            "archived": self.archived
+            "archived": self.archived,
+            "locked": self.locked
         }
 
 
@@ -166,7 +168,8 @@ class GraphPalace:
                 access_count INTEGER DEFAULT 0,
                 instance_ids TEXT,  -- JSON array
                 content_hash TEXT,  -- SHA-256 for integrity
-                archived INTEGER DEFAULT 0  -- 0=active, 1=archived
+                archived INTEGER DEFAULT 0,  -- 0=active, 1=archived
+                locked INTEGER DEFAULT 0  -- 0=unlocked, 1=locked (exempt from policy actions)
             );
 
             CREATE TABLE IF NOT EXISTS edges (
@@ -184,6 +187,7 @@ class GraphPalace:
             CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
             CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
             CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(archived);
+            CREATE INDEX IF NOT EXISTS idx_memories_locked ON memories(locked);
             CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed);
             CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
             CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
@@ -202,6 +206,19 @@ class GraphPalace:
                 content
             )
         """)
+
+        # Migration: Add locked column if it doesn't exist (for existing databases)
+        try:
+            cursor = self._conn.execute("SELECT locked FROM memories LIMIT 1")
+            cursor.fetchone()
+        except sqlite3.OperationalError:
+            # Column doesn't exist, add it
+            self._conn.execute("""
+                ALTER TABLE memories ADD COLUMN locked INTEGER DEFAULT 0
+            """)
+            self._conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_memories_locked ON memories(locked)
+            """)
 
         self._conn.commit()
 
@@ -280,8 +297,8 @@ class GraphPalace:
             self._conn.execute("""
                 INSERT INTO memories
                 (id, content, embedding, memory_type, confidence, created_at,
-                 last_accessed, access_count, instance_ids, content_hash, archived)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 last_accessed, access_count, instance_ids, content_hash, archived, locked)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 memory_id,
                 content,
@@ -293,7 +310,8 @@ class GraphPalace:
                 0,
                 json.dumps([]),
                 content_hash,
-                0  # archived = False (0)
+                0,  # archived = False (0)
+                0   # locked = False (0)
             ))
             # Insert into FTS index
             self._conn.execute("""
@@ -329,7 +347,7 @@ class GraphPalace:
         # Retrieve memory
         cursor = self._conn.execute("""
             SELECT id, content, embedding, memory_type, confidence,
-                   created_at, last_accessed, access_count, instance_ids, content_hash, archived
+                   created_at, last_accessed, access_count, instance_ids, content_hash, archived, locked
             FROM memories WHERE id = ?
         """, (memory_id,))
 
@@ -352,7 +370,8 @@ class GraphPalace:
             access_count=row[7],
             instance_ids=instance_ids,
             content_hash=row[9],
-            archived=bool(row[10])  # archived column (convert INTEGER to bool)
+            archived=bool(row[10]),  # archived column (convert INTEGER to bool)
+            locked=bool(row[11])     # locked column (convert INTEGER to bool)
         )
 
         # Update cache
@@ -442,7 +461,7 @@ class GraphPalace:
 
         cursor = self._conn.execute("""
             SELECT id, content, embedding, memory_type, confidence,
-                   created_at, last_accessed, access_count, instance_ids, content_hash
+                   created_at, last_accessed, access_count, instance_ids, content_hash, archived, locked
             FROM memories WHERE embedding IS NOT NULL
         """)
 
@@ -504,7 +523,9 @@ class GraphPalace:
                 last_accessed=last_accessed,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
+                archived=bool(row[10]),
+                locked=bool(row[11])
             )
             results.append((memory, final_score))
 
@@ -528,7 +549,8 @@ class GraphPalace:
         # Use FTS5 MATCH via standalone FTS table
         cursor = self._conn.execute("""
             SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                   m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                   m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
+                   m.archived, m.locked
             FROM memories_fts fts
             JOIN memories m ON m.id = fts.memory_id
             WHERE memories_fts MATCH ?
@@ -548,7 +570,9 @@ class GraphPalace:
                 last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
+                archived=bool(row[10]),
+                locked=bool(row[11])
             )
             memories.append(memory)
 
@@ -641,7 +665,8 @@ class GraphPalace:
         if edge_type:
             cursor = self._conn.execute("""
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
+                       m.archived, m.locked
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
@@ -651,7 +676,8 @@ class GraphPalace:
         else:
             cursor = self._conn.execute("""
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
+                       m.archived, m.locked
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
@@ -670,7 +696,9 @@ class GraphPalace:
                 last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
+                archived=bool(row[10]),
+                locked=bool(row[11])
             ))
 
         return memories
@@ -751,7 +779,8 @@ class GraphPalace:
             # Get neighbors
             cursor = self._conn.execute("""
                 SELECT DISTINCT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
+                       m.archived, m.locked
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
@@ -774,7 +803,9 @@ class GraphPalace:
                         last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                         access_count=row[7],
                         instance_ids=json.loads(row[8]) if row[8] else [],
-                        content_hash=row[9]
+                        content_hash=row[9],
+                        archived=bool(row[10]),
+                        locked=bool(row[11])
                     )
                     result.append(memory)
                     queue.append((neighbor_id, current_depth + 1))
@@ -797,7 +828,7 @@ class GraphPalace:
         cursor = self._conn.execute("""
             SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                    m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
-                   COUNT(e.id) as edge_count
+                   m.archived, m.locked, COUNT(e.id) as edge_count
             FROM memories m
             LEFT JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
             GROUP BY m.id
@@ -808,7 +839,7 @@ class GraphPalace:
             memory_id = row[0]
             access_count = row[7] or 0
             last_accessed = datetime.fromisoformat(row[6]) if row[6] else datetime.now()
-            edge_count = row[10]
+            edge_count = row[12]
 
             # Calculate centrality score (same algorithm as get_centrality)
             # Degree centrality (40% weight)
@@ -836,7 +867,9 @@ class GraphPalace:
                 last_accessed=last_accessed,
                 access_count=access_count,
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
+                archived=bool(row[10]),
+                locked=bool(row[11])
             )
 
             memories.append((memory, centrality))
@@ -989,6 +1022,62 @@ class GraphPalace:
 
         return deleted_count
 
+    def lock_memories(self, memory_ids: List[str]) -> int:
+        """
+        Lock memories to exempt them from policy actions.
+
+        Locked memories will not be archived, deleted, compressed, promoted,
+        or demoted by policy engine actions.
+
+        Args:
+            memory_ids: List of memory IDs to lock
+
+        Returns:
+            Number of memories successfully locked
+        """
+        if not memory_ids:
+            return 0
+
+        locked_count = 0
+        with self._db_lock:
+            for memory_id in memory_ids:
+                cursor = self._conn.execute("""
+                    UPDATE memories SET locked = 1 WHERE id = ?
+                """, (memory_id,))
+                if cursor.rowcount > 0:
+                    locked_count += 1
+            self._conn.commit()
+
+        return locked_count
+
+    def unlock_memories(self, memory_ids: List[str]) -> int:
+        """
+        Unlock memories to allow policy actions.
+
+        Unlocking memories allows them to be affected by policy engine actions
+        (archive, delete, compress, promote, demote).
+
+        Args:
+            memory_ids: List of memory IDs to unlock
+
+        Returns:
+            Number of memories successfully unlocked
+        """
+        if not memory_ids:
+            return 0
+
+        unlocked_count = 0
+        with self._db_lock:
+            for memory_id in memory_ids:
+                cursor = self._conn.execute("""
+                    UPDATE memories SET locked = 0 WHERE id = ?
+                """, (memory_id,))
+                if cursor.rowcount > 0:
+                    unlocked_count += 1
+            self._conn.commit()
+
+        return unlocked_count
+
     def get_stats(self) -> Dict[str, Any]:
         """
         Get database statistics.
@@ -1112,7 +1201,8 @@ class GraphPalace:
             if limit is not None:
                 cursor = conn.execute("""
                     SELECT id, content, embedding, memory_type, confidence,
-                           created_at, last_accessed, access_count, instance_ids, content_hash
+                           created_at, last_accessed, access_count, instance_ids, content_hash,
+                           archived, locked
                     FROM memories
                     WHERE created_at < ?
                     ORDER BY created_at ASC
@@ -1121,7 +1211,8 @@ class GraphPalace:
             else:
                 cursor = conn.execute("""
                     SELECT id, content, embedding, memory_type, confidence,
-                           created_at, last_accessed, access_count, instance_ids, content_hash
+                           created_at, last_accessed, access_count, instance_ids, content_hash,
+                           archived, locked
                     FROM memories
                     WHERE created_at < ?
                     ORDER BY created_at ASC
@@ -1139,7 +1230,9 @@ class GraphPalace:
                     last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                     access_count=row[7],
                     instance_ids=json.loads(row[8]) if row[8] else [],
-                    content_hash=row[9]
+                    content_hash=row[9],
+                    archived=bool(row[10]),
+                    locked=bool(row[11])
                 )
                 memories.append(memory)
 

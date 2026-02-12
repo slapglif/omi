@@ -24,8 +24,33 @@ when, why, and to which memories.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any, Callable, Union
 import math
+
+
+def is_memory_locked(memory: Any) -> bool:
+    """
+    Check if a memory is locked (exempt from policy actions).
+
+    Locked memories cannot be archived, deleted, compressed, promoted,
+    or demoted by policy engine actions. This provides a mechanism to
+    protect critical memories from automatic lifecycle management.
+
+    Args:
+        memory: Memory object to check (must have a 'locked' attribute)
+
+    Returns:
+        True if memory is locked, False otherwise
+
+    Example:
+        from omi.policies import is_memory_locked
+        from omi.storage.graph_palace import Memory
+
+        memory = Memory(id="mem-1", content="Critical information", locked=True)
+        if is_memory_locked(memory):
+            print("This memory is protected from policy actions")
+    """
+    return getattr(memory, 'locked', False)
 
 
 class PolicyType(Enum):
@@ -170,6 +195,10 @@ class RetentionPolicy:
         matching_ids = []
 
         for memory in memories:
+            # Skip locked memories (exempt from policy actions)
+            if is_memory_locked(memory):
+                continue
+
             # Skip if memory type doesn't match filter
             if self.memory_type_filter and hasattr(memory, 'memory_type'):
                 if memory.memory_type != self.memory_type_filter:
@@ -278,6 +307,10 @@ class UsagePolicy:
         matching_ids = []
 
         for memory in memories:
+            # Skip locked memories (exempt from policy actions)
+            if is_memory_locked(memory):
+                continue
+
             # Skip if memory type doesn't match filter
             if self.memory_type_filter and hasattr(memory, 'memory_type'):
                 if memory.memory_type != self.memory_type_filter:
@@ -421,6 +454,10 @@ class ConfidencePolicy:
         matching_ids = []
 
         for memory in memories:
+            # Skip locked memories (exempt from policy actions)
+            if is_memory_locked(memory):
+                continue
+
             # Skip if memory type doesn't match filter
             if self.memory_type_filter and hasattr(memory, 'memory_type'):
                 if memory.memory_type != self.memory_type_filter:
@@ -961,4 +998,5 @@ __all__ = [
     "PolicyExecutionResult",
     "archive_memories",
     "delete_memories",
+    "is_memory_locked",
 ]
