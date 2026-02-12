@@ -13,16 +13,29 @@ Usage:
         app.include_router(router)
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Header, Depends, status
+from fastapi.security import APIKeyHeader
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 import os
 import logging
+import yaml
 
 from .storage.graph_palace import GraphPalace, Memory
 from .embeddings import OllamaEmbedder, EmbeddingCache
+from .auth import APIKeyManager, RateLimiter
 
 logger = logging.getLogger(__name__)
+
+
+# Global rate limiter instance (60 second sliding window)
+rate_limiter = RateLimiter(window_seconds=60)
+
+
+# API Key Authentication
+# API key header security scheme
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
 
 # Create FastAPI router with dashboard prefix
 router = APIRouter(
@@ -30,6 +43,100 @@ router = APIRouter(
     tags=["dashboard"],
     responses={404: {"description": "Not found"}}
 )
+
+
+async def verify_dashboard_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    api_key: Optional[str] = Query(None)
+) -> str:
+    """
+    Verify API key from X-API-Key header or api_key query parameter.
+
+    Checks both header and query parameter for API key.
+    Header takes precedence if both are provided.
+
+    Args:
+        x_api_key: API key from X-API-Key request header
+        api_key: API key from api_key query parameter
+
+    Returns:
+        str: Validated API key
+
+    Raises:
+        HTTPException: 401 Unauthorized if API key is missing or invalid
+    """
+    base_path = Path.home() / '.openclaw' / 'omi'
+    db_path = base_path / 'palace.sqlite'
+    config_path = base_path / 'config.yaml'
+
+    # Load config to check auth_required flag
+    auth_required = True  # Default to requiring auth
+    if config_path.exists():
+        try:
+            config_data = yaml.safe_load(config_path.read_text()) or {}
+            # Check security.auth_required (default: true)
+            security_config = config_data.get('security', {})
+            auth_required = security_config.get('auth_required', True)
+        except Exception as e:
+            logger.warning(f"Failed to load config.yaml: {e}. Defaulting to auth_required=True")
+            auth_required = True
+
+    # If auth is disabled in config, allow all requests (development mode)
+    if not auth_required:
+        logger.info("Authentication disabled via config (security.auth_required=false)")
+        return "development"
+
+    # Check if database exists and has any API keys
+    if not db_path.exists():
+        # No database yet, allow requests (development mode)
+        logger.warning("No database found - authentication disabled (development mode)")
+        return "development"
+
+    # Initialize APIKeyManager
+    key_manager = APIKeyManager(db_path)
+
+    # Check if any API keys exist
+    existing_keys = key_manager.list_keys()
+    if len(existing_keys) == 0:
+        # No API keys configured, allow all requests (development mode)
+        logger.warning("No API keys configured - authentication disabled (development mode)")
+        return "development"
+
+    # Determine which key to validate (prefer header over query param)
+    provided_key = x_api_key if x_api_key is not None else api_key
+
+    # Check if API key was provided
+    if provided_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API key. Provide X-API-Key header or api_key query parameter.",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Validate API key using APIKeyManager
+    validated_key = key_manager.validate_key(provided_key)
+
+    if validated_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked API key",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Check rate limit for this API key
+    allowed, retry_after = rate_limiter.check_rate_limit(
+        api_key=provided_key,
+        limit=validated_key.rate_limit
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    return provided_key
 
 
 def get_palace_instance() -> GraphPalace:
@@ -715,4 +822,4 @@ async def search_memories(
         )
 
 
-__all__ = ['router', 'get_palace_instance']
+__all__ = ['router', 'get_palace_instance', 'verify_dashboard_api_key']
