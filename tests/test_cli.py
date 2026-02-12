@@ -1216,5 +1216,66 @@ def test_sync():
             assert "s3" in result.output.lower()
 
 
+def test_index_rebuild():
+    """Test CLI index rebuild command."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        runner = CliRunner()
+        base_path = Path(tmpdir) / "omi"
+
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+        # Mock hnswlib before importing modules that depend on it
+        with patch.dict('sys.modules', {'hnswlib': MagicMock()}):
+            from omi.cli import cli
+
+            # Initialize OMI
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                init_result = runner.invoke(cli, ["init"])
+                assert init_result.exit_code == 0
+
+            # Add a test memory with embedding to the database
+            import sqlite3
+            import struct
+            db_path = base_path / "palace.sqlite"
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            # Create a test embedding (1024-dim for NIM)
+            test_embedding = [0.1] * 1024
+            embedding_blob = struct.pack(f'{len(test_embedding)}f', *test_embedding)
+            cursor.execute(
+                "INSERT INTO memories (id, content, memory_type, embedding) VALUES (?, ?, ?, ?)",
+                ("test-id-1", "Test memory content", "fact", embedding_blob)
+            )
+            conn.commit()
+            conn.close()
+
+            # Create mock ANNIndex
+            mock_ann_index = MagicMock()
+
+            # Mock the ANNIndex class where it's imported from
+            with patch('omi.storage.ann_index.ANNIndex', return_value=mock_ann_index):
+                with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                    # Test index rebuild command
+                    result = runner.invoke(cli, ["index", "rebuild"])
+
+                # Verify command succeeded
+                assert result.exit_code == 0
+                assert "rebuild" in result.output.lower()
+
+                # Verify ANNIndex methods were called
+                mock_ann_index.rebuild_from_embeddings.assert_called()
+                mock_ann_index.save.assert_called()
+
+            # Test with --force flag
+            mock_ann_index_force = MagicMock()
+            with patch('omi.storage.ann_index.ANNIndex', return_value=mock_ann_index_force):
+                with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                    result_force = runner.invoke(cli, ["index", "rebuild", "--force"])
+
+                assert result_force.exit_code == 0
+                assert "rebuild" in result_force.output.lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
