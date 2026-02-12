@@ -1,6 +1,16 @@
-"""Policy management commands for OMI CLI."""
+"""
+Policy management commands for OMI CLI.
+
+This module provides CLI commands for managing memory lifecycle policies:
+- show: Display all configured policies and their status
+- dry-run: Preview policy execution without making changes
+- execute: Run policies and apply their actions to memories
+
+All commands support verbosity levels and work with both configured and default policies.
+"""
 import sys
 from pathlib import Path
+from typing import Optional
 import click
 
 # OMI imports
@@ -23,18 +33,39 @@ from .common import (
 
 
 @click.group()
-def policy_group():
-    """Policy management commands."""
+def policy_group() -> None:
+    """
+    Policy management commands for memory lifecycle automation.
+
+    This command group provides tools for managing, previewing, and executing
+    memory lifecycle policies that control automatic archival, deletion, and
+    other memory management actions.
+
+    Available commands:
+        - show: Display all configured policies and their status
+        - dry-run: Preview policy effects without making changes
+        - execute: Run policies and apply their actions
+
+    See 'omi policy COMMAND --help' for more information on a specific command.
+    """
     pass
 
 
 @policy_group.command("show")
 @click.pass_context
-def show(ctx) -> None:
-    """Display all policies and their status.
+def show(ctx: click.Context) -> None:
+    """
+    Display all policies and their status.
 
     Lists all configured policies (or defaults if no config exists),
     showing their enabled/disabled status, descriptions, and conditions.
+
+    Args:
+        ctx: Click context object containing verbosity and data_dir settings
+
+    Returns:
+        None. Outputs policy information to stdout and exits with code 0 on success,
+        1 on error (e.g., OMI not initialized).
 
     Examples:
         omi policy show
@@ -89,11 +120,15 @@ def show(ctx) -> None:
         if pol.description:
             echo_normal(f"  Description: {pol.description}", verbosity)
 
-        # Show conditions in verbose mode
-        if verbosity >= 2 and pol.conditions:
-            echo_verbose(f"  Conditions: {len(pol.conditions)}", verbosity)
-            for cond in pol.conditions:
-                echo_verbose(f"    - {cond.field} {cond.operator} {cond.value}", verbosity)
+        # Show rules in verbose mode
+        if verbosity >= 2 and pol.rules:
+            echo_verbose(f"  Rules: {len(pol.rules)}", verbosity)
+            for rule in pol.rules:
+                rule_status = "enabled" if rule.enabled else "disabled"
+                echo_verbose(f"    - {rule.name} ({rule_status})", verbosity)
+                if rule.conditions:
+                    for key, value in rule.conditions.items():
+                        echo_verbose(f"      • {key}: {value}", verbosity)
 
         echo_normal("", verbosity)  # Blank line between policies
 
@@ -110,15 +145,21 @@ def show(ctx) -> None:
 @policy_group.command("dry-run")
 @click.option('--policy', '-p', help='Specific policy name to run (runs all if not specified)')
 @click.pass_context
-def dry_run(ctx, policy: str) -> None:
-    """Preview what policies would do without executing them.
+def dry_run(ctx: click.Context, policy: Optional[str]) -> None:
+    """
+    Preview what policies would do without executing them.
 
     Runs all enabled policies in dry-run mode to show which memories
     would be affected by each policy action (archive, delete, etc.)
     without actually making any changes.
 
     Args:
-        --policy: Optional policy name to run (runs all if not specified)
+        ctx: Click context object containing verbosity and data_dir settings
+        policy: Optional policy name to run. If None, runs all enabled policies.
+
+    Returns:
+        None. Outputs dry-run results to stdout and exits with code 0 on success,
+        1 on error (e.g., OMI not initialized, policy not found).
 
     Examples:
         omi policy dry-run
@@ -239,15 +280,28 @@ def dry_run(ctx, policy: str) -> None:
 @click.option('--policy', '-p', help='Specific policy name to run (runs all if not specified)')
 @click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompt')
 @click.pass_context
-def execute(ctx, policy: str, yes: bool) -> None:
-    """Execute policies and apply their actions.
+def execute(ctx: click.Context, policy: Optional[str], yes: bool) -> None:
+    """
+    Execute policies and apply their actions to memories.
 
     Runs all enabled policies and applies their actions (archive, delete, etc.)
-    to the memory system. Use dry-run first to preview changes.
+    to the memory system. Prompts for confirmation unless --yes flag is provided.
+    Use dry-run first to safely preview changes before execution.
 
     Args:
-        --policy: Optional policy name to run (runs all if not specified)
-        --yes: Skip confirmation prompt and execute immediately
+        ctx: Click context object containing verbosity and data_dir settings
+        policy: Optional policy name to run. If None, runs all enabled policies.
+        yes: If True, skip confirmation prompt and execute immediately
+
+    Returns:
+        None. Outputs execution results to stdout and exits with code 0 on success,
+        1 on error (e.g., OMI not initialized, policy not found).
+
+    Safety:
+        - Shows warning prompt before execution (unless --yes is provided)
+        - Only executes enabled policies
+        - Reports detailed results including success counts and errors
+        - Locked memories are automatically exempt from all actions
 
     Examples:
         omi policy execute

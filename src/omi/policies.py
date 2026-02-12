@@ -24,6 +24,7 @@ when, why, and to which memories.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable, Union
 import math
 
@@ -233,7 +234,7 @@ class RetentionPolicy:
 
         now = datetime.now()
         age_days = (now - memory.created_at).days
-        return age_days > self.max_age_days
+        return age_days > self.max_age_days  # type: ignore[no-any-return]
 
     def days_until_expiry(self, memory: Any) -> Optional[int]:
         """
@@ -250,7 +251,7 @@ class RetentionPolicy:
 
         now = datetime.now()
         age_days = (now - memory.created_at).days
-        return self.max_age_days - age_days
+        return self.max_age_days - age_days  # type: ignore[no-any-return]
 
 
 class UsagePolicy:
@@ -372,11 +373,11 @@ class UsagePolicy:
             # Fall back to created_at if no last_accessed
             if hasattr(memory, 'created_at') and memory.created_at:
                 now = datetime.now()
-                return (now - memory.created_at).days
+                return (now - memory.created_at).days  # type: ignore[no-any-return]
             return None
 
         now = datetime.now()
-        return (now - memory.last_accessed).days
+        return (now - memory.last_accessed).days  # type: ignore[no-any-return]
 
     def usage_score(self, memory: Any) -> Optional[float]:
         """
@@ -491,7 +492,7 @@ class ConfidencePolicy:
         if not hasattr(memory, 'confidence') or memory.confidence is None:
             return False
 
-        return memory.confidence < self.min_confidence
+        return memory.confidence < self.min_confidence  # type: ignore[no-any-return]
 
     def confidence_margin(self, memory: Any) -> Optional[float]:
         """
@@ -507,7 +508,7 @@ class ConfidencePolicy:
         if not hasattr(memory, 'confidence') or memory.confidence is None:
             return None
 
-        return memory.confidence - self.min_confidence
+        return memory.confidence - self.min_confidence  # type: ignore[no-any-return]
 
     def confidence_score(self, memory: Any) -> Optional[float]:
         """
@@ -524,7 +525,7 @@ class ConfidencePolicy:
         if not hasattr(memory, 'confidence') or memory.confidence is None:
             return None
 
-        return memory.confidence
+        return memory.confidence  # type: ignore[no-any-return]
 
 
 @dataclass
@@ -539,7 +540,12 @@ class PolicyExecutionResult:
     metadata: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
+        """
+        Convert to dictionary for serialization.
+
+        Returns:
+            Dictionary representation with all fields serialized to JSON-compatible types
+        """
         return {
             "policy_name": self.policy_name,
             "action": self.action.value,
@@ -677,15 +683,22 @@ class PolicyEngine:
         dry_run: bool
     ) -> PolicyExecutionResult:
         """
-        Execute a single policy rule.
+        Execute a single policy rule against a set of memories.
+
+        This internal method processes one rule from a policy, evaluating which memories
+        match the rule's conditions and (optionally) executing the specified action on them.
 
         Args:
-            rule: PolicyRule to execute
-            memories: List of memories to evaluate
-            dry_run: If True, only preview actions without executing
+            rule: PolicyRule to execute with type, action, and conditions
+            memories: List of Memory objects to evaluate against the rule
+            dry_run: If True, only identify matching memories without executing actions
 
         Returns:
-            PolicyExecutionResult for this rule
+            PolicyExecutionResult containing affected memory IDs, action taken, and metadata
+
+        Note:
+            Memory type filtering is applied first if rule.memory_type_filter is set,
+            then the appropriate policy evaluator is selected based on rule.policy_type.
         """
         # Filter memories by type if specified
         filtered_memories = memories
@@ -717,14 +730,26 @@ class PolicyEngine:
 
     def _evaluate_policy(self, rule: PolicyRule, memories: List[Any]) -> List[str]:
         """
-        Evaluate policy rule against memories using appropriate evaluator.
+        Evaluate policy rule against memories using the appropriate evaluator.
+
+        Selects and instantiates the correct policy evaluator class (RetentionPolicy,
+        UsagePolicy, ConfidencePolicy, or size-based) based on the rule's policy_type,
+        then evaluates all memories to identify which ones match the rule's conditions.
 
         Args:
-            rule: PolicyRule to evaluate
-            memories: List of memories to evaluate
+            rule: PolicyRule to evaluate containing policy_type and conditions
+            memories: List of Memory objects to evaluate against the rule
 
         Returns:
-            List of memory IDs that match the policy conditions
+            List of memory IDs (strings) that match the policy conditions and should
+            be acted upon. Returns empty list if no matches or if policy type is not
+            implemented.
+
+        Note:
+            - RETENTION: Requires 'max_age_days' in conditions
+            - USAGE: Uses 'min_access_count' (default: 1) and 'max_age_days' (default: 90)
+            - CONFIDENCE: Requires 'min_confidence' in conditions
+            - SIZE: Not yet implemented, returns empty list
         """
         conditions = rule.conditions
 
@@ -734,23 +759,23 @@ class PolicyEngine:
             if max_age_days is None:
                 return []
 
-            policy = RetentionPolicy(
+            retention_policy = RetentionPolicy(
                 max_age_days=max_age_days,
                 memory_type_filter=rule.memory_type_filter
             )
-            return policy.evaluate(memories)
+            return retention_policy.evaluate(memories)
 
         elif rule.policy_type == PolicyType.USAGE:
             # Recall/access-based usage policy
             min_access_count = conditions.get("min_access_count", 1)
             max_age_days = conditions.get("max_age_days", 90)
 
-            policy = UsagePolicy(
+            usage_policy = UsagePolicy(
                 min_access_count=min_access_count,
                 max_age_days=max_age_days,
                 memory_type_filter=rule.memory_type_filter
             )
-            return policy.evaluate(memories)
+            return usage_policy.evaluate(memories)
 
         elif rule.policy_type == PolicyType.CONFIDENCE:
             # Confidence threshold policy
@@ -758,11 +783,11 @@ class PolicyEngine:
             if min_confidence is None:
                 return []
 
-            policy = ConfidencePolicy(
+            confidence_policy = ConfidencePolicy(
                 min_confidence=min_confidence,
                 memory_type_filter=rule.memory_type_filter
             )
-            return policy.evaluate(memories)
+            return confidence_policy.evaluate(memories)
 
         elif rule.policy_type == PolicyType.SIZE:
             # Size-based policy (placeholder - not yet implemented)
@@ -775,14 +800,29 @@ class PolicyEngine:
         """
         Execute a policy action on the specified memories.
 
+        This internal method dispatches the appropriate action (archive, delete, compress,
+        promote, demote) on the given memory IDs by calling corresponding methods on the
+        GraphPalace instance.
+
         Args:
-            action: PolicyAction to execute
-            memory_ids: List of memory IDs to act upon
+            action: PolicyAction enum value specifying which action to execute
+                   (ARCHIVE, DELETE, COMPRESS, PROMOTE, or DEMOTE)
+            memory_ids: List of memory ID strings to act upon
+
+        Returns:
+            None
 
         Note:
             This is a placeholder implementation. Actual action execution will be
             implemented in phase-2-policy-actions with proper integration to
             GraphPalace methods for archive, delete, compress, etc.
+
+            Expected action implementations:
+            - ARCHIVE: Call graph_palace.archive_memories(memory_ids)
+            - DELETE: Call graph_palace.delete_memories(memory_ids)
+            - COMPRESS: Call graph_palace.compress_memories(memory_ids)
+            - PROMOTE: Move memories to higher tier (e.g., to NOW.md)
+            - DEMOTE: Move memories to lower tier (e.g., to daily log)
         """
         # Placeholder - actual implementation will be in phase 2
         # For now, just validate that we have a graph_palace instance
@@ -799,20 +839,31 @@ class PolicyEngine:
 
     def _fetch_memories(self, memory_filter: Optional[Callable[[Any], bool]] = None) -> List[Any]:
         """
-        Fetch memories from GraphPalace.
+        Fetch memories from GraphPalace for policy evaluation.
+
+        Retrieves all memories from the GraphPalace instance and optionally applies
+        a custom filter function to pre-filter the memories before policy evaluation.
 
         Args:
-            memory_filter: Optional filter function to pre-filter memories
+            memory_filter: Optional callable that takes a Memory object and returns
+                          True to include it, False to exclude it. Applied after
+                          fetching memories from the database.
 
         Returns:
-            List of Memory objects
+            List of Memory objects. Returns empty list if graph_palace is None
+            or if no memories are available.
+
+        Note:
+            This is a placeholder implementation that returns an empty list.
+            The actual implementation will call graph_palace.get_all_memories()
+            or similar method once the GraphPalace API is finalized.
         """
         if self.graph_palace is None:
             return []
 
         # This is a placeholder - actual implementation depends on GraphPalace API
         # For now, return empty list to enable testing
-        memories = []
+        memories: List[Any] = []
 
         # Apply filter if provided
         if memory_filter:
@@ -834,7 +885,7 @@ class PolicyEngine:
         self._execution_history.clear()
 
 
-def archive_memories(graph_palace, memory_ids: List[str]) -> Dict[str, Any]:
+def archive_memories(graph_palace: Any, memory_ids: List[str]) -> Dict[str, Any]:
     """
     Archive memories by marking them as archived (excluded from default search).
 
@@ -868,7 +919,7 @@ def archive_memories(graph_palace, memory_ids: List[str]) -> Dict[str, Any]:
             "errors": []
         }
 
-    errors = []
+    errors: List[str] = []
     archived_count = 0
 
     try:
@@ -891,7 +942,7 @@ def archive_memories(graph_palace, memory_ids: List[str]) -> Dict[str, Any]:
         }
 
 
-def delete_memories(graph_palace, memory_ids: List[str], safety_check: bool = True) -> Dict[str, Any]:
+def delete_memories(graph_palace: Any, memory_ids: List[str], safety_check: bool = True) -> Dict[str, Any]:
     """
     Delete memories permanently with safety checks.
 
@@ -937,9 +988,9 @@ def delete_memories(graph_palace, memory_ids: List[str], safety_check: bool = Tr
             "errors": []
         }
 
-    errors = []
+    errors: List[str] = []
     deleted_count = 0
-    skipped = []
+    skipped: List[str] = []
     valid_memory_ids = memory_ids.copy()
 
     try:
@@ -985,7 +1036,7 @@ def delete_memories(graph_palace, memory_ids: List[str], safety_check: bool = Tr
         }
 
 
-def load_policies_from_config(config_path) -> List[Policy]:
+def load_policies_from_config(config_path: Union[Path, str]) -> List[Policy]:
     """
     Load policy configuration from config.yaml file.
 
