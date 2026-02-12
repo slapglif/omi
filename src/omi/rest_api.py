@@ -28,6 +28,7 @@ import json
 import asyncio
 import logging
 import os
+import yaml
 
 from .event_bus import get_event_bus
 from .events import (
@@ -73,13 +74,28 @@ async def verify_api_key(
     Raises:
         HTTPException: 401 Unauthorized if API key is missing or invalid
     """
-    # TODO: In subtask-1-4, check config.yaml for auth_required flag
-    # For now, check if any API keys exist in database to determine if auth is required
     base_path = Path.home() / '.openclaw' / 'omi'
     db_path = base_path / 'palace.sqlite'
+    config_path = base_path / 'config.yaml'
+
+    # Load config to check auth_required flag
+    auth_required = True  # Default to requiring auth
+    if config_path.exists():
+        try:
+            config_data = yaml.safe_load(config_path.read_text()) or {}
+            # Check security.auth_required (default: true)
+            security_config = config_data.get('security', {})
+            auth_required = security_config.get('auth_required', True)
+        except Exception as e:
+            logger.warning(f"Failed to load config.yaml: {e}. Defaulting to auth_required=True")
+            auth_required = True
+
+    # If auth is disabled in config, allow all requests (development mode)
+    if not auth_required:
+        logger.info("Authentication disabled via config (security.auth_required=false)")
+        return "development"
 
     # Check if database exists and has any API keys
-    auth_required = True
     if not db_path.exists():
         # No database yet, allow requests (development mode)
         logger.warning("No database found - authentication disabled (development mode)")
