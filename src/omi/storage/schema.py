@@ -61,6 +61,15 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
             metadata TEXT  -- JSON for configuration and settings
         );
 
+        CREATE TABLE IF NOT EXISTS namespace_permissions (
+            namespace TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            permission_level TEXT CHECK(permission_level IN ('read','write','admin')) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (namespace, agent_id),
+            FOREIGN KEY (namespace) REFERENCES shared_namespaces(namespace) ON DELETE CASCADE
+        );
+
         -- Indexes for performance
         CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
         CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
@@ -73,6 +82,9 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
         CREATE INDEX IF NOT EXISTS idx_edges_bidirectional ON edges(source_id, target_id);
         CREATE INDEX IF NOT EXISTS idx_shared_namespaces_created_by ON shared_namespaces(created_by);
         CREATE INDEX IF NOT EXISTS idx_shared_namespaces_created_at ON shared_namespaces(created_at);
+        CREATE INDEX IF NOT EXISTS idx_namespace_permissions_agent_id ON namespace_permissions(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_namespace_permissions_namespace ON namespace_permissions(namespace);
+        CREATE INDEX IF NOT EXISTS idx_namespace_permissions_level ON namespace_permissions(permission_level);
     """)
 
     # Create standalone FTS5 virtual table for full-text search
