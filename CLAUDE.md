@@ -46,16 +46,16 @@ Tier 4: MoltVault  — tar.gz backup to local filesystem or R2/S3
 
 ### Two Parallel Implementations
 
-There are **two GraphPalace classes** and **two BeliefNetwork classes** — this is the most important architectural detail:
+There are **two GraphPalace classes** — this is the most important architectural detail:
 
 | Module | Location | Purpose |
 |--------|----------|---------|
 | `persistence.GraphPalace` | `src/omi/persistence.py` | Minimal stub with basic LIKE search. Used by `api.py` and `cli.py` imports. |
 | `storage.GraphPalace` | `src/omi/storage/graph_palace.py` | Full implementation with FTS5, vector search, cosine similarity, BFS traversal, centrality scoring. |
-| `belief.BeliefNetwork` | `src/omi/belief.py` | Used by `api.py` MCP tools. Takes a `persistence.GraphPalace`. |
-| `graph.BeliefNetwork` | `src/omi/graph/belief_network.py` | Standalone with its own SQLite schema. |
 
-The `__init__.py` re-exports from `storage.graph_palace` and `graph.belief_network` as the primary implementations, but `api.py` and `cli.py` import from `persistence.py`. Be aware of which class you're working with.
+The `BeliefNetwork` class is in `src/omi/belief.py` and is used by `api.py` MCP tools. It takes a `GraphPalace` instance.
+
+The `__init__.py` re-exports from `storage.graph_palace` as the primary implementation, but `api.py` and `cli.py` import from `persistence.py`. Be aware of which class you're working with.
 
 ### Key Modules
 

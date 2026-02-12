@@ -12,8 +12,7 @@ from .storage.graph_palace import GraphPalace
 from .storage.now import NowStorage
 from .persistence import DailyLogStore, NOWEntry
 
-# Belief system - using legacy module for now due to API compatibility
-# TODO: Migrate to .graph.belief_network when API is unified
+# Belief system
 from .belief import BeliefNetwork, Evidence, ContradictionDetector, calculate_recency_score
 
 # Embeddings
