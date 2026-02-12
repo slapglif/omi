@@ -32,10 +32,21 @@ from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime, timedelta
 from threading import Lock
 import logging
+import tempfile
+import json
+
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
 
 from ..event_bus import EventHandler
 from .topology import TopologyManager, InstanceMetadata
 from .protocol import TopologyType, SyncState, SyncOperation, SyncMessage, SyncResponse
+from ..moltvault import MoltVault
+from ..storage.graph_palace import GraphPalace
+from ..export_import import MemoryExporter, MemoryImporter, ConflictResolution
 
 logger = logging.getLogger(__name__)
 
@@ -604,27 +615,145 @@ class SyncManager:
             )
 
         Note:
-            This will be fully implemented in Phase 6 (subtask-6-2).
-            For now, it's a placeholder that logs the operation.
+            This downloads a sync snapshot from the source instance via MoltVault
+            and imports it into the local GraphPalace. Conflicts are resolved using
+            the MERGE strategy (vector clock comparison).
         """
-        with self._lock:
+        try:
             logger.info(
-                f"Bulk sync from {source_instance_id} ({source_endpoint}) initiated. "
-                f"Full implementation in Phase 6."
+                f"Bulk sync from {source_instance_id} ({source_endpoint}) initiated."
             )
 
-            # Phase 6 will implement:
-            # 1. Request bulk export from source instance via HTTP/gRPC
-            # 2. Download tar.gz archive (MoltVault format)
-            # 3. Extract and import to local GraphPalace
-            # 4. Resolve conflicts using configured strategy
-            # 5. Update sync metadata and timestamps
+            # Load config
+            config = self._load_config()
 
-            # For now, just track the attempt
-            self._sync_count += 1
-            self._last_sync = datetime.now()
+            # Create MoltVault instance
+            vault = MoltVault(self.data_dir, config)
+
+            # Get GraphPalace instance
+            palace = self._get_palace()
+
+            # List available sync snapshots from source instance
+            logger.info(f"Listing sync snapshots from instance {source_instance_id}")
+            snapshots = vault.list_sync_snapshots(instance_id=source_instance_id)
+
+            if not snapshots:
+                raise ValueError(
+                    f"No sync snapshots found for instance {source_instance_id}. "
+                    f"The source instance must create a snapshot via bulk_sync_to() first."
+                )
+
+            # Get most recent snapshot
+            latest_snapshot = snapshots[0]  # list_sync_snapshots returns sorted by created_at DESC
+            snapshot_id = latest_snapshot.snapshot_id
+
+            logger.info(
+                f"Found latest snapshot: {snapshot_id}, "
+                f"created at {latest_snapshot.created_at}, "
+                f"size={latest_snapshot.size_bytes} bytes"
+            )
+
+            # Download and extract snapshot to temporary directory
+            with tempfile.TemporaryDirectory() as tmpdir:
+                temp_path = Path(tmpdir)
+
+                logger.info(f"Downloading snapshot {snapshot_id} to {temp_path}")
+                extracted_path = vault.download_sync_snapshot(
+                    snapshot_id=snapshot_id,
+                    target_path=temp_path,
+                    verify=True  # Verify checksum
+                )
+
+                logger.info(f"Snapshot extracted to {extracted_path}")
+
+                # Import memories from downloaded snapshot
+                # The snapshot contains palace.sqlite which we need to import from
+                snapshot_db_path = extracted_path / "palace.sqlite"
+
+                if not snapshot_db_path.exists():
+                    raise ValueError(
+                        f"Snapshot {snapshot_id} does not contain palace.sqlite"
+                    )
+
+                # Create temporary GraphPalace for source data
+                source_palace = GraphPalace(snapshot_db_path)
+
+                # Export all memories from source palace
+                logger.info("Exporting memories from source snapshot")
+                exporter = MemoryExporter(source_palace)
+                export_data = exporter.export_to_dict(
+                    include_embeddings=True,
+                    include_edges=True
+                )
+
+                logger.info(
+                    f"Exported {export_data['metadata']['memory_count']} memories "
+                    f"and {export_data['metadata'].get('edge_count', 0)} edges"
+                )
+
+                # Import into local palace with MERGE conflict strategy
+                # MERGE uses vector clock comparison for conflict resolution
+                logger.info("Importing memories into local GraphPalace with MERGE strategy")
+                importer = MemoryImporter(palace)
+                import_stats = importer.import_from_dict(
+                    data=export_data,
+                    conflict_strategy=ConflictResolution.MERGE
+                )
+
+                logger.info(
+                    f"Import complete: "
+                    f"imported={import_stats['imported']}, "
+                    f"skipped={import_stats['skipped']}, "
+                    f"overwritten={import_stats['overwritten']}, "
+                    f"errors={len(import_stats['errors'])}"
+                )
+
+                if import_stats['errors']:
+                    for error in import_stats['errors'][:5]:  # Log first 5 errors
+                        logger.warning(f"Import error: {error}")
+
+            # Update sync tracking
+            with self._lock:
+                self._sync_count += 1
+                self._last_sync = datetime.now()
+
+            # Log sync to database
+            self._log_sync_operation(
+                operation="bulk_from",
+                target_instance_id=source_instance_id,
+                snapshot_id=snapshot_id,
+                success=True,
+                metadata=import_stats
+            )
+
+            logger.info(
+                f"Bulk sync from {source_instance_id} completed successfully. "
+                f"Snapshot: {snapshot_id}"
+            )
 
             return True
+
+        except Exception as e:
+            error_msg = f"Bulk sync from {source_instance_id} failed: {e}"
+            logger.error(error_msg, exc_info=True)
+
+            with self._lock:
+                self._error_count += 1
+                self._last_error = error_msg
+
+            # Log failed sync
+            try:
+                self._log_sync_operation(
+                    operation="bulk_from",
+                    target_instance_id=source_instance_id,
+                    snapshot_id=None,
+                    success=False,
+                    error=str(e)
+                )
+            except Exception:
+                pass
+
+            return False
 
     def bulk_sync_to(self, target_instance_id: str, target_endpoint: str) -> bool:
         """
@@ -647,26 +776,95 @@ class SyncManager:
             )
 
         Note:
-            This will be fully implemented in Phase 6 (subtask-6-2).
-            For now, it's a placeholder that logs the operation.
+            This creates a sync snapshot via MoltVault and uploads it to the
+            configured storage backend (S3/R2/GCS/Azure). The target instance
+            can then download and apply the snapshot via bulk_sync_from().
         """
-        with self._lock:
+        try:
             logger.info(
-                f"Bulk sync to {target_instance_id} ({target_endpoint}) initiated. "
-                f"Full implementation in Phase 6."
+                f"Bulk sync to {target_instance_id} ({target_endpoint}) initiated."
             )
 
-            # Phase 6 will implement:
-            # 1. Export full database to tar.gz (MoltVault format)
-            # 2. Upload to target instance via HTTP/gRPC
-            # 3. Wait for target to import and confirm
-            # 4. Update sync metadata
+            # Load config
+            config = self._load_config()
 
-            # For now, just track the attempt
-            self._sync_count += 1
-            self._last_sync = datetime.now()
+            # Create MoltVault instance
+            vault = MoltVault(self.data_dir, config)
+
+            # Get GraphPalace instance
+            palace = self._get_palace()
+
+            # Compute vector clock from current state
+            vector_clock = self._compute_vector_clock(palace)
+
+            # Create sync metadata
+            sync_metadata = {
+                "source_instance_id": self.instance_id,
+                "target_instance_id": target_instance_id,
+                "target_endpoint": target_endpoint,
+                "topology": self.topology_type.value,
+                "sync_type": "bulk_to",
+                "sync_time": datetime.now().isoformat()
+            }
+
+            # Create sync snapshot via MoltVault
+            logger.info(
+                f"Creating sync snapshot for instance {self.instance_id} "
+                f"with vector clock {vector_clock}"
+            )
+            snapshot_metadata = vault.create_sync_snapshot(
+                instance_id=self.instance_id,
+                vector_clock=vector_clock,
+                sync_metadata=sync_metadata
+            )
+
+            logger.info(
+                f"Sync snapshot created: {snapshot_metadata.snapshot_id}, "
+                f"size={snapshot_metadata.size_bytes} bytes, "
+                f"uploaded to {snapshot_metadata.storage_key}"
+            )
+
+            # Update sync tracking
+            with self._lock:
+                self._sync_count += 1
+                self._last_sync = datetime.now()
+
+            # Log sync to database
+            self._log_sync_operation(
+                operation="bulk_to",
+                target_instance_id=target_instance_id,
+                snapshot_id=snapshot_metadata.snapshot_id,
+                success=True
+            )
+
+            logger.info(
+                f"Bulk sync to {target_instance_id} completed successfully. "
+                f"Snapshot: {snapshot_metadata.snapshot_id}"
+            )
 
             return True
+
+        except Exception as e:
+            error_msg = f"Bulk sync to {target_instance_id} failed: {e}"
+            logger.error(error_msg, exc_info=True)
+
+            with self._lock:
+                self._error_count += 1
+                self._last_error = error_msg
+
+            # Log failed sync
+            try:
+                self._log_sync_operation(
+                    operation="bulk_to",
+                    target_instance_id=target_instance_id,
+                    snapshot_id=None,
+                    success=False,
+                    error=str(e)
+                )
+            except Exception:
+                pass
+
+            return False
 
     def reconcile_partition(
         self,
@@ -853,6 +1051,163 @@ class SyncManager:
                 self._error_count += 1
                 self._last_error = error_msg
                 return result
+
+    def _load_config(self) -> Dict[str, Any]:
+        """
+        Load configuration from config.yaml.
+
+        Returns:
+            Configuration dictionary (empty dict if config not found)
+        """
+        config_path = self.data_dir / "config.yaml"
+
+        if not YAML_AVAILABLE:
+            logger.warning("YAML not available, returning empty config")
+            return {}
+
+        if not config_path.exists():
+            logger.debug(f"Config file not found at {config_path}, using empty config")
+            return {}
+
+        try:
+            config_text = config_path.read_text()
+            config = yaml.safe_load(config_text)
+            return config if isinstance(config, dict) else {}
+        except Exception as e:
+            logger.warning(f"Failed to load config from {config_path}: {e}")
+            return {}
+
+    def _get_palace(self) -> GraphPalace:
+        """
+        Get GraphPalace instance for this data directory.
+
+        Returns:
+            GraphPalace instance connected to local database
+        """
+        palace_path = self.data_dir / "palace.sqlite"
+        return GraphPalace(palace_path)
+
+    def _compute_vector_clock(self, palace: GraphPalace) -> Dict[str, int]:
+        """
+        Compute vector clock from current GraphPalace state.
+
+        The vector clock maps instance_id -> max_version for that instance.
+        This represents the logical time/state of each instance.
+
+        Args:
+            palace: GraphPalace instance to query
+
+        Returns:
+            Dictionary mapping instance_id to max version number
+        """
+        try:
+            # Query all memories and build vector clock
+            query = """
+                SELECT instance_ids, version
+                FROM memories
+                WHERE instance_ids IS NOT NULL
+            """
+            cursor = palace._conn.execute(query)
+
+            vector_clock: Dict[str, int] = {}
+
+            for row in cursor:
+                instance_ids_json = row[0]
+                version = row[1]
+
+                # Parse instance IDs
+                try:
+                    instance_ids = json.loads(instance_ids_json) if instance_ids_json else []
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+                # Update vector clock with max version for each instance
+                for inst_id in instance_ids:
+                    if inst_id not in vector_clock:
+                        vector_clock[inst_id] = version
+                    else:
+                        vector_clock[inst_id] = max(vector_clock[inst_id], version)
+
+            # Ensure current instance is in vector clock
+            if self.instance_id not in vector_clock:
+                vector_clock[self.instance_id] = 0
+
+            logger.debug(f"Computed vector clock: {vector_clock}")
+            return vector_clock
+
+        except Exception as e:
+            logger.warning(f"Failed to compute vector clock: {e}")
+            # Return minimal vector clock with just current instance
+            return {self.instance_id: 0}
+
+    def _log_sync_operation(
+        self,
+        operation: str,
+        target_instance_id: str,
+        snapshot_id: Optional[str],
+        success: bool,
+        error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Log sync operation to sync_log table.
+
+        Args:
+            operation: Sync operation type ('bulk_from', 'bulk_to', etc.)
+            target_instance_id: ID of the other instance involved
+            snapshot_id: Snapshot ID if applicable
+            success: Whether the operation succeeded
+            error: Error message if failed
+            metadata: Additional metadata to store
+        """
+        try:
+            palace = self._get_palace()
+
+            # Build metadata dict
+            log_metadata = {
+                "operation": operation,
+                "target_instance_id": target_instance_id,
+                "snapshot_id": snapshot_id,
+                "success": success,
+                "timestamp": datetime.now().isoformat()
+            }
+
+            if error:
+                log_metadata["error"] = error
+
+            if metadata:
+                log_metadata["import_stats"] = metadata
+
+            # Insert into sync_log table
+            palace._conn.execute(
+                """
+                INSERT INTO sync_log (
+                    instance_id,
+                    operation,
+                    target_instance_id,
+                    snapshot_id,
+                    status,
+                    metadata,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    self.instance_id,
+                    operation,
+                    target_instance_id,
+                    snapshot_id,
+                    "success" if success else "failed",
+                    json.dumps(log_metadata),
+                    datetime.now().isoformat()
+                )
+            )
+            palace._conn.commit()
+
+            logger.debug(f"Logged sync operation: {operation} -> {target_instance_id}")
+
+        except Exception as e:
+            # Don't fail the sync operation if logging fails
+            logger.warning(f"Failed to log sync operation: {e}")
 
     def close(self) -> None:
         """
