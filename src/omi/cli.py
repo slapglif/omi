@@ -460,17 +460,33 @@ def recall(ctx: click.Context, query: str, limit: int, offset: int, json_output:
     
     try:
         palace = GraphPalace(db_path)
-        # Use full_text_search for query strings
-        results = palace.full_text_search(query, limit=limit)
+
+        # Fetch enough results to cover offset + limit for cursor-based pagination
+        # Use a generous fetch limit to ensure we have enough results after filtering
+        fetch_limit = max(100, offset + limit + 50)
+        all_results = palace.full_text_search(query, limit=fetch_limit)
 
         # Filter by type if specified
         if memory_type:
-            results = [r for r in results if r.memory_type == memory_type]
+            all_results = [r for r in all_results if r.memory_type == memory_type]
+
+        # Get total count before pagination
+        total_count = len(all_results)
+
+        # Apply cursor-based pagination (offset + limit)
+        paginated_results = all_results[offset:offset + limit]
+        has_more = (offset + limit) < total_count
 
         if json_output:
-            output = []
-            for mem in results:
-                output.append({
+            output = {
+                'memories': [],
+                'total_count': total_count,
+                'offset': offset,
+                'limit': limit,
+                'has_more': has_more
+            }
+            for mem in paginated_results:
+                output['memories'].append({
                     'id': mem.id,
                     'content': mem.content,
                     'memory_type': mem.memory_type,
@@ -479,10 +495,13 @@ def recall(ctx: click.Context, query: str, limit: int, offset: int, json_output:
                 })
             click.echo(json.dumps(output, indent=2, default=str))
         else:
-            click.echo(click.style(f"Search Results ({len(results)} found)", fg="cyan", bold=True))
+            # Display pagination info header
+            page_num = (offset // limit) + 1 if limit > 0 else 1
+            total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
+            click.echo(click.style(f"Search Results (Page {page_num}/{total_pages}, {len(paginated_results)} of {total_count} total)", fg="cyan", bold=True))
             click.echo("=" * 60)
-            
-            for i, mem in enumerate(results, 1):
+
+            for i, mem in enumerate(paginated_results, 1):
                 mem_type = mem.memory_type
                 content = mem.content
                 if len(content) > 80:
@@ -498,13 +517,22 @@ def recall(ctx: click.Context, query: str, limit: int, offset: int, json_output:
                     'decision': 'magenta'
                 }.get(mem_type, 'white')
 
-                click.echo(f"\n{i}. [{click.style(mem_type.upper(), fg=type_color)}]")
+                # Show global index (offset + i) for pagination clarity
+                global_index = offset + i
+                click.echo(f"\n{global_index}. [{click.style(mem_type.upper(), fg=type_color)}]")
                 click.echo(f"   {highlighted_content}")
                 if mem.created_at:
                     click.echo(f"   {click.style('─', fg='bright_black') * 50}")
-            
-            if not results:
-                click.echo(click.style("No memories found. Try a different query.", fg="yellow"))
+
+            if not paginated_results:
+                if offset > 0:
+                    click.echo(click.style(f"No results on page {page_num}. Try a lower offset.", fg="yellow"))
+                else:
+                    click.echo(click.style("No memories found. Try a different query.", fg="yellow"))
+            elif has_more:
+                # Show pagination hint
+                next_offset = offset + limit
+                click.echo(f"\n{click.style('More results available.', fg='cyan')} Use --offset {next_offset} to see the next page.")
     except Exception as e:
         click.echo(click.style(f"Error: Failed to search memories: {e}", fg="red"))
         sys.exit(1)
