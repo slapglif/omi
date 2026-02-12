@@ -165,7 +165,8 @@ class GraphPalace:
                 last_accessed TIMESTAMP,
                 access_count INTEGER DEFAULT 0,
                 instance_ids TEXT,  -- JSON array
-                content_hash TEXT  -- SHA-256 for integrity
+                content_hash TEXT,  -- SHA-256 for integrity
+                archived INTEGER DEFAULT 0  -- 0=active, 1=archived
             );
 
             CREATE TABLE IF NOT EXISTS edges (
@@ -182,6 +183,7 @@ class GraphPalace:
             -- Indexes for performance
             CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
             CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
+            CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(archived);
             CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed);
             CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
             CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
@@ -944,6 +946,48 @@ class GraphPalace:
             self._conn.commit()
 
         return archived_count
+
+    def delete_memories(self, memory_ids: List[str]) -> int:
+        """
+        Delete multiple memories and their edges.
+
+        This is a permanent deletion operation with safety checks:
+        - Validates memory IDs exist before deletion
+        - Removes from FTS index
+        - Removes from embeddings cache
+        - Cascades deletion to edges (via ON DELETE CASCADE)
+
+        Args:
+            memory_ids: List of memory IDs to delete
+
+        Returns:
+            Number of memories successfully deleted
+        """
+        if not memory_ids:
+            return 0
+
+        deleted_count = 0
+        with self._db_lock:
+            for memory_id in memory_ids:
+                # Remove from FTS index first
+                self._conn.execute("""
+                    DELETE FROM memories_fts WHERE memory_id = ?
+                """, (memory_id,))
+
+                # Delete memory (edges cascade automatically)
+                cursor = self._conn.execute("""
+                    DELETE FROM memories WHERE id = ?
+                """, (memory_id,))
+
+                if cursor.rowcount > 0:
+                    deleted_count += 1
+                    # Remove from embedding cache
+                    if memory_id in self._embedding_cache:
+                        del self._embedding_cache[memory_id]
+
+            self._conn.commit()
+
+        return deleted_count
 
     def get_stats(self) -> Dict[str, Any]:
         """

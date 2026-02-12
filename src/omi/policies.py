@@ -828,6 +828,100 @@ def archive_memories(graph_palace, memory_ids: List[str]) -> Dict[str, Any]:
         }
 
 
+def delete_memories(graph_palace, memory_ids: List[str], safety_check: bool = True) -> Dict[str, Any]:
+    """
+    Delete memories permanently with safety checks.
+
+    This is a destructive operation that permanently removes memories and their edges.
+    By default, performs safety checks to validate memories exist before deletion.
+
+    This is a policy action function that can be used by the PolicyEngine
+    or called directly to delete specific memories.
+
+    Args:
+        graph_palace: GraphPalace instance with delete_memories method
+        memory_ids: List of memory IDs to delete
+        safety_check: If True, validates memories exist before deletion (default: True)
+
+    Returns:
+        Dict with:
+            - success: bool indicating if operation completed
+            - deleted_count: number of memories successfully deleted
+            - memory_ids: list of deleted memory IDs
+            - errors: list of any errors encountered
+            - skipped: list of memory IDs that were skipped (if safety_check=True and not found)
+
+    Example:
+        from omi.storage.graph_palace import GraphPalace
+        from omi.policies import delete_memories
+
+        palace = GraphPalace(db_path="palace.sqlite")
+        result = delete_memories(palace, ["mem-uuid-1", "mem-uuid-2"])
+        print(f"Deleted {result['deleted_count']} memories")
+
+    Safety:
+        - Validates memory existence before deletion (if safety_check=True)
+        - Returns detailed results about what was deleted
+        - Handles errors gracefully
+        - Cascades deletion to related edges automatically
+    """
+    if not memory_ids:
+        return {
+            "success": True,
+            "deleted_count": 0,
+            "memory_ids": [],
+            "skipped": [],
+            "errors": []
+        }
+
+    errors = []
+    deleted_count = 0
+    skipped = []
+    valid_memory_ids = memory_ids.copy()
+
+    try:
+        # Safety check: validate memories exist before deletion
+        if safety_check:
+            valid_memory_ids = []
+            for memory_id in memory_ids:
+                # Try to retrieve the memory to check if it exists
+                memory = graph_palace.get_memory(memory_id)
+                if memory is not None:
+                    valid_memory_ids.append(memory_id)
+                else:
+                    skipped.append(memory_id)
+
+            # If no valid memories found, return early
+            if not valid_memory_ids:
+                return {
+                    "success": True,
+                    "deleted_count": 0,
+                    "memory_ids": [],
+                    "skipped": skipped,
+                    "errors": []
+                }
+
+        # Call the delete_memories method on the graph_palace instance
+        deleted_count = graph_palace.delete_memories(valid_memory_ids)
+
+        return {
+            "success": True,
+            "deleted_count": deleted_count,
+            "memory_ids": valid_memory_ids[:deleted_count],  # Only IDs that were actually deleted
+            "skipped": skipped,
+            "errors": errors
+        }
+    except Exception as e:
+        errors.append(str(e))
+        return {
+            "success": False,
+            "deleted_count": deleted_count,
+            "memory_ids": [],
+            "skipped": skipped,
+            "errors": errors
+        }
+
+
 # Export all policy types, actions, and classes
 __all__ = [
     "PolicyType",
@@ -840,4 +934,5 @@ __all__ = [
     "PolicyEngine",
     "PolicyExecutionResult",
     "archive_memories",
+    "delete_memories",
 ]
