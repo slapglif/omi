@@ -447,6 +447,183 @@ class GraphPalace:
         """, (new_confidence, belief_id))
         self._conn.commit()
 
+    def list_memories(
+        self,
+        limit: int = 50,
+        cursor: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        order_by: str = "created_at",
+        order_dir: str = "desc"
+    ) -> Dict[str, Any]:
+        """
+        List memories with cursor-based pagination.
+
+        Args:
+            limit: Maximum number of memories to return (default 50, max 500)
+            cursor: Pagination cursor from previous response (base64 encoded)
+            memory_type: Filter by memory type (fact, experience, belief, decision)
+            order_by: Field to order by (created_at, access_count, last_accessed)
+            order_dir: Order direction (asc, desc)
+
+        Returns:
+            Dictionary containing:
+                - memories: List of memory dictionaries (without embeddings)
+                - total_count: Total number of memories matching filters
+                - next_cursor: Cursor for next page (empty string if no more results)
+                - has_more: Boolean indicating if more results exist
+
+        Raises:
+            ValueError: If invalid parameters provided
+        """
+        # Validate limit
+        if limit < 1:
+            raise ValueError(f"limit must be >= 1, got {limit}")
+        if limit > 500:
+            raise ValueError(f"limit must be <= 500, got {limit}")
+
+        # Validate memory_type if provided
+        if memory_type is not None and memory_type not in self.MEMORY_TYPES:
+            raise ValueError(
+                f"Invalid memory_type: {memory_type}. Must be one of: {self.MEMORY_TYPES}"
+            )
+
+        # Validate order_by
+        valid_order_fields = {"created_at", "access_count", "last_accessed"}
+        if order_by not in valid_order_fields:
+            raise ValueError(
+                f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
+            )
+
+        # Validate order_dir
+        order_dir_upper = order_dir.upper()
+        if order_dir_upper not in {"ASC", "DESC"}:
+            raise ValueError(f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'")
+
+        # Decode cursor
+        cursor_data = self._decode_cursor(cursor)
+
+        # If cursor provided, use order settings from cursor for consistency
+        if cursor_data and "last_id" in cursor_data:
+            effective_order_by = cursor_data.get("order_by", order_by)
+            effective_order_dir = cursor_data.get("order_dir", order_dir_upper)
+        else:
+            effective_order_by = order_by
+            effective_order_dir = order_dir_upper
+
+        # Build base query
+        base_query = """
+            SELECT id, content, memory_type, confidence,
+                   created_at, last_accessed, access_count, instance_ids, content_hash
+            FROM memories
+        """
+        count_query = "SELECT COUNT(*) FROM memories"
+        params: List[Any] = []
+
+        # Build WHERE clause - separate filter and cursor conditions
+        filter_conditions = []
+        cursor_conditions = []
+
+        # Filter by memory_type
+        if memory_type is not None:
+            filter_conditions.append("memory_type = ?")
+            params.append(memory_type)
+
+        # Cursor-based pagination: filter by last value
+        if cursor_data and "last_id" in cursor_data:
+            last_id = cursor_data["last_id"]
+
+            # Get the value of the order_by field for the last_id
+            cursor_value_query = f"SELECT {effective_order_by} FROM memories WHERE id = ?"
+            with self._db_lock:
+                cursor_result = self._conn.execute(cursor_value_query, (last_id,))
+                cursor_value_row = cursor_result.fetchone()
+
+            if cursor_value_row:
+                cursor_value = cursor_value_row[0]
+
+                # Add cursor condition based on sort direction
+                if effective_order_dir == "DESC":
+                    # For DESC, we want values less than cursor_value
+                    # or equal values with id > last_id (for stable ordering)
+                    cursor_conditions.append(
+                        f"({effective_order_by} < ? OR ({effective_order_by} = ? AND id > ?))"
+                    )
+                    params.extend([cursor_value, cursor_value, last_id])
+                else:  # ASC
+                    # For ASC, we want values greater than cursor_value
+                    # or equal values with id > last_id (for stable ordering)
+                    cursor_conditions.append(
+                        f"({effective_order_by} > ? OR ({effective_order_by} = ? AND id > ?))"
+                    )
+                    params.extend([cursor_value, cursor_value, last_id])
+
+        # Apply WHERE clause for main query (filters + cursor)
+        all_conditions = filter_conditions + cursor_conditions
+        if all_conditions:
+            where_clause = " WHERE " + " AND ".join(all_conditions)
+            base_query += where_clause
+
+        # Apply WHERE clause for count query (filters only, no cursor)
+        if filter_conditions:
+            count_where_clause = " WHERE " + " AND ".join(filter_conditions)
+            count_query += count_where_clause
+
+        # Get total count (for filters only, not cursor)
+        count_params = []
+        if memory_type is not None:
+            count_params.append(memory_type)
+
+        with self._db_lock:
+            cursor_result = self._conn.execute(count_query, count_params)
+            total_count = cursor_result.fetchone()[0]
+
+            # Add ORDER BY and LIMIT
+            base_query += f" ORDER BY {effective_order_by} {effective_order_dir}, id ASC"
+            base_query += " LIMIT ?"
+            params.append(limit + 1)  # Fetch one extra to determine has_more
+
+            # Execute query
+            cursor_result = self._conn.execute(base_query, params)
+            rows = cursor_result.fetchall()
+
+        # Check if there are more results
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]  # Trim to requested limit
+
+        # Convert rows to memory dictionaries (without embeddings)
+        memories = []
+        for row in rows:
+            memory_dict = {
+                "id": row[0],
+                "content": row[1],
+                "memory_type": row[2],
+                "confidence": row[3],
+                "created_at": row[4],
+                "last_accessed": row[5],
+                "access_count": row[6],
+                "instance_ids": row[7] if row[7] else "[]",
+                "content_hash": row[8]
+            }
+            memories.append(memory_dict)
+
+        # Generate next cursor
+        next_cursor = ""
+        if has_more and memories:
+            last_memory = memories[-1]
+            next_cursor = self._encode_cursor({
+                "last_id": last_memory["id"],
+                "order_by": effective_order_by,
+                "order_dir": effective_order_dir
+            })
+
+        return {
+            "memories": memories,
+            "total_count": total_count,
+            "next_cursor": next_cursor,
+            "has_more": has_more
+        }
+
     def recall(self,
                query_embedding: List[float],
                limit: int = 10,

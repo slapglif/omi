@@ -599,6 +599,140 @@ class TestGraphPalace(unittest.TestCase):
         # Should not raise error
         self.palace.vacuum()
 
+    # ==================== Pagination ====================
+
+    def test_list_memories_basic(self):
+        """Test basic list_memories pagination."""
+        # Create 10 memories
+        for i in range(10):
+            self.palace.store_memory(
+                content=f"Memory {i}",
+                memory_type="fact"
+            )
+
+        # Get first page
+        result = self.palace.list_memories(limit=5)
+
+        self.assertEqual(len(result["memories"]), 5)
+        self.assertEqual(result["total_count"], 10)
+        self.assertTrue(result["has_more"])
+        self.assertIsNotNone(result["next_cursor"])
+
+    def test_list_memories_cursor_pagination(self):
+        """Test cursor-based pagination through all results."""
+        # Create 15 memories
+        memory_ids = []
+        for i in range(15):
+            memory_id = self.palace.store_memory(
+                content=f"Memory {i}",
+                memory_type="fact"
+            )
+            memory_ids.append(memory_id)
+
+        # Page 1
+        result = self.palace.list_memories(limit=5, order_by="created_at", order_dir="asc")
+        self.assertEqual(len(result["memories"]), 5)
+        self.assertTrue(result["has_more"])
+        page1_ids = [m["id"] for m in result["memories"]]
+
+        # Page 2
+        result2 = self.palace.list_memories(limit=5, cursor=result["next_cursor"])
+        self.assertEqual(len(result2["memories"]), 5)
+        self.assertTrue(result2["has_more"])
+        page2_ids = [m["id"] for m in result2["memories"]]
+
+        # Ensure no overlap between pages
+        self.assertEqual(len(set(page1_ids) & set(page2_ids)), 0)
+
+        # Page 3 (last page)
+        result3 = self.palace.list_memories(limit=5, cursor=result2["next_cursor"])
+        self.assertEqual(len(result3["memories"]), 5)
+        self.assertFalse(result3["has_more"])
+        self.assertEqual(result3["next_cursor"], "")
+
+    def test_list_memories_filter_by_type(self):
+        """Test filtering memories by type."""
+        self.palace.store_memory(content="Fact 1", memory_type="fact")
+        self.palace.store_memory(content="Fact 2", memory_type="fact")
+        self.palace.store_memory(content="Experience 1", memory_type="experience")
+        self.palace.store_memory(content="Belief 1", memory_type="belief")
+
+        result = self.palace.list_memories(memory_type="fact")
+        self.assertEqual(result["total_count"], 2)
+        self.assertEqual(len(result["memories"]), 2)
+
+        for memory in result["memories"]:
+            self.assertEqual(memory["memory_type"], "fact")
+
+    def test_list_memories_order_by_access_count(self):
+        """Test ordering by access_count."""
+        # Create memories with different access counts
+        m1_id = self.palace.store_memory(content="Popular", memory_type="fact")
+        m2_id = self.palace.store_memory(content="Less popular", memory_type="fact")
+        m3_id = self.palace.store_memory(content="Not popular", memory_type="fact")
+
+        # Access m1 multiple times
+        for _ in range(5):
+            self.palace.get_memory(m1_id)
+
+        # Access m2 once
+        self.palace.get_memory(m2_id)
+
+        # Order by access_count desc
+        result = self.palace.list_memories(order_by="access_count", order_dir="desc", limit=10)
+
+        # First should be the most accessed (m1)
+        self.assertEqual(result["memories"][0]["id"], m1_id)
+        self.assertGreater(result["memories"][0]["access_count"], 0)
+
+    def test_list_memories_invalid_memory_type(self):
+        """Test invalid memory type raises error."""
+        with self.assertRaises(ValueError):
+            self.palace.list_memories(memory_type="invalid_type")
+
+    def test_list_memories_invalid_order_by(self):
+        """Test invalid order_by field raises error."""
+        with self.assertRaises(ValueError):
+            self.palace.list_memories(order_by="invalid_field")
+
+    def test_list_memories_invalid_order_dir(self):
+        """Test invalid order direction raises error."""
+        with self.assertRaises(ValueError):
+            self.palace.list_memories(order_dir="invalid_dir")
+
+    def test_list_memories_no_embeddings_in_response(self):
+        """Test that embeddings are NOT included in response."""
+        embedding = self._generate_embedding()
+        self.palace.store_memory(
+            content="Memory with embedding",
+            embedding=embedding,
+            memory_type="fact"
+        )
+
+        result = self.palace.list_memories(limit=10)
+
+        # Verify embedding is not in response
+        for memory in result["memories"]:
+            self.assertNotIn("embedding", memory)
+
+    def test_list_memories_empty_database(self):
+        """Test list_memories on empty database."""
+        result = self.palace.list_memories(limit=10)
+
+        self.assertEqual(len(result["memories"]), 0)
+        self.assertEqual(result["total_count"], 0)
+        self.assertFalse(result["has_more"])
+        self.assertEqual(result["next_cursor"], "")
+
+    def test_list_memories_invalid_cursor(self):
+        """Test that invalid cursor is handled gracefully."""
+        self.palace.store_memory(content="Test", memory_type="fact")
+
+        # Invalid cursor should start from beginning
+        result = self.palace.list_memories(cursor="invalid_base64_!@#", limit=10)
+
+        self.assertGreater(len(result["memories"]), 0)
+
 
 class TestMemoryDataclass(unittest.TestCase):
     """Test Memory dataclass."""

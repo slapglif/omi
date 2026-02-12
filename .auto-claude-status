@@ -1,46 +1,25 @@
 {
   "active": true,
-<<<<<<< HEAD
-  "spec": "003-boost-test-coverage-to-80",
+  "spec": "046-pagination-and-streaming-for-memory-queries",
   "state": "building",
   "subtasks": {
-    "completed": 6,
-    "total": 7,
-=======
-  "spec": "006-additional-embedding-providers",
-  "state": "building",
-  "subtasks": {
-    "completed": 13,
-    "total": 19,
->>>>>>> auto-claude/006-additional-embedding-providers
+    "completed": 1,
+    "total": 17,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-<<<<<<< HEAD
-    "current": "Final Verification",
+    "current": "Core Pagination Infrastructure",
     "id": null,
-    "total": 1
-=======
-    "current": "System Integration",
-    "id": null,
-    "total": 7
->>>>>>> auto-claude/006-additional-embedding-providers
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-<<<<<<< HEAD
-    "number": 8,
-    "started_at": "2026-02-11T02:27:02.557202"
+    "number": 3,
+    "started_at": "2026-02-12T02:43:01.156604"
   },
-  "last_update": "2026-02-11T02:50:09.749547"
-=======
-    "number": 15,
-    "started_at": "2026-02-11T10:49:53.423935"
-  },
-  "last_update": "2026-02-11T11:16:06.379807"
->>>>>>> auto-claude/006-additional-embedding-providers
+  "last_update": "2026-02-12T02:51:16.330584"
 }
