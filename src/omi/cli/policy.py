@@ -28,6 +28,85 @@ def policy_group():
     pass
 
 
+@policy_group.command("show")
+@click.pass_context
+def show(ctx) -> None:
+    """Display all policies and their status.
+
+    Lists all configured policies (or defaults if no config exists),
+    showing their enabled/disabled status, descriptions, and conditions.
+
+    Examples:
+        omi policy show
+        omi policy show -v  # Verbose output with conditions
+    """
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+
+    if not base_path.exists():
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        sys.exit(1)
+
+    config_path = base_path / "config.yaml"
+
+    echo_normal(click.style("Policy Configuration", fg="cyan", bold=True), verbosity)
+    echo_normal("=" * 60, verbosity)
+    echo_verbose(f"Loading policies from {config_path if config_path.exists() else 'defaults'}...", verbosity)
+
+    # Load policies from config or use defaults
+    try:
+        if config_path.exists():
+            policies = load_policies_from_config(config_path)
+            if not policies:
+                echo_verbose("No policies in config.yaml, using defaults", verbosity)
+                policies = get_default_policies()
+                source = "defaults"
+            else:
+                source = str(config_path)
+        else:
+            echo_verbose("No config.yaml found, using default policies", verbosity)
+            policies = get_default_policies()
+            source = "defaults"
+    except Exception as e:
+        echo_quiet(click.style(f"Error: Failed to load policies: {e}", fg="red"), verbosity)
+        sys.exit(1)
+
+    echo_normal(f"Source: {source}", verbosity)
+    echo_normal(f"Total policies: {len(policies)}\n", verbosity)
+
+    # Display each policy
+    enabled_count = 0
+    for pol in policies:
+        if pol.enabled:
+            enabled_count += 1
+            status = click.style("ENABLED", fg="green", bold=True)
+        else:
+            status = click.style("DISABLED", fg="red")
+
+        echo_normal(click.style(f"• {pol.name}", fg="cyan", bold=True), verbosity)
+        echo_normal(f"  Status: {status}", verbosity)
+
+        if pol.description:
+            echo_normal(f"  Description: {pol.description}", verbosity)
+
+        # Show conditions in verbose mode
+        if verbosity >= 2 and pol.conditions:
+            echo_verbose(f"  Conditions: {len(pol.conditions)}", verbosity)
+            for cond in pol.conditions:
+                echo_verbose(f"    - {cond.field} {cond.operator} {cond.value}", verbosity)
+
+        echo_normal("", verbosity)  # Blank line between policies
+
+    # Summary
+    echo_normal("─" * 60, verbosity)
+    disabled_count = len(policies) - enabled_count
+    echo_normal(
+        f"{click.style(str(enabled_count), fg='green', bold=True)} enabled, "
+        f"{click.style(str(disabled_count), fg='red')} disabled",
+        verbosity
+    )
+
+
 @policy_group.command("dry-run")
 @click.option('--policy', '-p', help='Specific policy name to run (runs all if not specified)')
 @click.pass_context
