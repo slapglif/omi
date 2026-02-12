@@ -17,6 +17,7 @@ from fastapi import APIRouter, Query, HTTPException
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 import os
+import json
 import logging
 
 from .storage.graph_palace import GraphPalace, Memory
@@ -712,6 +713,278 @@ async def search_memories(
         raise HTTPException(
             status_code=500,
             detail=f"Search failed: {str(e)}"
+        )
+
+
+@router.get("/versions/timeline")
+async def get_version_timeline(
+    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of versions to return"),
+    offset: int = Query(default=0, ge=0, description="Number of versions to skip"),
+    start_date: Optional[str] = Query(default=None, description="Start date filter (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="End date filter (YYYY-MM-DD)"),
+    operation_type: Optional[str] = Query(default=None, description="Filter by operation type (CREATE, UPDATE, DELETE)"),
+    memory_id: Optional[str] = Query(default=None, description="Filter by specific memory ID")
+) -> Dict[str, Any]:
+    """
+    Retrieve version timeline with optional filters.
+
+    Returns memory versions grouped by date for timeline visualization.
+    Supports filtering by date range, operation type, and specific memory.
+
+    Query Parameters:
+        limit: Maximum number of versions to return (1-1000, default 100)
+        offset: Number of versions to skip for pagination (default 0)
+        start_date: Start date filter in YYYY-MM-DD format (inclusive)
+        end_date: End date filter in YYYY-MM-DD format (inclusive)
+        operation_type: Filter by type (CREATE, UPDATE, DELETE)
+        memory_id: Filter by specific memory ID
+
+    Returns:
+        Dict containing:
+            - versions: List of version objects with metadata
+            - total: Total count of versions matching filters
+            - limit: Applied limit
+            - offset: Applied offset
+            - grouped_by_date: Versions grouped by date (YYYY-MM-DD)
+
+    Raises:
+        HTTPException: If database access fails or invalid parameters provided
+    """
+    # Validate operation_type if provided
+    if operation_type is not None:
+        valid_ops = {"CREATE", "UPDATE", "DELETE"}
+        if operation_type not in valid_ops:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid operation_type: {operation_type}. Must be one of: {valid_ops}"
+            )
+
+    # Validate date formats if provided
+    if start_date is not None:
+        try:
+            from datetime import datetime
+            datetime.strptime(start_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid start_date format: {start_date}. Must be YYYY-MM-DD"
+            )
+
+    if end_date is not None:
+        try:
+            from datetime import datetime
+            datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid end_date format: {end_date}. Must be YYYY-MM-DD"
+            )
+
+    try:
+        palace = get_palace_instance()
+
+        # Build SQL query
+        base_query = """
+            SELECT version_id, memory_id, content, version_number,
+                   operation_type, created_at, previous_version_id
+            FROM memory_versions
+        """
+        count_query = "SELECT COUNT(*) FROM memory_versions"
+        params: List[Any] = []
+        conditions: List[str] = []
+
+        # Add filters
+        if start_date is not None:
+            conditions.append("DATE(created_at) >= ?")
+            params.append(start_date)
+
+        if end_date is not None:
+            conditions.append("DATE(created_at) <= ?")
+            params.append(end_date)
+
+        if operation_type is not None:
+            conditions.append("operation_type = ?")
+            params.append(operation_type)
+
+        if memory_id is not None:
+            conditions.append("memory_id = ?")
+            params.append(memory_id)
+
+        # Build WHERE clause
+        if conditions:
+            where_clause = " WHERE " + " AND ".join(conditions)
+            base_query += where_clause
+            count_query += where_clause
+
+        # Add ordering and pagination
+        base_query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        # Execute queries
+        with palace._db_lock:
+            # Get total count
+            count_cursor = palace._conn.execute(count_query, params[:-2] if len(params) > 2 else [])
+            total = count_cursor.fetchone()[0]
+
+            # Get versions
+            cursor = palace._conn.execute(base_query, params)
+            rows = cursor.fetchall()
+
+        # Format results
+        versions = []
+        grouped_by_date: Dict[str, List[Dict[str, Any]]] = {}
+
+        for row in rows:
+            version_obj = {
+                "version_id": row[0],
+                "memory_id": row[1],
+                "content": row[2][:200] + "..." if len(row[2]) > 200 else row[2],  # Preview
+                "content_full": row[2],  # Full content
+                "version_number": row[3],
+                "operation_type": row[4],
+                "created_at": row[5],
+                "previous_version_id": row[6]
+            }
+            versions.append(version_obj)
+
+            # Group by date
+            date_key = row[5].split("T")[0] if "T" in row[5] else row[5].split(" ")[0]
+            if date_key not in grouped_by_date:
+                grouped_by_date[date_key] = []
+            grouped_by_date[date_key].append(version_obj)
+
+        return {
+            "versions": versions,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "grouped_by_date": grouped_by_date
+        }
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve version timeline: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve version timeline: {str(e)}"
+        )
+
+
+@router.get("/snapshots")
+async def get_snapshots(
+    limit: int = Query(default=50, ge=1, le=500, description="Maximum number of snapshots to return"),
+    offset: int = Query(default=0, ge=0, description="Number of snapshots to skip"),
+    order_by: str = Query(default="created_at", description="Field to order by (created_at)"),
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+) -> Dict[str, Any]:
+    """
+    Retrieve list of memory snapshots with metadata.
+
+    Returns snapshots with memory counts and metadata for snapshot visualization.
+
+    Query Parameters:
+        limit: Maximum number of snapshots to return (1-500, default 50)
+        offset: Number of snapshots to skip for pagination (default 0)
+        order_by: Field to order by (created_at)
+        order_dir: Order direction (asc, desc)
+
+    Returns:
+        Dict containing:
+            - snapshots: List of snapshot objects with metadata
+            - total: Total count of snapshots
+            - limit: Applied limit
+            - offset: Applied offset
+
+    Raises:
+        HTTPException: If database access fails or invalid parameters provided
+    """
+    # Validate order_by
+    valid_order_fields = {"created_at"}
+    if order_by not in valid_order_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
+        )
+
+    # Validate order_dir
+    order_dir_upper = order_dir.upper()
+    if order_dir_upper not in {"ASC", "DESC"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
+        )
+
+    try:
+        palace = get_palace_instance()
+
+        # Build SQL query
+        base_query = f"""
+            SELECT s.snapshot_id, s.created_at, s.description,
+                   s.metadata_json, s.moltvault_backup_id,
+                   COUNT(sm.memory_id) as memory_count
+            FROM snapshots s
+            LEFT JOIN snapshot_memories sm ON s.snapshot_id = sm.snapshot_id
+            GROUP BY s.snapshot_id, s.created_at, s.description, s.metadata_json, s.moltvault_backup_id
+            ORDER BY s.{order_by} {order_dir_upper}
+            LIMIT ? OFFSET ?
+        """
+
+        count_query = "SELECT COUNT(*) FROM snapshots"
+
+        # Execute queries
+        with palace._db_lock:
+            # Get total count
+            count_cursor = palace._conn.execute(count_query)
+            total = count_cursor.fetchone()[0]
+
+            # Get snapshots
+            cursor = palace._conn.execute(base_query, [limit, offset])
+            rows = cursor.fetchall()
+
+        # Format results
+        snapshots = []
+        for row in rows:
+            # Parse metadata JSON if present
+            metadata = {}
+            if row[3]:
+                try:
+                    metadata = json.loads(row[3])
+                except json.JSONDecodeError:
+                    metadata = {}
+
+            # Determine if snapshot is delta or full
+            is_delta = metadata.get("is_delta", False)
+            base_snapshot_id = metadata.get("base_snapshot_id")
+
+            snapshot_obj = {
+                "snapshot_id": row[0],
+                "created_at": row[1],
+                "description": row[2],
+                "metadata": metadata,
+                "moltvault_backup_id": row[4],
+                "memory_count": row[5],
+                "is_delta": is_delta,
+                "base_snapshot_id": base_snapshot_id
+            }
+            snapshots.append(snapshot_obj)
+
+        return {
+            "snapshots": snapshots,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve snapshots: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve snapshots: {str(e)}"
         )
 
 

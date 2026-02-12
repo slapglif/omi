@@ -218,6 +218,78 @@ export async function searchMemories(query, options = {}) {
 }
 
 /**
+ * Fetch version timeline (list of snapshots)
+ *
+ * @param {Object} options - Query options
+ * @param {number} options.limit - Maximum number of versions to return (default: 50, max: 500)
+ * @param {number} options.offset - Number of versions to skip (default: 0)
+ * @param {string} options.order_dir - Order direction (asc, desc) (default: desc)
+ * @returns {Promise<Object>} Version timeline data with pagination info
+ * @throws {Error} If request fails
+ */
+export async function getVersionTimeline(options = {}) {
+  const {
+    limit = 50,
+    offset = 0,
+    order_dir = 'desc'
+  } = options;
+
+  const params = {
+    limit,
+    offset,
+    order_dir
+  };
+
+  const url = buildUrl(`${BASE_URL}/versions`, params);
+  const response = await fetch(url);
+  return handleResponse(response);
+}
+
+/**
+ * Fetch details of a specific version/snapshot
+ *
+ * @param {string} versionId - The version ID to fetch
+ * @returns {Promise<Object>} Version details including metadata and changes
+ * @throws {Error} If request fails or version not found
+ */
+export async function getVersionDetails(versionId) {
+  if (!versionId || versionId.trim().length === 0) {
+    throw new Error('Version ID cannot be empty');
+  }
+
+  const url = `${BASE_URL}/versions/${encodeURIComponent(versionId)}`;
+  const response = await fetch(url);
+  return handleResponse(response);
+}
+
+/**
+ * Restore memory state to a specific version
+ *
+ * @param {string} versionId - The version ID to restore to
+ * @param {Object} options - Restore options
+ * @param {boolean} options.dry_run - Preview changes without applying (default: false)
+ * @returns {Promise<Object>} Restore operation result
+ * @throws {Error} If request fails or version not found
+ */
+export async function restoreToVersion(versionId, options = {}) {
+  if (!versionId || versionId.trim().length === 0) {
+    throw new Error('Version ID cannot be empty');
+  }
+
+  const { dry_run = false } = options;
+
+  const url = `${BASE_URL}/versions/${encodeURIComponent(versionId)}/restore`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ dry_run })
+  });
+  return handleResponse(response);
+}
+
+/**
  * Check dashboard API health
  *
  * @returns {Promise<Object>} Health status
@@ -237,5 +309,8 @@ export default {
   fetchBeliefs,
   fetchStats,
   searchMemories,
+  getVersionTimeline,
+  getVersionDetails,
+  restoreToVersion,
   checkHealth
 };

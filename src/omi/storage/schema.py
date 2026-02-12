@@ -2,7 +2,7 @@
 Database schema management for Graph Palace.
 
 This module handles:
-- Table creation (memories, edges)
+- Table creation (memories, memory_versions, edges, snapshots, snapshot_memories)
 - Index creation for performance
 - FTS5 virtual table setup
 - WAL mode configuration
@@ -43,6 +43,18 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
             content_hash TEXT  -- SHA-256 for integrity
         );
 
+        CREATE TABLE IF NOT EXISTS memory_versions (
+            version_id TEXT PRIMARY KEY,
+            memory_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            version_number INTEGER NOT NULL,
+            operation_type TEXT CHECK(operation_type IN ('CREATE','UPDATE','DELETE')) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            previous_version_id TEXT,
+            FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+            FOREIGN KEY (previous_version_id) REFERENCES memory_versions(version_id)
+        );
+
         CREATE TABLE IF NOT EXISTS edges (
             id TEXT PRIMARY KEY,
             source_id TEXT NOT NULL,
@@ -54,16 +66,46 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
             FOREIGN KEY (target_id) REFERENCES memories(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS snapshots (
+            snapshot_id TEXT PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            description TEXT,
+            metadata_json TEXT,  -- JSON metadata for snapshot
+            moltvault_backup_id TEXT  -- Optional MoltVault backup reference
+        );
+
+        CREATE TABLE IF NOT EXISTS snapshot_memories (
+            snapshot_id TEXT NOT NULL,
+            memory_id TEXT NOT NULL,
+            version_id TEXT,  -- Reference to specific version
+            operation_type TEXT CHECK(operation_type IN ('ADDED','MODIFIED','DELETED')),
+            PRIMARY KEY (snapshot_id, memory_id),
+            FOREIGN KEY (snapshot_id) REFERENCES snapshots(snapshot_id) ON DELETE CASCADE,
+            FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+            FOREIGN KEY (version_id) REFERENCES memory_versions(version_id) ON DELETE SET NULL
+        );
+
         -- Indexes for performance
         CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
         CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
         CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed);
         CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
         CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
+        CREATE INDEX IF NOT EXISTS idx_memory_versions_memory_id ON memory_versions(memory_id);
+        CREATE INDEX IF NOT EXISTS idx_memory_versions_created_at ON memory_versions(created_at);
+        CREATE INDEX IF NOT EXISTS idx_memory_versions_version_number ON memory_versions(version_number);
+        CREATE INDEX IF NOT EXISTS idx_memory_versions_operation_type ON memory_versions(operation_type);
+        CREATE INDEX IF NOT EXISTS idx_memory_versions_composite ON memory_versions(memory_id, version_number);
         CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
         CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
         CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
         CREATE INDEX IF NOT EXISTS idx_edges_bidirectional ON edges(source_id, target_id);
+        CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at);
+        CREATE INDEX IF NOT EXISTS idx_snapshots_moltvault_backup_id ON snapshots(moltvault_backup_id);
+        CREATE INDEX IF NOT EXISTS idx_snapshot_memories_snapshot_id ON snapshot_memories(snapshot_id);
+        CREATE INDEX IF NOT EXISTS idx_snapshot_memories_memory_id ON snapshot_memories(memory_id);
+        CREATE INDEX IF NOT EXISTS idx_snapshot_memories_version_id ON snapshot_memories(version_id);
+        CREATE INDEX IF NOT EXISTS idx_snapshot_memories_operation_type ON snapshot_memories(operation_type);
     """)
 
     # Create standalone FTS5 virtual table for full-text search

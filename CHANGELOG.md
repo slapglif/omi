@@ -48,6 +48,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shell Completion**: Bash/Zsh completion scripts generated
 - **Belief Evidence**: `omi belief-show <belief>` displays evidence chain
 
+#### Memory Time-Travel and Point-in-Time Snapshots
+- **Append-Only Versioning**: Memory updates now create versions instead of overwriting
+  - Full version history preserved in `memory_versions` table
+  - Version chain tracking with `previous_version_id`
+  - Operation types: CREATE, UPDATE, DELETE
+- **Time-Travel Queries**: Query memory state at any point in time
+  - `omi recall --at 2026-01-15` returns memories as they existed on that date
+  - Point-in-time reconstruction from version history
+  - Historical queries preserve metadata and relationships
+- **Snapshot Management**: Create, compare, and restore memory snapshots
+  - `omi snapshot create` - Capture point-in-time memory state
+  - `omi snapshot list` - Browse available snapshots
+  - `omi snapshot diff snap-1 snap-2` - Compare two snapshots
+  - `omi snapshot rollback snap-1` - Restore to previous snapshot with safety checks
+- **Delta Encoding**: Efficient snapshot storage
+  - First snapshot is full, subsequent are deltas
+  - Only changed memories stored (ADDED/MODIFIED/DELETED operations)
+  - Automatic delta reconstruction for rollback
+- **MoltVault Integration**: Optional cloud backup for snapshots
+  - Snapshots can be backed up to R2/S3 via MoltVault
+  - `moltvault_backup_id` stored in snapshots table
+- **Dashboard Timeline**: Visual version history browser
+  - New "Version Timeline" tab (🕰️ icon) in web dashboard
+  - Chronological display of all memory versions
+  - Filter by date range and operation type (CREATE/UPDATE/DELETE)
+  - Interactive timeline visualization with Cytoscape
+
 #### Memory Summarization & Compression
 - **Automatic Compression**: Smart memory compression
   - Configurable compression thresholds

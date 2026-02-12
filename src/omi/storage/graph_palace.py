@@ -22,6 +22,7 @@ from dataclasses import dataclass, asdict
 from collections import deque
 import numpy as np
 import struct
+from omi.storage.schema import init_database
 
 
 @dataclass
@@ -144,62 +145,9 @@ class GraphPalace:
 
     def _init_db(self) -> None:
         """Initialize database schema with indexes and FTS5."""
-        # Enable WAL mode for concurrent writes
-        if self._enable_wal:
-            self._conn.execute("PRAGMA journal_mode=WAL")
-
-        # Foreign key constraints
-        self._conn.execute("PRAGMA foreign_keys=ON")
-
-        # Create memories table with vector support
-        self._conn.executescript("""
-            CREATE TABLE IF NOT EXISTS memories (
-                id TEXT PRIMARY KEY,
-                content TEXT NOT NULL,
-                embedding BLOB,  -- 1024-dim float32 for bge-m3
-                memory_type TEXT CHECK(memory_type IN ('fact','experience','belief','decision')),
-                confidence REAL CHECK(confidence >= 0 AND confidence <= 1),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_accessed TIMESTAMP,
-                access_count INTEGER DEFAULT 0,
-                instance_ids TEXT,  -- JSON array
-                content_hash TEXT  -- SHA-256 for integrity
-            );
-
-            CREATE TABLE IF NOT EXISTS edges (
-                id TEXT PRIMARY KEY,
-                source_id TEXT NOT NULL,
-                target_id TEXT NOT NULL,
-                edge_type TEXT CHECK(edge_type IN ('SUPPORTS','CONTRADICTS','RELATED_TO','DEPENDS_ON','POSTED','DISCUSSED')),
-                strength REAL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (source_id) REFERENCES memories(id) ON DELETE CASCADE,
-                FOREIGN KEY (target_id) REFERENCES memories(id) ON DELETE CASCADE
-            );
-
-            -- Indexes for performance
-            CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
-            CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
-            CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed);
-            CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
-            CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
-            CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
-            CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
-            CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
-            CREATE INDEX IF NOT EXISTS idx_edges_bidirectional ON edges(source_id, target_id);
-        """)
-
-        # Create standalone FTS5 virtual table for full-text search
-        # Note: Using standalone FTS5 (no content= sync) because memories.id
-        # is TEXT (UUID), and FTS5 content_rowid requires INTEGER.
-        self._conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-                memory_id,
-                content
-            )
-        """)
-
-        self._conn.commit()
+        # Use the centralized schema initialization from schema.py
+        # This includes memories, memory_versions, edges, snapshots, and all indexes
+        init_database(self._conn, enable_wal=self._enable_wal)
 
     def _embed_to_blob(self, embedding: List[float]) -> bytes:
         """Convert embedding list to binary blob (float32)."""
@@ -246,25 +194,29 @@ class GraphPalace:
                    content: str,
                    embedding: Optional[List[float]] = None,
                    memory_type: str = "experience",
-                   confidence: Optional[float] = None) -> str:
+                   confidence: Optional[float] = None,
+                   memory_id: Optional[str] = None) -> str:
         """
         Store a memory in the palace.
+
+        If memory_id is provided and exists, creates a new version (UPDATE operation).
+        Otherwise, creates a new memory (CREATE operation).
 
         Args:
             content: The memory content text
             embedding: Vector embedding (1024-dim for bge-m3)
             memory_type: One of (fact, experience, belief, decision)
             confidence: 0.0-1.0 for beliefs
+            memory_id: Optional UUID for updating existing memory
 
         Returns:
-            memory_id: UUID of the created memory
+            memory_id: UUID of the created/updated memory
         """
         self._validate_memory_type(memory_type)
 
         if confidence is not None and (confidence < 0 or confidence > 1):
             raise ValueError("confidence must be between 0.0 and 1.0")
 
-        memory_id = str(uuid.uuid4())
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         now = datetime.now().isoformat()
 
@@ -273,27 +225,93 @@ class GraphPalace:
 
         # Use lock for thread-safe database access
         with self._db_lock:
-            self._conn.execute("""
-                INSERT INTO memories
-                (id, content, embedding, memory_type, confidence, created_at,
-                 last_accessed, access_count, instance_ids, content_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                memory_id,
-                content,
-                embedding_blob,
-                memory_type,
-                confidence,
-                now,
-                now,
-                0,
-                json.dumps([]),
-                content_hash
-            ))
-            # Insert into FTS index
-            self._conn.execute("""
-                INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
-            """, (memory_id, content))
+            # Check if this is an update (memory_id provided and exists)
+            is_update = False
+            if memory_id is not None:
+                cursor = self._conn.execute(
+                    "SELECT id FROM memories WHERE id = ?", (memory_id,)
+                )
+                is_update = cursor.fetchone() is not None
+
+            if is_update:
+                # UPDATE: Create new version and update memory
+                # Get the next version number
+                cursor = self._conn.execute("""
+                    SELECT COALESCE(MAX(version_number), 0) + 1
+                    FROM memory_versions
+                    WHERE memory_id = ?
+                """, (memory_id,))
+                next_version = cursor.fetchone()[0]
+
+                # Get the previous version_id (most recent version)
+                cursor = self._conn.execute("""
+                    SELECT version_id
+                    FROM memory_versions
+                    WHERE memory_id = ?
+                    ORDER BY version_number DESC
+                    LIMIT 1
+                """, (memory_id,))
+                prev_row = cursor.fetchone()
+                previous_version_id = prev_row[0] if prev_row else None
+
+                # Insert new version
+                version_id = str(uuid.uuid4())
+                self._conn.execute("""
+                    INSERT INTO memory_versions
+                    (version_id, memory_id, content, version_number, operation_type, created_at, previous_version_id)
+                    VALUES (?, ?, ?, ?, 'UPDATE', ?, ?)
+                """, (version_id, memory_id, content, next_version, now, previous_version_id))
+
+                # Update the memories table
+                self._conn.execute("""
+                    UPDATE memories
+                    SET content = ?, embedding = ?, memory_type = ?, confidence = ?,
+                        last_accessed = ?, content_hash = ?
+                    WHERE id = ?
+                """, (content, embedding_blob, memory_type, confidence, now, content_hash, memory_id))
+
+                # Update FTS index
+                self._conn.execute("""
+                    UPDATE memories_fts SET content = ? WHERE memory_id = ?
+                """, (content, memory_id))
+
+            else:
+                # CREATE: New memory
+                if memory_id is None:
+                    memory_id = str(uuid.uuid4())
+
+                # Insert into memories table
+                self._conn.execute("""
+                    INSERT INTO memories
+                    (id, content, embedding, memory_type, confidence, created_at,
+                     last_accessed, access_count, instance_ids, content_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    memory_id,
+                    content,
+                    embedding_blob,
+                    memory_type,
+                    confidence,
+                    now,
+                    now,
+                    0,
+                    json.dumps([]),
+                    content_hash
+                ))
+
+                # Insert initial version
+                version_id = str(uuid.uuid4())
+                self._conn.execute("""
+                    INSERT INTO memory_versions
+                    (version_id, memory_id, content, version_number, operation_type, created_at, previous_version_id)
+                    VALUES (?, ?, ?, 1, 'CREATE', ?, NULL)
+                """, (version_id, memory_id, content, now))
+
+                # Insert into FTS index
+                self._conn.execute("""
+                    INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
+                """, (memory_id, content))
+
             self._conn.commit()
 
         # Cache the embedding for fast access
@@ -505,6 +523,84 @@ class GraphPalace:
         # Sort by final score (descending)
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:limit]
+
+    def recall_at(self, timestamp: datetime) -> List[Memory]:
+        """
+        Point-in-time query: Reconstruct memory state as it existed at a specific timestamp.
+
+        This method queries the memory_versions table to reconstruct what memories
+        existed at the given timestamp, including their content at that time.
+
+        Algorithm:
+        1. Find all unique memory_ids that had versions created at or before timestamp
+        2. For each memory_id, get the most recent version at or before timestamp
+        3. Exclude memories where the most recent operation was DELETE
+        4. Return Memory objects with historical content
+
+        Args:
+            timestamp: Point in time to query
+
+        Returns:
+            List of Memory objects as they existed at the timestamp
+        """
+        memories = []
+
+        # Query to get the most recent version for each memory_id at or before timestamp
+        # Uses a subquery to find max version_number per memory_id up to timestamp
+        cursor = self._conn.execute("""
+            SELECT mv.memory_id, mv.content, mv.operation_type, mv.created_at
+            FROM memory_versions mv
+            INNER JOIN (
+                SELECT memory_id, MAX(version_number) as max_version
+                FROM memory_versions
+                WHERE created_at <= ?
+                GROUP BY memory_id
+            ) latest ON mv.memory_id = latest.memory_id AND mv.version_number = latest.max_version
+            WHERE mv.operation_type != 'DELETE'
+        """, (timestamp.isoformat(),))
+
+        for row in cursor:
+            memory_id = row[0]
+            content = row[1]
+            operation_type = row[2]
+            created_at_str = row[3]
+
+            # Get additional memory metadata from memories table if it exists
+            # Note: The memory might not exist in memories table if it was deleted,
+            # but we're reconstructing historical state from versions
+            metadata_cursor = self._conn.execute("""
+                SELECT memory_type, confidence, embedding
+                FROM memories
+                WHERE id = ?
+            """, (memory_id,))
+            metadata_row = metadata_cursor.fetchone()
+
+            if metadata_row:
+                memory_type = metadata_row[0] or "experience"
+                confidence = metadata_row[1]
+                embedding_blob = metadata_row[2]
+                embedding = self._blob_to_embed(embedding_blob) if embedding_blob else None
+            else:
+                # Memory was deleted from main table, use defaults
+                memory_type = "experience"
+                confidence = None
+                embedding = None
+
+            memory = Memory(
+                id=memory_id,
+                content=content,
+                embedding=embedding,
+                memory_type=memory_type,
+                confidence=confidence,
+                created_at=datetime.fromisoformat(created_at_str) if created_at_str else None,
+                last_accessed=None,
+                access_count=0,
+                instance_ids=[],
+                content_hash=hashlib.sha256(content.encode()).hexdigest()
+            )
+            memories.append(memory)
+
+        return memories
 
     def full_text_search(self, query: str, limit: int = 10) -> List[Memory]:
         """

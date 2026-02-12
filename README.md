@@ -42,6 +42,7 @@ OMI solves the 6 failure modes every agent hits:
 
 | Feature | Description |
 |---------|-------------|
+| **Memory Time-Travel** | Point-in-time queries, snapshot management, version history browser |
 | **REST API** | Production FastAPI server with SSE streaming, `/docs` auto-generated |
 | **Web Dashboard** | React-based memory visualization, semantic search, graph browser |
 | **Plugin Architecture** | Entry points for custom embeddings, storage backends, event handlers |
@@ -117,6 +118,37 @@ omi serve --dashboard
 omi session-end
 ```
 
+### Time-Travel and Snapshots
+
+Query memories as they existed on a specific date:
+
+```bash
+# See what the agent knew about a bug on Jan 15
+omi recall "authentication bug" --at 2026-01-15
+
+# Check memory state before a major change
+omi recall "payment flow" --at 2025-12-01
+```
+
+Create point-in-time snapshots:
+
+```bash
+# Create a snapshot before making changes
+omi snapshot create --description "Before authentication refactor"
+
+# List all snapshots
+omi snapshot list
+
+# Compare two snapshots to see what changed
+omi snapshot diff snap-abc123 snap-def456
+
+# Preview rollback (dry run)
+omi snapshot rollback snap-abc123 --dry-run
+
+# Actually rollback to previous state
+omi snapshot rollback snap-abc123
+```
+
 ## Web Dashboard
 
 Explore your memory graph visually:
@@ -143,6 +175,7 @@ omi serve --dashboard --reload
 | **Belief Network** | Confidence levels color-coded (green ≥0.7, yellow 0.4-0.69, red <0.4) |
 | **Storage Statistics** | Memory counts, edge counts, type distributions with Chart.js |
 | **Session Timeline** | Chronological operations with SSE real-time updates |
+| **Version Timeline** | Chronological view of all memory versions. Filter by date and operation type (CREATE/UPDATE/DELETE). |
 
 ### Screenshot
 
