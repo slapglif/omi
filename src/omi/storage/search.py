@@ -20,6 +20,7 @@ import numpy as np
 from .models import Memory
 from .schema import init_database
 from .embeddings import blob_to_embed
+from .ann_index import ANNIndex
 
 
 class MemorySearch:
@@ -75,6 +76,10 @@ class MemorySearch:
 
             # Initialize database schema
             init_database(self._conn, enable_wal)
+
+        # Initialize ANN index for fast vector search
+        # Pass original db_path string (ANNIndex handles Path conversion internally)
+        self._ann_index = ANNIndex(db_path, dim=None, enable_persistence=(db_path != ':memory:'))
 
     def _calculate_recency_score(self, timestamp: datetime) -> float:
         """
