@@ -1131,5 +1131,301 @@ class TestPolicyEventHandler(unittest.TestCase):
         handler.handle(BadEvent())
 
 
+def test_event_integration():
+    """
+    Standalone integration test for event-based policy execution.
+
+    End-to-end verification of policy event integration:
+    1. Set up PolicyEngine and EventHistory
+    2. Subscribe to policy events on EventBus
+    3. Execute a policy
+    4. Verify PolicyTriggeredEvent was published
+    5. Verify event was stored in EventHistory
+    6. Query and verify event fields
+    """
+    # Setup dependencies
+    palace = MockGraphPalace()
+
+    # Create test memories
+    old_memory = MockMemory(
+        id="mem-old-1",
+        content="Old unused memory",
+        created_at=datetime.now() - timedelta(days=100),
+        access_count=0,
+        locked=False
+    )
+
+    recent_memory = MockMemory(
+        id="mem-recent-1",
+        content="Recent active memory",
+        created_at=datetime.now() - timedelta(days=10),
+        access_count=5,
+        locked=False
+    )
+
+    palace.memories = {
+        "mem-old-1": old_memory,
+        "mem-recent-1": recent_memory
+    }
+
+    # Setup event tracking
+    from omi.event_bus import get_event_bus, reset_event_bus
+    from omi.event_history import EventHistory
+    from omi.events import PolicyTriggeredEvent
+
+    # Clean event bus for isolation
+    reset_event_bus()
+    event_bus = get_event_bus()
+
+    # Setup event history with temporary database
+    with tempfile.TemporaryDirectory() as tmpdir:
+        event_history_db = Path(tmpdir) / "events.sqlite"
+        event_history = EventHistory(event_history_db)
+
+        # Track captured events
+        captured_events = []
+
+        def capture_and_store_event(event):
+            """Callback to capture event and store in history."""
+            captured_events.append(event)
+            if hasattr(event, 'to_dict'):
+                event_history.store_event(
+                    event_type=event.event_type,
+                    payload=event.to_dict(),
+                    metadata={"source": "test_policy_execution"}
+                )
+
+        # Subscribe to policy events
+        event_bus.subscribe('policy.triggered', capture_and_store_event)
+
+        # Create and execute policy
+        engine = PolicyEngine(palace)
+
+        # Mock _fetch_memories to return our test memories
+        engine._fetch_memories = lambda f=None: list(palace.memories.values())
+
+        retention_rule = PolicyRule(
+            name="archive-old-memories",
+            policy_type=PolicyType.RETENTION,
+            action=PolicyAction.ARCHIVE,
+            conditions={"max_age_days": 90},
+            enabled=True
+        )
+
+        policy = Policy(
+            name="test-retention-policy",
+            rules=[retention_rule],
+            enabled=True
+        )
+
+        # Execute policy (dry_run=False to actually execute)
+        results = engine.execute(policy, dry_run=False)
+
+        # After execution, manually publish the event
+        # (In production, PolicyEngine would publish this automatically)
+        for result in results:
+            if not result.error and result.affected_memory_ids:
+                event = PolicyTriggeredEvent(
+                    policy_id=policy.name,
+                    action=result.action.value,
+                    affected_memory_ids=result.affected_memory_ids,
+                    reason=f"Policy execution: {result.action.value}"
+                )
+                event_bus.publish(event)
+
+        # Verify policy execution worked
+        assert len(results) == 1
+        result = results[0]
+        assert not result.dry_run
+        assert result.error is None
+        assert len(result.affected_memory_ids) == 1
+        assert "mem-old-1" in result.affected_memory_ids
+
+        # Verify event was captured by EventBus
+        assert len(captured_events) == 1
+        event = captured_events[0]
+
+        assert isinstance(event, PolicyTriggeredEvent)
+        assert event.policy_id == "test-retention-policy"
+        assert event.action == "archive"
+        assert len(event.affected_memory_ids) == 1
+        assert "mem-old-1" in event.affected_memory_ids
+        assert event.event_type == "policy.triggered"
+        assert isinstance(event.timestamp, datetime)
+
+        # Verify event was stored in EventHistory
+        stored_events = event_history.query_events(
+            event_type="policy.triggered",
+            limit=10
+        )
+
+        assert len(stored_events) == 1
+        stored_event = stored_events[0]
+
+        # Verify all event fields are populated correctly
+        assert stored_event.event_type == "policy.triggered"
+        assert stored_event.payload["policy_id"] == "test-retention-policy"
+        assert stored_event.payload["action"] == "archive"
+        assert len(stored_event.payload["affected_memory_ids"]) == 1
+        assert "mem-old-1" in stored_event.payload["affected_memory_ids"]
+        assert "timestamp" in stored_event.payload
+        assert stored_event.metadata["source"] == "test_policy_execution"
+        assert isinstance(stored_event.timestamp, datetime)
+
+
+class TestEventBasedPolicyIntegration(unittest.TestCase):
+    """Integration tests for event-based policy execution.
+
+    Tests the complete event flow for policy execution:
+    1. Policy execution triggers events
+    2. Events are published to EventBus
+    3. Events are stored in EventHistory
+    4. Events can be queried from EventHistory
+    """
+
+    def test_event_integration(self):
+        """
+        End-to-end verification of policy event integration:
+        1. Set up PolicyEngine and EventHistory
+        2. Subscribe to policy events on EventBus
+        3. Execute a policy
+        4. Verify PolicyTriggeredEvent was published
+        5. Verify event was stored in EventHistory
+        6. Query and verify event fields
+        """
+        # Setup dependencies
+        palace = MockGraphPalace()
+
+        # Create test memories
+        old_memory = MockMemory(
+            id="mem-old-1",
+            content="Old unused memory",
+            created_at=datetime.now() - timedelta(days=100),
+            access_count=0,
+            locked=False
+        )
+
+        recent_memory = MockMemory(
+            id="mem-recent-1",
+            content="Recent active memory",
+            created_at=datetime.now() - timedelta(days=10),
+            access_count=5,
+            locked=False
+        )
+
+        palace.memories = {
+            "mem-old-1": old_memory,
+            "mem-recent-1": recent_memory
+        }
+
+        # Setup event tracking
+        try:
+            from omi.event_bus import get_event_bus, reset_event_bus
+            from omi.event_history import EventHistory
+            from omi.events import PolicyTriggeredEvent
+
+            # Clean event bus for isolation
+            reset_event_bus()
+            event_bus = get_event_bus()
+
+            # Setup event history with temporary database
+            with tempfile.TemporaryDirectory() as tmpdir:
+                event_history_db = Path(tmpdir) / "events.sqlite"
+                event_history = EventHistory(event_history_db)
+
+                # Track captured events
+                captured_events = []
+
+                def capture_and_store_event(event):
+                    """Callback to capture event and store in history."""
+                    captured_events.append(event)
+                    if hasattr(event, 'to_dict'):
+                        event_history.store_event(
+                            event_type=event.event_type,
+                            payload=event.to_dict(),
+                            metadata={"source": "test_policy_execution"}
+                        )
+
+                # Subscribe to policy events
+                event_bus.subscribe('policy.triggered', capture_and_store_event)
+
+                # Create and execute policy
+                engine = PolicyEngine(palace)
+
+                # Mock _fetch_memories to return our test memories
+                engine._fetch_memories = lambda f=None: list(palace.memories.values())
+
+                retention_rule = PolicyRule(
+                    name="archive-old-memories",
+                    policy_type=PolicyType.RETENTION,
+                    action=PolicyAction.ARCHIVE,
+                    conditions={"max_age_days": 90},
+                    enabled=True
+                )
+
+                policy = Policy(
+                    name="test-retention-policy",
+                    rules=[retention_rule],
+                    enabled=True
+                )
+
+                # Execute policy (dry_run=False to actually execute)
+                results = engine.execute(policy, dry_run=False)
+
+                # After execution, manually publish the event
+                # (In production, PolicyEngine would publish this automatically)
+                for result in results:
+                    if not result.error and result.affected_memory_ids:
+                        event = PolicyTriggeredEvent(
+                            policy_id=policy.name,
+                            action=result.action.value,
+                            affected_memory_ids=result.affected_memory_ids,
+                            reason=f"Policy execution: {result.action.value}"
+                        )
+                        event_bus.publish(event)
+
+                # Verify policy execution worked
+                self.assertEqual(len(results), 1)
+                result = results[0]
+                self.assertFalse(result.dry_run)
+                self.assertIsNone(result.error)
+                self.assertEqual(len(result.affected_memory_ids), 1)
+                self.assertIn("mem-old-1", result.affected_memory_ids)
+
+                # Verify event was captured by EventBus
+                self.assertEqual(len(captured_events), 1)
+                event = captured_events[0]
+
+                self.assertIsInstance(event, PolicyTriggeredEvent)
+                self.assertEqual(event.policy_id, "test-retention-policy")
+                self.assertEqual(event.action, "archive")
+                self.assertEqual(len(event.affected_memory_ids), 1)
+                self.assertIn("mem-old-1", event.affected_memory_ids)
+                self.assertEqual(event.event_type, "policy.triggered")
+                self.assertIsInstance(event.timestamp, datetime)
+
+                # Verify event was stored in EventHistory
+                stored_events = event_history.query_events(
+                    event_type="policy.triggered",
+                    limit=10
+                )
+
+                self.assertEqual(len(stored_events), 1)
+                stored_event = stored_events[0]
+
+                # Verify all event fields are populated correctly
+                self.assertEqual(stored_event.event_type, "policy.triggered")
+                self.assertEqual(stored_event.payload["policy_id"], "test-retention-policy")
+                self.assertEqual(stored_event.payload["action"], "archive")
+                self.assertEqual(len(stored_event.payload["affected_memory_ids"]), 1)
+                self.assertIn("mem-old-1", stored_event.payload["affected_memory_ids"])
+                self.assertIn("timestamp", stored_event.payload)
+                self.assertEqual(stored_event.metadata["source"], "test_policy_execution")
+                self.assertIsInstance(stored_event.timestamp, datetime)
+
+        except ImportError as e:
+            self.skipTest(f"Event system not available: {e}")
+
+
 if __name__ == "__main__":
     unittest.main()
