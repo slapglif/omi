@@ -6,6 +6,7 @@ Integrates with OpenClaw
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
+import numpy as np
 
 # Storage tier - import from new modular locations
 from .storage.graph_palace import GraphPalace
@@ -111,7 +112,100 @@ class MemoryTools:
         get_event_bus().publish(event)
 
         return results
-    
+
+    def memory_recall_at(self,
+                        query: str,
+                        timestamp: datetime,
+                        limit: int = 10,
+                        memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        memory_recall_at: Point-in-time recall with semantic search
+
+        Queries memories as they existed at a specific timestamp, then ranks
+        by relevance to the query with recency weighting (relative to timestamp).
+
+        Args:
+            query: Natural language search query
+            timestamp: Point in time to query (datetime object)
+            limit: Max results (default: 10)
+            memory_type: Filter by type (fact|experience|belief|decision)
+
+        Returns:
+            Memories sorted by relevance + recency as they existed at timestamp
+        """
+        # Get all memories as they existed at the timestamp
+        historical_memories = self.palace.recall_at(timestamp)
+
+        # Filter by memory type if specified
+        if memory_type:
+            historical_memories = [
+                mem for mem in historical_memories
+                if mem.memory_type == memory_type
+            ]
+
+        # Generate query embedding for semantic search
+        query_embedding = self.cache.get_or_compute(query)
+
+        # Compute cosine similarity for each historical memory
+        candidates: List[Dict[str, Any]] = []
+        for memory in historical_memories:
+            mem_dict = memory.to_dict()
+
+            # Compute relevance via cosine similarity if embedding exists
+            if memory.embedding:
+                # Normalize embeddings
+                query_norm = np.linalg.norm(query_embedding)
+                mem_norm = np.linalg.norm(memory.embedding)
+
+                if query_norm > 0 and mem_norm > 0:
+                    # Cosine similarity
+                    similarity = np.dot(query_embedding, memory.embedding) / (query_norm * mem_norm)
+                    relevance = float(similarity)
+                else:
+                    relevance = 0.0
+            else:
+                # No embedding available, use low baseline relevance
+                relevance = 0.3
+
+            mem_dict['relevance'] = relevance
+            candidates.append(mem_dict)
+
+        # Apply recency weighting relative to the query timestamp
+        half_life = 30.0  # days
+
+        weighted: List[Dict[str, Any]] = []
+        for mem in candidates:
+            created_at = mem.get('created_at')
+            if isinstance(created_at, str):
+                try:
+                    created_at = datetime.fromisoformat(created_at)
+                except (ValueError, TypeError):
+                    created_at = timestamp
+            elif created_at is None:
+                created_at = timestamp
+
+            # Calculate days from creation to query timestamp (not current time)
+            days_ago = (timestamp - created_at).days
+            recency = calculate_recency_score(days_ago, half_life)
+
+            final_score = (mem.get('relevance', 0.7) * 0.7) + (recency * 0.3)
+            mem['final_score'] = final_score
+            weighted.append(mem)
+
+        # Sort by final score
+        weighted.sort(key=lambda x: x.get('final_score', 0.0), reverse=True)
+        results = weighted[:limit]
+
+        # Emit event
+        event = MemoryRecalledEvent(
+            query=f"{query} (at {timestamp.isoformat()})",
+            result_count=len(results),
+            top_results=results
+        )
+        get_event_bus().publish(event)
+
+        return results
+
     def store(self,
              content: str,
              memory_type: str = 'experience',
