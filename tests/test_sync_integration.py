@@ -613,6 +613,147 @@ class TestMultiLeaderSync(unittest.TestCase):
         # Vector clock should have an entry for leader-1
         assert "leader-1" in memory.vector_clock or len(memory.vector_clock) == 0
 
+    def test_partition_reconciliation(self):
+        """Test network partition handling and reconciliation in multi-leader topology."""
+        from omi.export_import import MemoryExporter, MemoryImporter, ConflictResolution
+        from omi.sync.conflict_resolver import ConflictResolver, ConflictStrategy
+
+        # Register both leaders with each other
+        self.leader1_manager.register_instance("leader-2", "http://localhost:8002")
+        self.leader2_manager.register_instance("leader-1", "http://localhost:8001")
+
+        # Verify initial registration
+        status1 = self.leader1_manager.get_sync_status()
+        status2 = self.leader2_manager.get_sync_status()
+        assert status1["registered_instances"] >= 2
+        assert status2["registered_instances"] >= 2
+
+        # PHASE 1: Pre-partition - both instances in sync
+        # Store a memory on leader1 that will be synced before partition
+        pre_partition_id = self.leader1_db.store_memory(
+            content="Pre-partition memory - synced to both",
+            memory_type="fact",
+            confidence=0.90
+        )
+
+        # Simulate sync: export from leader1 and import to leader2
+        exporter1 = MemoryExporter(self.leader1_db)
+        exported_pre_partition = exporter1.export_to_dict()
+        importer2 = MemoryImporter(self.leader2_db)
+        result = importer2.import_from_dict(exported_pre_partition, conflict_strategy=ConflictResolution.SKIP)
+        assert result["imported"] >= 1
+
+        # Verify pre-partition memory exists on both leaders
+        pre_mem_leader1 = self.leader1_db.get_memory(pre_partition_id)
+        pre_mem_leader2 = self.leader2_db.get_memory(pre_partition_id)
+        assert pre_mem_leader1 is not None
+        assert pre_mem_leader2 is not None
+        assert pre_mem_leader1.content == pre_mem_leader2.content
+
+        # PHASE 2: Simulate network partition
+        # In a real scenario, network calls would fail. Here we simulate by:
+        # - Setting sync state to ERROR or PARTITIONED
+        # - Making changes on both sides without syncing
+        self.leader1_manager.set_state(SyncState.ERROR)
+        self.leader2_manager.set_state(SyncState.ERROR)
+
+        # Verify both instances detect the partition
+        assert self.leader1_manager.get_state() == SyncState.ERROR
+        assert self.leader2_manager.get_state() == SyncState.ERROR
+
+        # Make changes on leader1 during partition
+        partition_id_leader1 = self.leader1_db.store_memory(
+            content="Memory created on leader-1 during partition",
+            memory_type="fact",
+            confidence=0.85
+        )
+
+        # Make changes on leader2 during partition
+        partition_id_leader2 = self.leader2_db.store_memory(
+            content="Memory created on leader-2 during partition",
+            memory_type="fact",
+            confidence=0.88
+        )
+
+        # Verify each instance has its own memory but not the other's
+        leader1_mem = self.leader1_db.get_memory(partition_id_leader1)
+        leader2_mem = self.leader2_db.get_memory(partition_id_leader2)
+        assert leader1_mem is not None
+        assert leader2_mem is not None
+
+        # Leader1 should not have leader2's memory yet
+        assert self.leader1_db.get_memory(partition_id_leader2) is None
+
+        # Leader2 should not have leader1's memory yet
+        assert self.leader2_db.get_memory(partition_id_leader1) is None
+
+        # PHASE 3: Partition heals - reconciliation begins
+        # Set both back to SYNCING state to simulate healing
+        self.leader1_manager.set_state(SyncState.SYNCING)
+        self.leader2_manager.set_state(SyncState.SYNCING)
+
+        # Verify transition to syncing state
+        assert self.leader1_manager.get_state() == SyncState.SYNCING
+        assert self.leader2_manager.get_state() == SyncState.SYNCING
+
+        # PHASE 4: Bidirectional sync (reconciliation)
+        # Sync from leader1 to leader2
+        exporter_l1 = MemoryExporter(self.leader1_db)
+        exported_l1 = exporter_l1.export_to_dict()
+        importer_l2 = MemoryImporter(self.leader2_db)
+        result_l1_to_l2 = importer_l2.import_from_dict(
+            exported_l1,
+            conflict_strategy=ConflictResolution.OVERWRITE
+        )
+
+        # Sync from leader2 to leader1
+        exporter_l2 = MemoryExporter(self.leader2_db)
+        exported_l2 = exporter_l2.export_to_dict()
+        importer_l1 = MemoryImporter(self.leader1_db)
+        result_l2_to_l1 = importer_l1.import_from_dict(
+            exported_l2,
+            conflict_strategy=ConflictResolution.OVERWRITE
+        )
+
+        # Verify reconciliation succeeded
+        assert len(result_l1_to_l2["errors"]) == 0
+        assert len(result_l2_to_l1["errors"]) == 0
+        assert result_l1_to_l2["imported"] >= 1
+        assert result_l2_to_l1["imported"] >= 1
+
+        # PHASE 5: Post-reconciliation verification
+        # Both leaders should now have all memories
+        # Leader1 should have leader2's partition memory
+        leader1_has_leader2_mem = self.leader1_db.get_memory(partition_id_leader2)
+        assert leader1_has_leader2_mem is not None
+        assert leader1_has_leader2_mem.content == "Memory created on leader-2 during partition"
+
+        # Leader2 should have leader1's partition memory
+        leader2_has_leader1_mem = self.leader2_db.get_memory(partition_id_leader1)
+        assert leader2_has_leader1_mem is not None
+        assert leader2_has_leader1_mem.content == "Memory created on leader-1 during partition"
+
+        # Both should still have the pre-partition memory
+        assert self.leader1_db.get_memory(pre_partition_id) is not None
+        assert self.leader2_db.get_memory(pre_partition_id) is not None
+
+        # Return to ACTIVE state after successful reconciliation
+        self.leader1_manager.set_state(SyncState.ACTIVE)
+        self.leader2_manager.set_state(SyncState.ACTIVE)
+
+        # Verify both are back to ACTIVE state
+        assert self.leader1_manager.get_state() == SyncState.ACTIVE
+        assert self.leader2_manager.get_state() == SyncState.ACTIVE
+
+        # Final sync status check
+        final_status1 = self.leader1_manager.get_sync_status()
+        final_status2 = self.leader2_manager.get_sync_status()
+
+        assert final_status1["state"] == "active"
+        assert final_status2["state"] == "active"
+        assert final_status1["registered_instances"] >= 2
+        assert final_status2["registered_instances"] >= 2
+
 
 if __name__ == '__main__':
     unittest.main()
