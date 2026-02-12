@@ -246,25 +246,29 @@ class GraphPalace:
                    content: str,
                    embedding: Optional[List[float]] = None,
                    memory_type: str = "experience",
-                   confidence: Optional[float] = None) -> str:
+                   confidence: Optional[float] = None,
+                   memory_id: Optional[str] = None) -> str:
         """
         Store a memory in the palace.
+
+        If memory_id is provided and exists, creates a new version (UPDATE operation).
+        Otherwise, creates a new memory (CREATE operation).
 
         Args:
             content: The memory content text
             embedding: Vector embedding (1024-dim for bge-m3)
             memory_type: One of (fact, experience, belief, decision)
             confidence: 0.0-1.0 for beliefs
+            memory_id: Optional UUID for updating existing memory
 
         Returns:
-            memory_id: UUID of the created memory
+            memory_id: UUID of the created/updated memory
         """
         self._validate_memory_type(memory_type)
 
         if confidence is not None and (confidence < 0 or confidence > 1):
             raise ValueError("confidence must be between 0.0 and 1.0")
 
-        memory_id = str(uuid.uuid4())
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         now = datetime.now().isoformat()
 
@@ -273,27 +277,93 @@ class GraphPalace:
 
         # Use lock for thread-safe database access
         with self._db_lock:
-            self._conn.execute("""
-                INSERT INTO memories
-                (id, content, embedding, memory_type, confidence, created_at,
-                 last_accessed, access_count, instance_ids, content_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                memory_id,
-                content,
-                embedding_blob,
-                memory_type,
-                confidence,
-                now,
-                now,
-                0,
-                json.dumps([]),
-                content_hash
-            ))
-            # Insert into FTS index
-            self._conn.execute("""
-                INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
-            """, (memory_id, content))
+            # Check if this is an update (memory_id provided and exists)
+            is_update = False
+            if memory_id is not None:
+                cursor = self._conn.execute(
+                    "SELECT id FROM memories WHERE id = ?", (memory_id,)
+                )
+                is_update = cursor.fetchone() is not None
+
+            if is_update:
+                # UPDATE: Create new version and update memory
+                # Get the next version number
+                cursor = self._conn.execute("""
+                    SELECT COALESCE(MAX(version_number), 0) + 1
+                    FROM memory_versions
+                    WHERE memory_id = ?
+                """, (memory_id,))
+                next_version = cursor.fetchone()[0]
+
+                # Get the previous version_id (most recent version)
+                cursor = self._conn.execute("""
+                    SELECT version_id
+                    FROM memory_versions
+                    WHERE memory_id = ?
+                    ORDER BY version_number DESC
+                    LIMIT 1
+                """, (memory_id,))
+                prev_row = cursor.fetchone()
+                previous_version_id = prev_row[0] if prev_row else None
+
+                # Insert new version
+                version_id = str(uuid.uuid4())
+                self._conn.execute("""
+                    INSERT INTO memory_versions
+                    (version_id, memory_id, content, version_number, operation_type, created_at, previous_version_id)
+                    VALUES (?, ?, ?, ?, 'UPDATE', ?, ?)
+                """, (version_id, memory_id, content, next_version, now, previous_version_id))
+
+                # Update the memories table
+                self._conn.execute("""
+                    UPDATE memories
+                    SET content = ?, embedding = ?, memory_type = ?, confidence = ?,
+                        last_accessed = ?, content_hash = ?
+                    WHERE id = ?
+                """, (content, embedding_blob, memory_type, confidence, now, content_hash, memory_id))
+
+                # Update FTS index
+                self._conn.execute("""
+                    UPDATE memories_fts SET content = ? WHERE memory_id = ?
+                """, (content, memory_id))
+
+            else:
+                # CREATE: New memory
+                if memory_id is None:
+                    memory_id = str(uuid.uuid4())
+
+                # Insert into memories table
+                self._conn.execute("""
+                    INSERT INTO memories
+                    (id, content, embedding, memory_type, confidence, created_at,
+                     last_accessed, access_count, instance_ids, content_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    memory_id,
+                    content,
+                    embedding_blob,
+                    memory_type,
+                    confidence,
+                    now,
+                    now,
+                    0,
+                    json.dumps([]),
+                    content_hash
+                ))
+
+                # Insert initial version
+                version_id = str(uuid.uuid4())
+                self._conn.execute("""
+                    INSERT INTO memory_versions
+                    (version_id, memory_id, content, version_number, operation_type, created_at, previous_version_id)
+                    VALUES (?, ?, ?, 1, 'CREATE', ?, NULL)
+                """, (version_id, memory_id, content, now))
+
+                # Insert into FTS index
+                self._conn.execute("""
+                    INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
+                """, (memory_id, content))
+
             self._conn.commit()
 
         # Cache the embedding for fast access
