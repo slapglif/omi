@@ -37,6 +37,7 @@ class Memory:
     access_count: int = 0
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
+    archived: bool = False  # Whether memory is archived (excluded from default search)
 
     def __post_init__(self) -> None:
         if self.created_at is None:
@@ -60,7 +61,8 @@ class Memory:
             "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
-            "content_hash": self.content_hash
+            "content_hash": self.content_hash,
+            "archived": self.archived
         }
 
 
@@ -276,8 +278,8 @@ class GraphPalace:
             self._conn.execute("""
                 INSERT INTO memories
                 (id, content, embedding, memory_type, confidence, created_at,
-                 last_accessed, access_count, instance_ids, content_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 last_accessed, access_count, instance_ids, content_hash, archived)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 memory_id,
                 content,
@@ -288,7 +290,8 @@ class GraphPalace:
                 now,
                 0,
                 json.dumps([]),
-                content_hash
+                content_hash,
+                0  # archived = False (0)
             ))
             # Insert into FTS index
             self._conn.execute("""
@@ -324,7 +327,7 @@ class GraphPalace:
         # Retrieve memory
         cursor = self._conn.execute("""
             SELECT id, content, embedding, memory_type, confidence,
-                   created_at, last_accessed, access_count, instance_ids, content_hash
+                   created_at, last_accessed, access_count, instance_ids, content_hash, archived
             FROM memories WHERE id = ?
         """, (memory_id,))
 
@@ -346,7 +349,8 @@ class GraphPalace:
             last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
             access_count=row[7],
             instance_ids=instance_ids,
-            content_hash=row[9]
+            content_hash=row[9],
+            archived=bool(row[10])  # archived column (convert INTEGER to bool)
         )
 
         # Update cache
@@ -915,6 +919,31 @@ class GraphPalace:
             del self._embedding_cache[memory_id]
 
         return cursor.rowcount > 0
+
+    def archive_memories(self, memory_ids: List[str]) -> int:
+        """
+        Mark memories as archived (excluded from default search).
+
+        Args:
+            memory_ids: List of memory IDs to archive
+
+        Returns:
+            Number of memories successfully archived
+        """
+        if not memory_ids:
+            return 0
+
+        archived_count = 0
+        with self._db_lock:
+            for memory_id in memory_ids:
+                cursor = self._conn.execute("""
+                    UPDATE memories SET archived = 1 WHERE id = ?
+                """, (memory_id,))
+                if cursor.rowcount > 0:
+                    archived_count += 1
+            self._conn.commit()
+
+        return archived_count
 
     def get_stats(self) -> Dict[str, Any]:
         """

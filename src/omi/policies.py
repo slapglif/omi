@@ -771,6 +771,63 @@ class PolicyEngine:
         self._execution_history.clear()
 
 
+def archive_memories(graph_palace, memory_ids: List[str]) -> Dict[str, Any]:
+    """
+    Archive memories by marking them as archived (excluded from default search).
+
+    This is a policy action function that can be used by the PolicyEngine
+    or called directly to archive specific memories.
+
+    Args:
+        graph_palace: GraphPalace instance with archive_memories method
+        memory_ids: List of memory IDs to archive
+
+    Returns:
+        Dict with:
+            - success: bool indicating if operation completed
+            - archived_count: number of memories successfully archived
+            - memory_ids: list of archived memory IDs
+            - errors: list of any errors encountered
+
+    Example:
+        from omi.storage.graph_palace import GraphPalace
+        from omi.policies import archive_memories
+
+        palace = GraphPalace(db_path="palace.sqlite")
+        result = archive_memories(palace, ["mem-uuid-1", "mem-uuid-2"])
+        print(f"Archived {result['archived_count']} memories")
+    """
+    if not memory_ids:
+        return {
+            "success": True,
+            "archived_count": 0,
+            "memory_ids": [],
+            "errors": []
+        }
+
+    errors = []
+    archived_count = 0
+
+    try:
+        # Call the archive_memories method on the graph_palace instance
+        archived_count = graph_palace.archive_memories(memory_ids)
+
+        return {
+            "success": True,
+            "archived_count": archived_count,
+            "memory_ids": memory_ids[:archived_count],  # Only IDs that were actually archived
+            "errors": errors
+        }
+    except Exception as e:
+        errors.append(str(e))
+        return {
+            "success": False,
+            "archived_count": archived_count,
+            "memory_ids": [],
+            "errors": errors
+        }
+
+
 # Export all policy types, actions, and classes
 __all__ = [
     "PolicyType",
@@ -782,4 +839,5 @@ __all__ = [
     "ConfidencePolicy",
     "PolicyEngine",
     "PolicyExecutionResult",
+    "archive_memories",
 ]
