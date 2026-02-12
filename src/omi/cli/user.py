@@ -206,3 +206,163 @@ def user_set_role(ctx, username: str, role: str) -> None:
     except Exception as e:
         echo_quiet(click.style(f"Error: Failed to change role: {e}", fg="red"), verbosity)
         sys.exit(1)
+
+
+@user_group.command('create-api-key')
+@click.argument('username')
+@click.pass_context
+def user_create_api_key(ctx, username: str) -> None:
+    """Create API key for a user.
+
+    Args:
+        username: Username to create API key for
+
+    Examples:
+        omi user create-api-key alice
+        omi user create-api-key bob
+
+    Note:
+        The API key is only shown once. Store it securely.
+    """
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+
+    if not base_path.exists():
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        sys.exit(1)
+
+    try:
+        from ..user_manager import UserManager
+
+        db_path = base_path / "palace.sqlite"
+        user_manager = UserManager(str(db_path))
+
+        # Get user by username
+        user = user_manager.get_user_by_username(username)
+        if not user:
+            echo_quiet(click.style(f"Error: User '{username}' not found.", fg="red"), verbosity)
+            sys.exit(1)
+
+        # Create API key
+        key_id, api_key = user_manager.create_api_key(user.id)
+
+        echo_normal(click.style("✓ API key created", fg="green", bold=True), verbosity)
+        echo_normal(f"  User: {click.style(username, fg='cyan')}", verbosity)
+        echo_normal(f"  Key ID: {click.style(key_id, fg='cyan')}", verbosity)
+        echo_quiet(click.style(f"\n  API Key: {api_key}", fg="yellow", bold=True), verbosity)
+        echo_quiet(click.style("  ⚠ Store this key securely. It will not be shown again.", fg="yellow"), verbosity)
+
+        user_manager.close()
+    except Exception as e:
+        echo_quiet(click.style(f"Error: Failed to create API key: {e}", fg="red"), verbosity)
+        sys.exit(1)
+
+
+@user_group.command('list-api-keys')
+@click.argument('username')
+@click.option('--json-output', is_flag=True, help='Output as JSON')
+@click.pass_context
+def user_list_api_keys(ctx, username: str, json_output: bool) -> None:
+    """List API keys for a user.
+
+    Args:
+        username: Username to list API keys for
+        --json: Output as JSON (for scripts)
+
+    Examples:
+        omi user list-api-keys alice
+        omi user list-api-keys bob --json
+    """
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+
+    if not base_path.exists():
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        sys.exit(1)
+
+    try:
+        from ..user_manager import UserManager
+
+        db_path = base_path / "palace.sqlite"
+        user_manager = UserManager(str(db_path))
+
+        # Get user by username
+        user = user_manager.get_user_by_username(username)
+        if not user:
+            echo_quiet(click.style(f"Error: User '{username}' not found.", fg="red"), verbosity)
+            sys.exit(1)
+
+        # Get API keys
+        api_keys = user_manager.get_api_keys(user.id)
+
+        if json_output:
+            import json
+            keys_data = [key.to_dict() for key in api_keys]
+            click.echo(json.dumps(keys_data, indent=2))
+        else:
+            echo_normal(click.style(f"API Keys for {username}", fg="cyan", bold=True), verbosity)
+            echo_normal("=" * 60, verbosity)
+
+            if not api_keys:
+                echo_normal(click.style("No API keys found.", fg="yellow"), verbosity)
+            else:
+                for key in api_keys:
+                    echo_normal(f"\n  Key ID: {click.style(key.id, fg='cyan')}", verbosity)
+                    echo_normal(f"  Created: {key.created_at}", verbosity)
+                    if key.last_used:
+                        echo_normal(f"  Last used: {key.last_used}", verbosity)
+                    else:
+                        echo_normal(f"  Last used: {click.style('Never', fg='yellow')}", verbosity)
+
+        user_manager.close()
+    except Exception as e:
+        echo_quiet(click.style(f"Error: Failed to list API keys: {e}", fg="red"), verbosity)
+        sys.exit(1)
+
+
+@user_group.command('revoke-api-key')
+@click.argument('key_id')
+@click.option('--force', '-f', is_flag=True, help='Skip confirmation prompt')
+@click.pass_context
+def user_revoke_api_key(ctx, key_id: str, force: bool) -> None:
+    """Revoke an API key.
+
+    Args:
+        key_id: UUID of the API key to revoke
+        --force: Skip confirmation prompt
+
+    Examples:
+        omi user revoke-api-key abc123-def456-...
+        omi user revoke-api-key abc123-def456-... --force
+    """
+    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+
+    if not base_path.exists():
+        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        sys.exit(1)
+
+    if not force:
+        if not click.confirm(f"Revoke API key '{key_id}'?"):
+            echo_normal(click.style("Cancelled.", fg="yellow"), verbosity)
+            return
+
+    try:
+        from ..user_manager import UserManager
+
+        db_path = base_path / "palace.sqlite"
+        user_manager = UserManager(str(db_path))
+
+        # Revoke API key
+        success = user_manager.revoke_api_key(key_id)
+
+        if success:
+            echo_normal(click.style(f"✓ API key '{key_id}' revoked", fg="green", bold=True), verbosity)
+        else:
+            echo_quiet(click.style(f"Error: API key '{key_id}' not found.", fg="red"), verbosity)
+            sys.exit(1)
+
+        user_manager.close()
+    except Exception as e:
+        echo_quiet(click.style(f"Error: Failed to revoke API key: {e}", fg="red"), verbosity)
+        sys.exit(1)
