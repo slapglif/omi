@@ -179,6 +179,59 @@ class EndSessionResponse(BaseModel):
     message: str = Field(default="Session ended successfully")
 
 
+# Admin endpoints Pydantic models
+class CreateUserRequest(BaseModel):
+    """Request body for creating a user."""
+    username: str = Field(..., description="Unique username")
+    email: Optional[str] = Field(default=None, description="User email address")
+    role: Optional[str] = Field(default=None, description="Initial role to assign (admin, developer, reader, auditor)")
+
+
+class CreateUserResponse(BaseModel):
+    """Response after creating a user."""
+    user_id: str = Field(..., description="UUID of created user")
+    username: str = Field(..., description="Username")
+    message: str = Field(default="User created successfully")
+
+
+class UserResponse(BaseModel):
+    """User information response."""
+    id: str = Field(..., description="User ID")
+    username: str = Field(..., description="Username")
+    email: Optional[str] = Field(default=None, description="Email address")
+    created_at: Optional[str] = Field(default=None, description="Creation timestamp")
+    roles: List[Dict[str, Any]] = Field(default_factory=list, description="Assigned roles")
+
+
+class ListUsersResponse(BaseModel):
+    """Response containing list of users."""
+    users: List[UserResponse] = Field(..., description="List of users")
+    count: int = Field(..., description="Number of users")
+
+
+class AuditLogEntry(BaseModel):
+    """Audit log entry."""
+    id: str = Field(..., description="Audit log entry ID")
+    user_id: str = Field(..., description="User who performed the action")
+    action: str = Field(..., description="Action performed")
+    resource: str = Field(..., description="Resource accessed")
+    namespace: Optional[str] = Field(default=None, description="Namespace")
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata")
+    timestamp: str = Field(..., description="Timestamp of the action")
+
+
+class AuditLogResponse(BaseModel):
+    """Response containing audit log entries."""
+    entries: List[AuditLogEntry] = Field(..., description="List of audit log entries")
+    count: int = Field(..., description="Number of entries")
+
+
+class DeleteUserResponse(BaseModel):
+    """Response after deleting a user."""
+    user_id: str = Field(..., description="UUID of deleted user")
+    message: str = Field(default="User deleted successfully")
+
+
 # Initialize components
 _memory_tools_instance = None
 _belief_tools_instance = None
@@ -349,6 +402,10 @@ environment variable to enable authentication.
         {
             "name": "Events",
             "description": "Server-Sent Events (SSE) for real-time operation streaming"
+        },
+        {
+            "name": "Admin",
+            "description": "Admin-only user management and audit log endpoints (requires admin role)"
         }
     ]
 )
@@ -410,6 +467,10 @@ async def root() -> Dict[str, Any]:
             "/api/v1/dashboard/beliefs": "Retrieve belief network data",
             "/api/v1/dashboard/stats": "Get database storage statistics",
             "/api/v1/dashboard/search": "Semantic search for memories",
+            "/api/v1/admin/users": "GET - List all users (admin only)",
+            "/api/v1/admin/users": "POST - Create new user (admin only)",
+            "/api/v1/admin/users/{id}": "DELETE - Delete user (admin only)",
+            "/api/v1/admin/audit-log": "GET - View audit log (admin only)",
             "/health": "Health check endpoint"
         }
     }
@@ -760,6 +821,379 @@ async def end_session(request: EndSessionRequest, user: User = Depends(verify_ap
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to end session: {str(e)}"
+        )
+
+
+# Admin-only endpoints
+@app.get("/api/v1/admin/users", response_model=ListUsersResponse, tags=["Admin"], summary="List all users (admin only)")
+async def admin_list_users(user: User = Depends(verify_api_key)):
+    """
+    List all users in the system.
+
+    Requires admin role.
+
+    Returns:
+        ListUsersResponse with all users and their roles
+
+    Raises:
+        HTTPException: 403 if user is not an admin
+    """
+    # Check admin permission
+    rbac = get_rbac_manager()
+
+    if not rbac.check_permission(user.id, "admin", "user"):
+        # Log permission denied
+        log_audit(
+            user_id=user.id,
+            action="admin_list_users",
+            resource="user",
+            metadata={"reason": "permission_denied"},
+            success=False
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user.username}' does not have admin permission"
+        )
+
+    try:
+        user_manager = get_user_manager()
+        users = user_manager.list_users()
+
+        # Get roles for each user
+        user_responses = []
+        for u in users:
+            roles = user_manager.get_user_roles(u.id)
+            role_list = [{"role": role, "namespace": ns} for role, ns in roles]
+            user_responses.append(UserResponse(
+                id=u.id,
+                username=u.username,
+                email=u.email,
+                created_at=u.created_at.isoformat() if u.created_at else None,
+                roles=role_list
+            ))
+
+        # Log successful operation
+        log_audit(
+            user_id=user.id,
+            action="admin_list_users",
+            resource="user",
+            metadata={"count": len(user_responses)},
+            success=True
+        )
+
+        return ListUsersResponse(users=user_responses, count=len(user_responses))
+
+    except Exception as e:
+        # Log failure
+        log_audit(
+            user_id=user.id,
+            action="admin_list_users",
+            resource="user",
+            metadata={"error": str(e)},
+            success=False
+        )
+        logger.error(f"Error listing users: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list users: {str(e)}"
+        )
+
+
+@app.get("/api/v1/admin/audit-log", response_model=AuditLogResponse, tags=["Admin"], summary="View audit log (admin only)")
+async def admin_get_audit_log(
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of entries to return"),
+    offset: int = Query(0, ge=0, description="Number of entries to skip"),
+    user_id_filter: Optional[str] = Query(None, description="Filter by user ID"),
+    action_filter: Optional[str] = Query(None, description="Filter by action"),
+    user: User = Depends(verify_api_key)
+):
+    """
+    Retrieve audit log entries.
+
+    Requires admin role.
+
+    Query Parameters:
+        limit: Maximum number of entries to return (1-1000, default 100)
+        offset: Number of entries to skip for pagination (default 0)
+        user_id_filter: Optional filter by user ID
+        action_filter: Optional filter by action
+
+    Returns:
+        AuditLogResponse with audit log entries
+
+    Raises:
+        HTTPException: 403 if user is not an admin
+    """
+    # Check audit permission
+    rbac = get_rbac_manager()
+
+    if not rbac.check_permission(user.id, "audit", "audit_log"):
+        # Log permission denied
+        log_audit(
+            user_id=user.id,
+            action="admin_get_audit_log",
+            resource="audit_log",
+            metadata={"reason": "permission_denied"},
+            success=False
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user.username}' does not have audit permission"
+        )
+
+    try:
+        base_path = Path.home() / '.openclaw' / 'omi'
+        db_path = base_path / 'palace.sqlite'
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+
+        # Build query with optional filters
+        query = "SELECT id, user_id, action, resource, namespace, metadata, timestamp FROM audit_log WHERE 1=1"
+        params = []
+
+        if user_id_filter:
+            query += " AND user_id = ?"
+            params.append(user_id_filter)
+
+        if action_filter:
+            query += " AND action = ?"
+            params.append(action_filter)
+
+        query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        # Convert to AuditLogEntry objects
+        entries = []
+        for row in rows:
+            metadata = json.loads(row[5]) if row[5] else None
+            entries.append(AuditLogEntry(
+                id=row[0],
+                user_id=row[1],
+                action=row[2],
+                resource=row[3],
+                namespace=row[4],
+                metadata=metadata,
+                timestamp=row[6]
+            ))
+
+        conn.close()
+
+        # Log successful operation
+        log_audit(
+            user_id=user.id,
+            action="admin_get_audit_log",
+            resource="audit_log",
+            metadata={"count": len(entries), "filters": {"user_id": user_id_filter, "action": action_filter}},
+            success=True
+        )
+
+        return AuditLogResponse(entries=entries, count=len(entries))
+
+    except Exception as e:
+        # Log failure
+        log_audit(
+            user_id=user.id,
+            action="admin_get_audit_log",
+            resource="audit_log",
+            metadata={"error": str(e)},
+            success=False
+        )
+        logger.error(f"Error retrieving audit log: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve audit log: {str(e)}"
+        )
+
+
+@app.post("/api/v1/admin/users", response_model=CreateUserResponse, status_code=status.HTTP_201_CREATED, tags=["Admin"], summary="Create new user (admin only)")
+async def admin_create_user(request: CreateUserRequest, user: User = Depends(verify_api_key)):
+    """
+    Create a new user.
+
+    Requires admin role.
+
+    Request Body:
+        username: Unique username
+        email: Optional email address
+        role: Optional initial role to assign
+
+    Returns:
+        CreateUserResponse with new user ID
+
+    Raises:
+        HTTPException: 403 if user is not an admin, 400 if username exists
+    """
+    # Check admin permission
+    rbac = get_rbac_manager()
+
+    if not rbac.check_permission(user.id, "admin", "user"):
+        # Log permission denied
+        log_audit(
+            user_id=user.id,
+            action="admin_create_user",
+            resource="user",
+            metadata={"reason": "permission_denied", "username": request.username},
+            success=False
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user.username}' does not have admin permission"
+        )
+
+    try:
+        user_manager = get_user_manager()
+
+        # Create user
+        new_user_id = user_manager.create_user(request.username, request.email)
+
+        # Assign role if provided
+        if request.role:
+            try:
+                user_manager.assign_role(new_user_id, request.role)
+            except ValueError as e:
+                # User created but role assignment failed
+                logger.warning(f"User created but role assignment failed: {e}")
+                # Don't fail the request, just log it
+
+        # Log successful operation
+        log_audit(
+            user_id=user.id,
+            action="admin_create_user",
+            resource=f"user/{new_user_id}",
+            metadata={
+                "new_user_id": new_user_id,
+                "username": request.username,
+                "role": request.role
+            },
+            success=True
+        )
+
+        return CreateUserResponse(user_id=new_user_id, username=request.username)
+
+    except ValueError as e:
+        # Log failure (likely duplicate username)
+        log_audit(
+            user_id=user.id,
+            action="admin_create_user",
+            resource="user",
+            metadata={"error": str(e), "username": request.username},
+            success=False
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Log failure
+        log_audit(
+            user_id=user.id,
+            action="admin_create_user",
+            resource="user",
+            metadata={"error": str(e), "username": request.username},
+            success=False
+        )
+        logger.error(f"Error creating user: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create user: {str(e)}"
+        )
+
+
+@app.delete("/api/v1/admin/users/{user_id}", response_model=DeleteUserResponse, tags=["Admin"], summary="Delete user (admin only)")
+async def admin_delete_user(user_id: str, user: User = Depends(verify_api_key)):
+    """
+    Delete a user and all associated data.
+
+    Requires admin role.
+
+    Path Parameters:
+        user_id: UUID of user to delete
+
+    Returns:
+        DeleteUserResponse confirming deletion
+
+    Raises:
+        HTTPException: 403 if user is not an admin, 404 if user not found
+    """
+    # Check admin permission
+    rbac = get_rbac_manager()
+
+    if not rbac.check_permission(user.id, "admin", "user"):
+        # Log permission denied
+        log_audit(
+            user_id=user.id,
+            action="admin_delete_user",
+            resource=f"user/{user_id}",
+            metadata={"reason": "permission_denied", "target_user_id": user_id},
+            success=False
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user.username}' does not have admin permission"
+        )
+
+    try:
+        user_manager = get_user_manager()
+
+        # Check if user exists
+        target_user = user_manager.get_user(user_id)
+        if not target_user:
+            # Log failure
+            log_audit(
+                user_id=user.id,
+                action="admin_delete_user",
+                resource=f"user/{user_id}",
+                metadata={"error": "User not found", "target_user_id": user_id},
+                success=False
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with ID '{user_id}' not found"
+            )
+
+        # Delete user
+        success = user_manager.delete_user(user_id)
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to delete user with ID '{user_id}'"
+            )
+
+        # Log successful operation
+        log_audit(
+            user_id=user.id,
+            action="admin_delete_user",
+            resource=f"user/{user_id}",
+            metadata={
+                "target_user_id": user_id,
+                "target_username": target_user.username
+            },
+            success=True
+        )
+
+        return DeleteUserResponse(user_id=user_id)
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log failure
+        log_audit(
+            user_id=user.id,
+            action="admin_delete_user",
+            resource=f"user/{user_id}",
+            metadata={"error": str(e), "target_user_id": user_id},
+            success=False
+        )
+        logger.error(f"Error deleting user: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete user: {str(e)}"
         )
 
 
