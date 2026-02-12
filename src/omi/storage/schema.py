@@ -54,6 +54,13 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
             FOREIGN KEY (target_id) REFERENCES memories(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS shared_namespaces (
+            namespace TEXT PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_by TEXT NOT NULL,
+            metadata TEXT  -- JSON for configuration and settings
+        );
+
         -- Indexes for performance
         CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
         CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
@@ -64,6 +71,8 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
         CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
         CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
         CREATE INDEX IF NOT EXISTS idx_edges_bidirectional ON edges(source_id, target_id);
+        CREATE INDEX IF NOT EXISTS idx_shared_namespaces_created_by ON shared_namespaces(created_by);
+        CREATE INDEX IF NOT EXISTS idx_shared_namespaces_created_at ON shared_namespaces(created_at);
     """)
 
     # Create standalone FTS5 virtual table for full-text search
