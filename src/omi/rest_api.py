@@ -44,6 +44,7 @@ from .storage.graph_palace import GraphPalace
 from .embeddings import OllamaEmbedder, EmbeddingCache
 from .belief import BeliefNetwork, ContradictionDetector
 from .user_manager import UserManager, User
+from .rbac import RBACManager
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ class EndSessionResponse(BaseModel):
 _memory_tools_instance = None
 _belief_tools_instance = None
 _user_manager_instance = None
+_rbac_manager_instance = None
 
 def get_memory_tools() -> MemoryTools:
     """Initialize and return MemoryTools instance (lazy initialization)."""
@@ -243,6 +245,22 @@ def get_user_manager() -> UserManager:
         _user_manager_instance = UserManager(str(db_path))
 
     return _user_manager_instance
+
+
+def get_rbac_manager() -> RBACManager:
+    """Initialize and return RBACManager instance (lazy initialization)."""
+    global _rbac_manager_instance
+
+    if _rbac_manager_instance is None:
+        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        db_path = base_path / 'palace.sqlite'
+
+        # Initialize RBACManager
+        _rbac_manager_instance = RBACManager(str(db_path))
+
+    return _rbac_manager_instance
 
 
 # Create FastAPI app
@@ -369,6 +387,14 @@ async def health() -> Dict[str, Any]:
 @app.post("/api/v1/store", response_model=StoreMemoryResponse, status_code=status.HTTP_201_CREATED, tags=["Memory Operations"], summary="Store a new memory")
 async def store_memory(request: StoreMemoryRequest, user: User = Depends(verify_api_key)):
     """Store a new memory with semantic embedding."""
+    # Check write permission on memory resource
+    rbac = get_rbac_manager()
+    if not rbac.check_permission(user.id, "write", "memory"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user.username}' does not have permission to write memories"
+        )
+
     try:
         tools = get_memory_tools()
         memory_id = tools.store(
@@ -395,6 +421,14 @@ async def recall_memory(
     user: User = Depends(verify_api_key)
 ):
     """Recall memories using semantic search with recency weighting."""
+    # Check read permission on memory resource
+    rbac = get_rbac_manager()
+    if not rbac.check_permission(user.id, "read", "memory"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user.username}' does not have permission to read memories"
+        )
+
     try:
         tools = get_memory_tools()
         memories = tools.recall(
@@ -415,6 +449,14 @@ async def recall_memory(
 @app.post("/api/v1/beliefs", response_model=CreateBeliefResponse, status_code=status.HTTP_201_CREATED, tags=["Belief Management"], summary="Create a new belief")
 async def create_belief(request: CreateBeliefRequest, user: User = Depends(verify_api_key)):
     """Create a new belief with initial confidence."""
+    # Check write permission on belief resource
+    rbac = get_rbac_manager()
+    if not rbac.check_permission(user.id, "write", "belief"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user.username}' does not have permission to write beliefs"
+        )
+
     try:
         tools = get_belief_tools()
         belief_id = tools.create(
@@ -433,6 +475,14 @@ async def create_belief(request: CreateBeliefRequest, user: User = Depends(verif
 @app.put("/api/v1/beliefs/{id}", response_model=UpdateBeliefResponse, tags=["Belief Management"], summary="Update belief with evidence")
 async def update_belief(id: str, request: UpdateBeliefRequest, user: User = Depends(verify_api_key)):
     """Update a belief with new evidence using EMA confidence updates."""
+    # Check write permission on belief resource
+    rbac = get_rbac_manager()
+    if not rbac.check_permission(user.id, "write", "belief"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user.username}' does not have permission to write beliefs"
+        )
+
     try:
         tools = get_belief_tools()
         new_confidence = tools.update(
@@ -453,6 +503,14 @@ async def update_belief(id: str, request: UpdateBeliefRequest, user: User = Depe
 @app.post("/api/v1/sessions/start", response_model=StartSessionResponse, status_code=status.HTTP_200_OK, tags=["Session Lifecycle"], summary="Start a new session")
 async def start_session(request: StartSessionRequest, user: User = Depends(verify_api_key)):
     """Start a new session."""
+    # Check write permission on memory resource (sessions track memory operations)
+    rbac = get_rbac_manager()
+    if not rbac.check_permission(user.id, "write", "memory"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user.username}' does not have permission to start sessions"
+        )
+
     try:
         import uuid
         session_id = request.session_id or str(uuid.uuid4())
@@ -473,6 +531,14 @@ async def start_session(request: StartSessionRequest, user: User = Depends(verif
 @app.post("/api/v1/sessions/end", response_model=EndSessionResponse, status_code=status.HTTP_200_OK, tags=["Session Lifecycle"], summary="End a session")
 async def end_session(request: EndSessionRequest, user: User = Depends(verify_api_key)):
     """End an existing session."""
+    # Check write permission on memory resource (sessions track memory operations)
+    rbac = get_rbac_manager()
+    if not rbac.check_permission(user.id, "write", "memory"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User '{user.username}' does not have permission to end sessions"
+        )
+
     try:
         event = SessionEndedEvent(
             session_id=request.session_id,
