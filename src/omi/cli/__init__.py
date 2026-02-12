@@ -25,6 +25,7 @@ from .events import events_group
 from .sync import sync_group
 from .plugins import plugins_group
 from .serve import serve_group
+from .snapshot import snapshot_group
 
 # CLI version - matches project version
 __version__ = "0.2.0"
@@ -114,6 +115,9 @@ cli.add_command(sync_group, name='sync')
 
 # Register plugins command group (plugins list)
 cli.add_command(plugins_group, name='plugins')
+
+# Register snapshot command group (snapshot create, list, diff, rollback)
+cli.add_command(snapshot_group, name='snapshot')
 
 
 @cli.command()
