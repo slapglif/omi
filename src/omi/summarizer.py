@@ -5,9 +5,38 @@ Pattern: Cloud API with configurable providers, consistent with embeddings.py se
 
 import os
 import json
+from pathlib import Path
 from typing import Optional, Dict, List, Union
 from dataclasses import dataclass
 from enum import Enum
+
+
+def load_compression_config(base_path: Union[str, Path]) -> Dict:
+    """Load compression configuration from config.yaml.
+
+    Args:
+        base_path: Base directory containing config.yaml
+
+    Returns:
+        Dictionary containing compression configuration.
+        Returns empty dict if config file doesn't exist or parsing fails.
+    """
+    if isinstance(base_path, str):
+        base_path = Path(base_path)
+
+    config_path = base_path / "config.yaml"
+
+    if not config_path.exists():
+        return {}
+
+    try:
+        import yaml
+        config = yaml.safe_load(config_path.read_text())
+        if config and isinstance(config, dict):
+            return config.get('compression', {})
+        return {}
+    except Exception:
+        return {}
 
 
 class LLMProvider(Enum):
