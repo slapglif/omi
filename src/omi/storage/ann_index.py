@@ -186,35 +186,42 @@ class ANNIndex:
 
             return results
 
+    def _save_unlocked(self) -> None:
+        """
+        Internal save method that doesn't acquire the lock.
+        Must be called while holding self._lock.
+        """
+        if not self.enable_persistence or self._index is None:
+            return
+
+        # Determine save path
+        if isinstance(self.db_path, Path):
+            index_path = self.db_path.parent / f"{self.db_path.stem}_{self.dim}.hnsw"
+        else:
+            return
+
+        # Save index
+        self._index.save_index(str(index_path))
+
+        # Save ID mappings as numpy archive
+        mapping_path = index_path.with_suffix('.npz')
+        np.savez(
+            mapping_path,
+            id_map_keys=list(self._id_map.keys()),
+            id_map_values=list(self._id_map.values()),
+            current_size=self._current_size,
+            max_capacity=self._max_capacity,
+            dim=self.dim
+        )
+
     def save(self) -> None:
         """
         Persist index to disk.
 
         Saves to {db_path_stem}_{dim}.hnsw (e.g., palace_1024.hnsw)
         """
-        if not self.enable_persistence or self._index is None:
-            return
-
         with self._lock:
-            # Determine save path
-            if isinstance(self.db_path, Path):
-                index_path = self.db_path.parent / f"{self.db_path.stem}_{self.dim}.hnsw"
-            else:
-                return
-
-            # Save index
-            self._index.save_index(str(index_path))
-
-            # Save ID mappings as numpy archive
-            mapping_path = index_path.with_suffix('.npz')
-            np.savez(
-                mapping_path,
-                id_map_keys=list(self._id_map.keys()),
-                id_map_values=list(self._id_map.values()),
-                current_size=self._current_size,
-                max_capacity=self._max_capacity,
-                dim=self.dim
-            )
+            self._save_unlocked()
 
     def load(self) -> bool:
         """
@@ -339,4 +346,4 @@ class ANNIndex:
 
             # Save to disk if persistence is enabled
             if self.enable_persistence:
-                self.save()
+                self._save_unlocked()
