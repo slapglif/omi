@@ -1234,6 +1234,22 @@ def test_index_rebuild():
                 init_result = runner.invoke(cli, ["init"])
                 assert init_result.exit_code == 0
 
+            # Add a test memory with embedding to the database
+            import sqlite3
+            import struct
+            db_path = base_path / "palace.sqlite"
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            # Create a test embedding (1024-dim for NIM)
+            test_embedding = [0.1] * 1024
+            embedding_blob = struct.pack(f'{len(test_embedding)}f', *test_embedding)
+            cursor.execute(
+                "INSERT INTO memories (id, content, memory_type, embedding) VALUES (?, ?, ?, ?)",
+                ("test-id-1", "Test memory content", "fact", embedding_blob)
+            )
+            conn.commit()
+            conn.close()
+
             # Create mock ANNIndex
             mock_ann_index = MagicMock()
 
