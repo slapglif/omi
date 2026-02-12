@@ -832,6 +832,154 @@ class TestGraphPalace(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.palace.list_beliefs(order_dir="sideways")
 
+    # ==================== Edge Pagination ====================
+
+    def test_list_edges_basic(self):
+        """Test basic list_edges pagination."""
+        # Create some memories and edges
+        m1 = self.palace.store_memory(content="Memory 1", memory_type="fact")
+        m2 = self.palace.store_memory(content="Memory 2", memory_type="fact")
+        m3 = self.palace.store_memory(content="Memory 3", memory_type="fact")
+
+        # Create 8 edges
+        for i in range(8):
+            if i % 2 == 0:
+                self.palace.create_edge(m1, m2, "RELATED_TO", strength=0.5 + (i * 0.05))
+            else:
+                self.palace.create_edge(m2, m3, "SUPPORTS", strength=0.6 + (i * 0.05))
+
+        # Get first page
+        result = self.palace.list_edges(limit=5)
+
+        self.assertEqual(len(result["edges"]), 5)
+        self.assertEqual(result["total_count"], 8)
+        self.assertTrue(result["has_more"])
+        self.assertIsNotNone(result["next_cursor"])
+
+    def test_list_edges_cursor_pagination(self):
+        """Test cursor-based pagination through all edges."""
+        # Create memories
+        m1 = self.palace.store_memory(content="M1", memory_type="fact")
+        m2 = self.palace.store_memory(content="M2", memory_type="fact")
+        m3 = self.palace.store_memory(content="M3", memory_type="fact")
+
+        # Create 12 edges
+        edge_ids = []
+        for i in range(12):
+            source = m1 if i % 3 == 0 else m2
+            target = m2 if i % 3 == 0 else m3
+            edge_id = self.palace.create_edge(source, target, "RELATED_TO", strength=0.5)
+            edge_ids.append(edge_id)
+
+        # Page 1
+        result = self.palace.list_edges(limit=5, order_by="created_at", order_dir="asc")
+        self.assertEqual(len(result["edges"]), 5)
+        self.assertTrue(result["has_more"])
+        page1_ids = [e["id"] for e in result["edges"]]
+
+        # Page 2
+        result2 = self.palace.list_edges(limit=5, cursor=result["next_cursor"])
+        self.assertEqual(len(result2["edges"]), 5)
+        self.assertTrue(result2["has_more"])
+        page2_ids = [e["id"] for e in result2["edges"]]
+
+        # Ensure no overlap between pages
+        self.assertEqual(len(set(page1_ids) & set(page2_ids)), 0)
+
+        # Page 3 (last page)
+        result3 = self.palace.list_edges(limit=5, cursor=result2["next_cursor"])
+        self.assertEqual(len(result3["edges"]), 2)
+        self.assertFalse(result3["has_more"])
+        self.assertEqual(result3["next_cursor"], "")
+
+    def test_list_edges_filter_by_type(self):
+        """Test filtering edges by type."""
+        m1 = self.palace.store_memory(content="M1", memory_type="fact")
+        m2 = self.palace.store_memory(content="M2", memory_type="fact")
+        m3 = self.palace.store_memory(content="M3", memory_type="fact")
+
+        # Create different edge types
+        self.palace.create_edge(m1, m2, "SUPPORTS", strength=0.8)
+        self.palace.create_edge(m1, m3, "SUPPORTS", strength=0.7)
+        self.palace.create_edge(m2, m3, "CONTRADICTS", strength=0.9)
+        self.palace.create_edge(m1, m2, "RELATED_TO", strength=0.6)
+
+        # Filter for SUPPORTS only
+        result = self.palace.list_edges(edge_type="SUPPORTS")
+        self.assertEqual(result["total_count"], 2)
+        self.assertEqual(len(result["edges"]), 2)
+
+        for edge in result["edges"]:
+            self.assertEqual(edge["edge_type"], "SUPPORTS")
+
+    def test_list_edges_order_by_strength(self):
+        """Test ordering edges by strength."""
+        m1 = self.palace.store_memory(content="M1", memory_type="fact")
+        m2 = self.palace.store_memory(content="M2", memory_type="fact")
+        m3 = self.palace.store_memory(content="M3", memory_type="fact")
+
+        # Create edges with different strengths
+        e1 = self.palace.create_edge(m1, m2, "RELATED_TO", strength=0.9)  # Highest
+        e2 = self.palace.create_edge(m2, m3, "SUPPORTS", strength=0.5)    # Lowest
+        e3 = self.palace.create_edge(m1, m3, "RELATED_TO", strength=0.7)  # Middle
+
+        # Order by strength desc
+        result = self.palace.list_edges(order_by="strength", order_dir="desc", limit=10)
+
+        # First should be highest strength
+        self.assertEqual(result["edges"][0]["id"], e1)
+        self.assertAlmostEqual(result["edges"][0]["strength"], 0.9, places=4)
+
+        # Last should be lowest strength
+        self.assertEqual(result["edges"][-1]["id"], e2)
+        self.assertAlmostEqual(result["edges"][-1]["strength"], 0.5, places=4)
+
+    def test_list_edges_empty(self):
+        """Test list_edges with no edges."""
+        # Create memories but no edges
+        self.palace.store_memory(content="M1", memory_type="fact")
+
+        result = self.palace.list_edges(limit=10)
+
+        self.assertEqual(len(result["edges"]), 0)
+        self.assertEqual(result["total_count"], 0)
+        self.assertFalse(result["has_more"])
+        self.assertEqual(result["next_cursor"], "")
+
+    def test_list_edges_invalid_edge_type(self):
+        """Test invalid edge type raises error."""
+        with self.assertRaises(ValueError):
+            self.palace.list_edges(edge_type="INVALID_TYPE")
+
+    def test_list_edges_invalid_order_by(self):
+        """Test invalid order_by field raises error."""
+        with self.assertRaises(ValueError):
+            self.palace.list_edges(order_by="invalid_field")
+
+    def test_list_edges_invalid_order_dir(self):
+        """Test invalid order direction raises error."""
+        with self.assertRaises(ValueError):
+            self.palace.list_edges(order_dir="sideways")
+
+    def test_list_edges_invalid_limit(self):
+        """Test invalid limit values raise errors."""
+        with self.assertRaises(ValueError):
+            self.palace.list_edges(limit=0)
+
+        with self.assertRaises(ValueError):
+            self.palace.list_edges(limit=1001)
+
+    def test_list_edges_invalid_cursor(self):
+        """Test that invalid cursor is handled gracefully."""
+        m1 = self.palace.store_memory(content="M1", memory_type="fact")
+        m2 = self.palace.store_memory(content="M2", memory_type="fact")
+        self.palace.create_edge(m1, m2, "RELATED_TO")
+
+        # Invalid cursor should start from beginning
+        result = self.palace.list_edges(cursor="invalid_base64_!@#", limit=10)
+
+        self.assertGreater(len(result["edges"]), 0)
+
 
 class TestMemoryDataclass(unittest.TestCase):
     """Test Memory dataclass."""
