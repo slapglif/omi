@@ -1059,6 +1059,259 @@ class TestCLIConfig:
                 assert "ollama" in result.output
 
 
+class TestCLIAPIKey:
+    """Tests for 'omi config api-key' commands."""
+
+    def test_api_key_group_help(self):
+        """Test that api-key group help shows subcommands."""
+        runner = CliRunner()
+
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+        from omi.cli import cli
+
+        result = runner.invoke(cli, ["config", "api-key", "--help"])
+        assert result.exit_code == 0
+        assert "generate" in result.output
+        assert "revoke" in result.output
+        assert "list" in result.output
+
+    def test_api_key_generate_requires_init(self):
+        """Test that api-key generate requires initialization."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(Path(tmpdir) / "not_initialized")}):
+                result = runner.invoke(cli, ["config", "api-key", "generate", "--name", "test-key"])
+
+            assert result.exit_code == 1
+            assert "not initialized" in result.output.lower()
+
+    def test_api_key_generate_creates_key(self):
+        """Test that api-key generate creates a key and prints it."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+                # Generate API key
+                result = runner.invoke(cli, ["config", "api-key", "generate", "--name", "test-key"])
+
+            assert result.exit_code == 0
+            assert "API key generated successfully" in result.output
+            assert "test-key" in result.output
+            assert "Rate Limit: 100 requests/minute" in result.output
+            assert "X-API-Key:" in result.output
+            assert "api_key=" in result.output
+
+    def test_api_key_generate_with_custom_rate_limit(self):
+        """Test that api-key generate works with custom rate limit."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+                # Generate API key with custom rate limit
+                result = runner.invoke(cli, [
+                    "config", "api-key", "generate",
+                    "--name", "custom-key",
+                    "--rate-limit", "50"
+                ])
+
+            assert result.exit_code == 0
+            assert "API key generated successfully" in result.output
+            assert "custom-key" in result.output
+            assert "Rate Limit: 50 requests/minute" in result.output
+
+    def test_api_key_list_shows_all_keys(self):
+        """Test that api-key list shows all keys."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+                # Generate two API keys
+                runner.invoke(cli, ["config", "api-key", "generate", "--name", "key-one"])
+                runner.invoke(cli, ["config", "api-key", "generate", "--name", "key-two", "--rate-limit", "75"])
+
+                # List all keys
+                result = runner.invoke(cli, ["config", "api-key", "list"])
+
+            assert result.exit_code == 0
+            assert "API Keys (2 found)" in result.output
+            assert "key-one" in result.output
+            assert "key-two" in result.output
+            assert "100 requests/minute" in result.output
+            assert "75 requests/minute" in result.output
+            assert "Last Used: Never" in result.output
+
+    def test_api_key_list_empty(self):
+        """Test that api-key list shows message when no keys exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+                # List keys (should be empty)
+                result = runner.invoke(cli, ["config", "api-key", "list"])
+
+            assert result.exit_code == 0
+            assert "No API keys found" in result.output
+
+    def test_api_key_revoke_removes_key(self):
+        """Test that api-key revoke removes a key."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+                # Generate API key
+                runner.invoke(cli, ["config", "api-key", "generate", "--name", "revoke-test"])
+
+                # Revoke the key
+                result = runner.invoke(cli, ["config", "api-key", "revoke", "--name", "revoke-test"])
+
+            assert result.exit_code == 0
+            assert "Revoked API key: revoke-test" in result.output
+
+    def test_api_key_revoke_nonexistent_key(self):
+        """Test that revoking nonexistent key shows warning."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+                # Try to revoke nonexistent key
+                result = runner.invoke(cli, ["config", "api-key", "revoke", "--name", "nonexistent"])
+
+            assert result.exit_code == 1
+            assert "No active API key found" in result.output
+
+    def test_api_key_list_includes_revoked(self):
+        """Test that api-key list can show revoked keys."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+                # Generate and revoke a key
+                runner.invoke(cli, ["config", "api-key", "generate", "--name", "active-key"])
+                runner.invoke(cli, ["config", "api-key", "generate", "--name", "revoked-key"])
+                runner.invoke(cli, ["config", "api-key", "revoke", "--name", "revoked-key"])
+
+                # List without revoked (should show 1)
+                result = runner.invoke(cli, ["config", "api-key", "list"])
+                assert result.exit_code == 0
+                assert "API Keys (1 found)" in result.output
+                assert "active-key" in result.output
+                assert "revoked-key" not in result.output
+
+                # List with revoked (should show 2)
+                result = runner.invoke(cli, ["config", "api-key", "list", "--include-revoked"])
+                assert result.exit_code == 0
+                assert "API Keys (2 found" in result.output
+                assert "active-key" in result.output
+                assert "revoked-key" in result.output
+                assert "[REVOKED]" in result.output
+
+    def test_api_key_revoke_requires_name_or_key(self):
+        """Test that revoke requires either --name or --key."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+                # Try to revoke without name or key
+                result = runner.invoke(cli, ["config", "api-key", "revoke"])
+
+            assert result.exit_code == 1
+            assert "Must provide either --name or --key" in result.output
+
+    def test_api_key_generate_duplicate_name_fails(self):
+        """Test that generating a key with duplicate name fails."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CliRunner()
+            base_path = Path(tmpdir) / "omi"
+
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from omi.cli import cli
+
+            # Initialize
+            with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
+                runner.invoke(cli, ["init"])
+
+                # Generate first key
+                result = runner.invoke(cli, ["config", "api-key", "generate", "--name", "duplicate"])
+                assert result.exit_code == 0
+
+                # Try to generate with same name
+                result = runner.invoke(cli, ["config", "api-key", "generate", "--name", "duplicate"])
+
+            assert result.exit_code == 1
+            assert "Error:" in result.output
+
+
 class TestCLIGlobal:
     """Tests for global CLI behavior."""
 
