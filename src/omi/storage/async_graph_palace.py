@@ -14,6 +14,7 @@ import json
 import hashlib
 import uuid
 import math
+import base64
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, Tuple
@@ -239,6 +240,54 @@ class AsyncGraphPalace:
             return 0.0
         days_ago = (datetime.now() - timestamp).days
         return math.exp(-days_ago / self.RECENCY_HALF_LIFE)
+
+    @staticmethod
+    def _encode_cursor(cursor_data: Dict[str, Any]) -> str:
+        """
+        Encode cursor data to a base64 string for pagination.
+
+        Args:
+            cursor_data: Dictionary containing cursor state (last_id, order_by, etc.)
+
+        Returns:
+            Base64-encoded cursor string
+
+        Example:
+            >>> AsyncGraphPalace._encode_cursor({"last_id": "abc123", "order_by": "created_at"})
+            'eyJsYXN0X2lkIjogImFiYzEyMyIsICJvcmRlcl9ieSI6ICJjcmVhdGVkX2F0In0='
+        """
+        if not cursor_data:
+            return ""
+
+        # Serialize to JSON and encode to base64
+        json_bytes = json.dumps(cursor_data, sort_keys=True).encode('utf-8')
+        return base64.urlsafe_b64encode(json_bytes).decode('utf-8')
+
+    @staticmethod
+    def _decode_cursor(cursor: Optional[str]) -> Dict[str, Any]:
+        """
+        Decode a base64 cursor string to cursor data.
+
+        Args:
+            cursor: Base64-encoded cursor string (or None/empty for first page)
+
+        Returns:
+            Dictionary containing cursor state, or empty dict if cursor is invalid/empty
+
+        Example:
+            >>> AsyncGraphPalace._decode_cursor('eyJsYXN0X2lkIjogImFiYzEyMyJ9')
+            {'last_id': 'abc123'}
+        """
+        if not cursor:
+            return {}
+
+        try:
+            # Decode from base64 and parse JSON
+            json_bytes = base64.urlsafe_b64decode(cursor.encode('utf-8'))
+            return json.loads(json_bytes.decode('utf-8'))
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as e:
+            # Invalid cursor - return empty dict to start from beginning
+            return {}
 
     async def store_memory(self,
                    content: str,
@@ -896,6 +945,498 @@ class AsyncGraphPalace:
         """, (new_confidence, belief_id)) as cursor:
             await conn.commit()
             return cursor.rowcount > 0
+
+    async def list_memories(
+        self,
+        limit: int = 50,
+        cursor: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        order_by: str = "created_at",
+        order_dir: str = "desc"
+    ) -> Dict[str, Any]:
+        """
+        List memories with cursor-based pagination.
+
+        Args:
+            limit: Maximum number of memories to return (default 50, max 500)
+            cursor: Pagination cursor from previous response (base64 encoded)
+            memory_type: Filter by memory type (fact, experience, belief, decision)
+            order_by: Field to order by (created_at, access_count, last_accessed)
+            order_dir: Order direction (asc, desc)
+
+        Returns:
+            Dictionary containing:
+                - memories: List of memory dictionaries (without embeddings)
+                - total_count: Total number of memories matching filters
+                - next_cursor: Cursor for next page (empty string if no more results)
+                - has_more: Boolean indicating if more results exist
+
+        Raises:
+            ValueError: If invalid parameters provided
+        """
+        # Validate limit
+        if limit < 1:
+            raise ValueError(f"limit must be >= 1, got {limit}")
+        if limit > 500:
+            raise ValueError(f"limit must be <= 500, got {limit}")
+
+        # Validate memory_type if provided
+        if memory_type is not None and memory_type not in self.MEMORY_TYPES:
+            raise ValueError(
+                f"Invalid memory_type: {memory_type}. Must be one of: {self.MEMORY_TYPES}"
+            )
+
+        # Validate order_by
+        valid_order_fields = {"created_at", "access_count", "last_accessed"}
+        if order_by not in valid_order_fields:
+            raise ValueError(
+                f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
+            )
+
+        # Validate order_dir
+        order_dir_upper = order_dir.upper()
+        if order_dir_upper not in {"ASC", "DESC"}:
+            raise ValueError(f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'")
+
+        # Decode cursor
+        cursor_data = self._decode_cursor(cursor)
+
+        # If cursor provided, use order settings from cursor for consistency
+        if cursor_data and "last_id" in cursor_data:
+            effective_order_by = cursor_data.get("order_by", order_by)
+            effective_order_dir = cursor_data.get("order_dir", order_dir_upper)
+        else:
+            effective_order_by = order_by
+            effective_order_dir = order_dir_upper
+
+        # Build base query
+        base_query = """
+            SELECT id, content, memory_type, confidence,
+                   created_at, last_accessed, access_count, instance_ids, content_hash
+            FROM memories
+        """
+        count_query = "SELECT COUNT(*) FROM memories"
+        params: List[Any] = []
+
+        # Build WHERE clause - separate filter and cursor conditions
+        filter_conditions = []
+        cursor_conditions = []
+
+        # Filter by memory_type
+        if memory_type is not None:
+            filter_conditions.append("memory_type = ?")
+            params.append(memory_type)
+
+        # Cursor-based pagination: filter by last value
+        conn = await self._get_connection()
+        if cursor_data and "last_id" in cursor_data:
+            last_id = cursor_data["last_id"]
+
+            # Get the value of the order_by field for the last_id
+            cursor_value_query = f"SELECT {effective_order_by} FROM memories WHERE id = ?"
+            async with conn.execute(cursor_value_query, (last_id,)) as cursor_result:
+                cursor_value_row = await cursor_result.fetchone()
+
+            if cursor_value_row:
+                cursor_value = cursor_value_row[0]
+
+                # Add cursor condition based on sort direction
+                if effective_order_dir == "DESC":
+                    # For DESC, we want values less than cursor_value
+                    # or equal values with id > last_id (for stable ordering)
+                    cursor_conditions.append(
+                        f"({effective_order_by} < ? OR ({effective_order_by} = ? AND id > ?))"
+                    )
+                    params.extend([cursor_value, cursor_value, last_id])
+                else:  # ASC
+                    # For ASC, we want values greater than cursor_value
+                    # or equal values with id > last_id (for stable ordering)
+                    cursor_conditions.append(
+                        f"({effective_order_by} > ? OR ({effective_order_by} = ? AND id > ?))"
+                    )
+                    params.extend([cursor_value, cursor_value, last_id])
+
+        # Apply WHERE clause for main query (filters + cursor)
+        all_conditions = filter_conditions + cursor_conditions
+        if all_conditions:
+            where_clause = " WHERE " + " AND ".join(all_conditions)
+            base_query += where_clause
+
+        # Apply WHERE clause for count query (filters only, no cursor)
+        if filter_conditions:
+            count_where_clause = " WHERE " + " AND ".join(filter_conditions)
+            count_query += count_where_clause
+
+        # Get total count (for filters only, not cursor)
+        count_params = []
+        if memory_type is not None:
+            count_params.append(memory_type)
+
+        async with conn.execute(count_query, count_params) as cursor_result:
+            row = await cursor_result.fetchone()
+            total_count = row[0]
+
+        # Add ORDER BY and LIMIT
+        base_query += f" ORDER BY {effective_order_by} {effective_order_dir}, id ASC"
+        base_query += " LIMIT ?"
+        params.append(limit + 1)  # Fetch one extra to determine has_more
+
+        # Execute query
+        async with conn.execute(base_query, params) as cursor_result:
+            rows = await cursor_result.fetchall()
+
+        # Check if there are more results
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]  # Trim to requested limit
+
+        # Convert rows to memory dictionaries (without embeddings)
+        memories = []
+        for row in rows:
+            memory_dict = {
+                "id": row[0],
+                "content": row[1],
+                "memory_type": row[2],
+                "confidence": row[3],
+                "created_at": row[4],
+                "last_accessed": row[5],
+                "access_count": row[6],
+                "instance_ids": row[7] if row[7] else "[]",
+                "content_hash": row[8]
+            }
+            memories.append(memory_dict)
+
+        # Generate next cursor
+        next_cursor = ""
+        if has_more and memories:
+            last_memory = memories[-1]
+            next_cursor = self._encode_cursor({
+                "last_id": last_memory["id"],
+                "order_by": effective_order_by,
+                "order_dir": effective_order_dir
+            })
+
+        return {
+            "memories": memories,
+            "total_count": total_count,
+            "next_cursor": next_cursor,
+            "has_more": has_more
+        }
+
+    async def list_beliefs(
+        self,
+        limit: int = 50,
+        cursor: Optional[str] = None,
+        order_by: str = "created_at",
+        order_dir: str = "desc"
+    ) -> Dict[str, Any]:
+        """
+        List beliefs (memories with type='belief') with cursor-based pagination.
+
+        Args:
+            limit: Maximum number of beliefs to return (default 50, max 500)
+            cursor: Pagination cursor from previous response (base64 encoded)
+            order_by: Field to order by (confidence, created_at, access_count, last_accessed)
+            order_dir: Order direction (asc, desc)
+
+        Returns:
+            Dictionary containing:
+                - beliefs: List of belief dictionaries
+                - total_count: Total number of beliefs
+                - next_cursor: Cursor for next page (empty string if no more results)
+                - has_more: Boolean indicating if more results exist
+
+        Raises:
+            ValueError: If invalid parameters provided
+        """
+        # Validate limit
+        if limit < 1:
+            raise ValueError(f"limit must be >= 1, got {limit}")
+        if limit > 500:
+            raise ValueError(f"limit must be <= 500, got {limit}")
+
+        # Validate order_by
+        valid_order_fields = {"confidence", "created_at", "access_count", "last_accessed"}
+        if order_by not in valid_order_fields:
+            raise ValueError(
+                f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
+            )
+
+        # Validate order_dir
+        order_dir_upper = order_dir.upper()
+        if order_dir_upper not in {"ASC", "DESC"}:
+            raise ValueError(f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'")
+
+        # Decode cursor
+        cursor_data = self._decode_cursor(cursor)
+
+        # If cursor provided, use order settings from cursor for consistency
+        if cursor_data and "last_id" in cursor_data:
+            effective_order_by = cursor_data.get("order_by", order_by)
+            effective_order_dir = cursor_data.get("order_dir", order_dir_upper)
+        else:
+            effective_order_by = order_by
+            effective_order_dir = order_dir_upper
+
+        # Build base query - filter for beliefs only
+        base_query = """
+            SELECT id, content, memory_type, confidence,
+                   created_at, last_accessed, access_count, instance_ids, content_hash
+            FROM memories
+            WHERE memory_type = 'belief'
+        """
+        count_query = "SELECT COUNT(*) FROM memories WHERE memory_type = 'belief'"
+        params: List[Any] = []
+
+        # Cursor-based pagination: filter by last value
+        conn = await self._get_connection()
+        if cursor_data and "last_id" in cursor_data:
+            last_id = cursor_data["last_id"]
+
+            # Get the value of the order_by field for the last_id
+            cursor_value_query = f"SELECT {effective_order_by} FROM memories WHERE id = ?"
+            async with conn.execute(cursor_value_query, (last_id,)) as cursor_result:
+                cursor_value_row = await cursor_result.fetchone()
+
+            if cursor_value_row:
+                cursor_value = cursor_value_row[0]
+
+                # Add cursor condition based on sort direction
+                if effective_order_dir == "DESC":
+                    # For DESC, we want values less than cursor_value
+                    # or equal values with id > last_id (for stable ordering)
+                    base_query += f" AND ({effective_order_by} < ? OR ({effective_order_by} = ? AND id > ?))"
+                    params.extend([cursor_value, cursor_value, last_id])
+                else:  # ASC
+                    # For ASC, we want values greater than cursor_value
+                    # or equal values with id > last_id (for stable ordering)
+                    base_query += f" AND ({effective_order_by} > ? OR ({effective_order_by} = ? AND id > ?))"
+                    params.extend([cursor_value, cursor_value, last_id])
+
+        # Get total count (for beliefs only)
+        async with conn.execute(count_query) as cursor_result:
+            row = await cursor_result.fetchone()
+            total_count = row[0]
+
+        # Add ORDER BY and LIMIT
+        base_query += f" ORDER BY {effective_order_by} {effective_order_dir}, id ASC"
+        base_query += " LIMIT ?"
+        params.append(limit + 1)  # Fetch one extra to determine has_more
+
+        # Execute query
+        async with conn.execute(base_query, params) as cursor_result:
+            rows = await cursor_result.fetchall()
+
+        # Check if there are more results
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]  # Trim to requested limit
+
+        # Convert rows to belief dictionaries
+        beliefs = []
+        for row in rows:
+            belief_dict = {
+                "id": row[0],
+                "content": row[1],
+                "memory_type": row[2],
+                "confidence": row[3],
+                "created_at": row[4],
+                "last_accessed": row[5],
+                "access_count": row[6],
+                "instance_ids": row[7] if row[7] else "[]",
+                "content_hash": row[8]
+            }
+            beliefs.append(belief_dict)
+
+        # Generate next cursor
+        next_cursor = ""
+        if has_more and beliefs:
+            last_belief = beliefs[-1]
+            next_cursor = self._encode_cursor({
+                "last_id": last_belief["id"],
+                "order_by": effective_order_by,
+                "order_dir": effective_order_dir
+            })
+
+        return {
+            "beliefs": beliefs,
+            "total_count": total_count,
+            "next_cursor": next_cursor,
+            "has_more": has_more
+        }
+
+    async def list_edges(
+        self,
+        limit: int = 100,
+        cursor: Optional[str] = None,
+        edge_type: Optional[str] = None,
+        order_by: str = "created_at",
+        order_dir: str = "desc"
+    ) -> Dict[str, Any]:
+        """
+        List edges with cursor-based pagination.
+
+        Args:
+            limit: Maximum number of edges to return (default 100, max 1000)
+            cursor: Pagination cursor from previous response (base64 encoded)
+            edge_type: Filter by edge type (SUPPORTS, CONTRADICTS, RELATED_TO, DEPENDS_ON, POSTED, DISCUSSED)
+            order_by: Field to order by (created_at, strength)
+            order_dir: Order direction (asc, desc)
+
+        Returns:
+            Dictionary containing:
+                - edges: List of edge dictionaries
+                - total_count: Total number of edges matching filters
+                - next_cursor: Cursor for next page (empty string if no more results)
+                - has_more: Boolean indicating if more results exist
+
+        Raises:
+            ValueError: If invalid parameters provided
+        """
+        # Validate limit
+        if limit < 1:
+            raise ValueError(f"limit must be >= 1, got {limit}")
+        if limit > 1000:
+            raise ValueError(f"limit must be <= 1000, got {limit}")
+
+        # Validate edge_type if provided
+        if edge_type is not None and edge_type not in self.EDGE_TYPES:
+            raise ValueError(
+                f"Invalid edge_type: {edge_type}. Must be one of: {self.EDGE_TYPES}"
+            )
+
+        # Validate order_by
+        valid_order_fields = {"created_at", "strength"}
+        if order_by not in valid_order_fields:
+            raise ValueError(
+                f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
+            )
+
+        # Validate order_dir
+        order_dir_upper = order_dir.upper()
+        if order_dir_upper not in {"ASC", "DESC"}:
+            raise ValueError(f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'")
+
+        # Decode cursor
+        cursor_data = self._decode_cursor(cursor)
+
+        # If cursor provided, use order settings from cursor for consistency
+        if cursor_data and "last_id" in cursor_data:
+            effective_order_by = cursor_data.get("order_by", order_by)
+            effective_order_dir = cursor_data.get("order_dir", order_dir_upper)
+        else:
+            effective_order_by = order_by
+            effective_order_dir = order_dir_upper
+
+        # Build base query
+        base_query = """
+            SELECT id, source_id, target_id, edge_type, strength, created_at
+            FROM edges
+        """
+        count_query = "SELECT COUNT(*) FROM edges"
+        params: List[Any] = []
+
+        # Build WHERE clause - separate filter and cursor conditions
+        filter_conditions = []
+        cursor_conditions = []
+
+        # Filter by edge_type
+        if edge_type is not None:
+            filter_conditions.append("edge_type = ?")
+            params.append(edge_type)
+
+        # Cursor-based pagination: filter by last value
+        conn = await self._get_connection()
+        if cursor_data and "last_id" in cursor_data:
+            last_id = cursor_data["last_id"]
+
+            # Get the value of the order_by field for the last_id
+            cursor_value_query = f"SELECT {effective_order_by} FROM edges WHERE id = ?"
+            async with conn.execute(cursor_value_query, (last_id,)) as cursor_result:
+                cursor_value_row = await cursor_result.fetchone()
+
+            if cursor_value_row:
+                cursor_value = cursor_value_row[0]
+
+                # Add cursor condition based on sort direction
+                if effective_order_dir == "DESC":
+                    # For DESC, we want values less than cursor_value
+                    # or equal values with id > last_id (for stable ordering)
+                    cursor_conditions.append(
+                        f"({effective_order_by} < ? OR ({effective_order_by} = ? AND id > ?))"
+                    )
+                    params.extend([cursor_value, cursor_value, last_id])
+                else:  # ASC
+                    # For ASC, we want values greater than cursor_value
+                    # or equal values with id > last_id (for stable ordering)
+                    cursor_conditions.append(
+                        f"({effective_order_by} > ? OR ({effective_order_by} = ? AND id > ?))"
+                    )
+                    params.extend([cursor_value, cursor_value, last_id])
+
+        # Apply WHERE clause for main query (filters + cursor)
+        all_conditions = filter_conditions + cursor_conditions
+        if all_conditions:
+            where_clause = " WHERE " + " AND ".join(all_conditions)
+            base_query += where_clause
+
+        # Apply WHERE clause for count query (filters only, no cursor)
+        if filter_conditions:
+            count_where_clause = " WHERE " + " AND ".join(filter_conditions)
+            count_query += count_where_clause
+
+        # Get total count (for filters only, not cursor)
+        count_params = []
+        if edge_type is not None:
+            count_params.append(edge_type)
+
+        async with conn.execute(count_query, count_params) as cursor_result:
+            row = await cursor_result.fetchone()
+            total_count = row[0]
+
+        # Add ORDER BY and LIMIT
+        base_query += f" ORDER BY {effective_order_by} {effective_order_dir}, id ASC"
+        base_query += " LIMIT ?"
+        params.append(limit + 1)  # Fetch one extra to determine has_more
+
+        # Execute query
+        async with conn.execute(base_query, params) as cursor_result:
+            rows = await cursor_result.fetchall()
+
+        # Check if there are more results
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]  # Trim to requested limit
+
+        # Convert rows to edge dictionaries
+        edges = []
+        for row in rows:
+            edge_dict = {
+                "id": row[0],
+                "source_id": row[1],
+                "target_id": row[2],
+                "edge_type": row[3],
+                "strength": row[4],
+                "created_at": row[5]
+            }
+            edges.append(edge_dict)
+
+        # Generate next cursor
+        next_cursor = ""
+        if has_more and edges:
+            last_edge = edges[-1]
+            next_cursor = self._encode_cursor({
+                "last_id": last_edge["id"],
+                "order_by": effective_order_by,
+                "order_dir": effective_order_dir
+            })
+
+        return {
+            "edges": edges,
+            "total_count": total_count,
+            "next_cursor": next_cursor,
+            "has_more": has_more
+        }
 
     async def delete_memory(self, memory_id: str) -> bool:
         """

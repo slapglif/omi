@@ -85,20 +85,23 @@ def store(ctx, content: str, memory_type: str, confidence: Optional[float]) -> N
 @memory_group.command("recall")
 @click.argument('query')
 @click.option('--limit', '-l', default=10, help='Maximum number of results')
+@click.option('--offset', default=0, help='Number of results to skip (for pagination)')
 @click.option('--json-output', is_flag=True, help='Output as JSON')
 @click.pass_context
-def recall(ctx, query: str, limit: int, json_output: bool) -> None:
+def recall(ctx, query: str, limit: int, offset: int, json_output: bool) -> None:
     """Search memories using semantic recall.
 
     Args:
         query: Search query text
         --limit: Maximum number of results (default: 10)
+        --offset: Number of results to skip for pagination (default: 0)
         --json: Output as JSON (for scripts)
 
     Examples:
         omi recall "session checkpoint"
         omi recall "auth bug fix" --limit 5
         omi recall "recent decisions" --json
+        omi recall "auth" --limit 10 --offset 10
     """
     verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
     base_path = get_base_path(ctx.obj.get('data_dir'))

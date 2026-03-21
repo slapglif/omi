@@ -109,9 +109,11 @@ class StoreMemoryResponse(BaseModel):
 
 
 class RecallMemoryResponse(BaseModel):
-    """Response containing recalled memories."""
+    """Response containing recalled memories with pagination."""
     memories: List[dict] = Field(..., description="List of recalled memories")
     count: int = Field(..., description="Number of memories returned")
+    next_cursor: str = Field(default="", description="Cursor for next page (empty if no more results)")
+    has_more: bool = Field(..., description="Boolean indicating if more results exist")
 
 
 class CreateBeliefRequest(BaseModel):
@@ -357,24 +359,79 @@ async def store_memory(request: StoreMemoryRequest, api_key: str = Depends(verif
         )
 
 
-@app.get("/api/v1/recall", response_model=RecallMemoryResponse, tags=["Memory Operations"], summary="Recall memories by semantic search")
+@app.get("/api/v1/recall", tags=["Memory Operations"], summary="Recall memories by semantic search")
 async def recall_memory(
     query: str = Query(..., description="Natural language search query"),
-    limit: int = Query(10, ge=1, le=100, description="Maximum number of results"),
+    limit: int = Query(10, ge=1, le=500, description="Maximum number of results per page"),
     min_relevance: float = Query(0.7, ge=0.0, le=1.0, description="Minimum relevance threshold"),
     memory_type: Optional[str] = Query(None, description="Filter by type: fact|experience|belief|decision"),
+    cursor: Optional[str] = Query(None, description="Pagination cursor from previous response"),
+    accept: Optional[str] = Header(None, alias="Accept"),
     api_key: str = Depends(verify_api_key)
 ):
-    """Recall memories using semantic search with recency weighting."""
+    """
+    Recall memories using semantic search with recency weighting and pagination.
+
+    Supports both JSON and Server-Sent Events (SSE) streaming responses:
+    - JSON: Default response format with full pagination metadata
+    - SSE: Real-time streaming with Accept: text/event-stream header
+
+    Query Parameters:
+        query: Natural language search query
+        limit: Maximum number of results per page (1-500, default 10)
+        min_relevance: Minimum relevance threshold (0.0-1.0, default 0.7)
+        memory_type: Filter by type (fact, experience, belief, decision)
+        cursor: Pagination cursor from previous response (for next page)
+
+    Headers:
+        Accept: Set to 'text/event-stream' for SSE streaming mode
+
+    Returns:
+        - JSON mode: RecallMemoryResponse with memories, count, next_cursor, has_more
+        - SSE mode: StreamingResponse with event stream
+
+    Examples:
+        JSON mode:
+            curl http://localhost:8000/api/v1/recall?query=test&limit=10
+
+        SSE streaming mode:
+            curl -N -H "Accept: text/event-stream" http://localhost:8000/api/v1/recall?query=test
+    """
+    # Check if client requested SSE streaming
+    if accept and "text/event-stream" in accept:
+        # Return SSE streaming response
+        return StreamingResponse(
+            recall_stream(
+                query=query,
+                limit=limit,
+                min_relevance=min_relevance,
+                memory_type=memory_type,
+                cursor=cursor
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"  # Disable buffering in nginx
+            }
+        )
+
+    # Default JSON response
     try:
         tools = get_memory_tools()
-        memories = tools.recall(
+        result = tools.recall(
             query=query,
             limit=limit,
             min_relevance=min_relevance,
-            memory_type=memory_type
+            memory_type=memory_type,
+            cursor=cursor
         )
-        return RecallMemoryResponse(memories=memories, count=len(memories))
+        return RecallMemoryResponse(
+            memories=result["memories"],
+            count=len(result["memories"]),
+            next_cursor=result.get("next_cursor", ""),
+            has_more=result.get("has_more", False)
+        )
     except Exception as e:
         logger.error(f"Error recalling memories: {e}", exc_info=True)
         raise HTTPException(
@@ -458,6 +515,82 @@ async def end_session(request: EndSessionRequest, api_key: str = Depends(verify_
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to end session: {str(e)}"
         )
+
+
+async def recall_stream(
+    query: str,
+    limit: int = 10,
+    min_relevance: float = 0.7,
+    memory_type: Optional[str] = None,
+    cursor: Optional[str] = None
+) -> AsyncGenerator[str, None]:
+    """
+    Generate SSE stream of recall results.
+
+    Streams individual memories as they are recalled, followed by pagination metadata.
+
+    Args:
+        query: Natural language search query
+        limit: Maximum number of results
+        min_relevance: Minimum relevance threshold
+        memory_type: Optional filter by memory type
+        cursor: Pagination cursor
+
+    Yields:
+        SSE-formatted recall data
+    """
+    try:
+        # Send initial connection message
+        yield f"data: {json.dumps({'type': 'stream_start', 'message': 'Recall stream started'})}\n\n"
+
+        # Perform recall
+        tools = get_memory_tools()
+        result = tools.recall(
+            query=query,
+            limit=limit,
+            min_relevance=min_relevance,
+            memory_type=memory_type,
+            cursor=cursor
+        )
+
+        # Stream each memory individually
+        for idx, memory in enumerate(result["memories"]):
+            memory_event = {
+                'type': 'memory',
+                'index': idx,
+                'data': memory
+            }
+            sse_data = f"data: {json.dumps(memory_event)}\n\n"
+            yield sse_data
+
+            # Small delay to prevent overwhelming the client
+            await asyncio.sleep(0.01)
+
+        # Send pagination metadata
+        metadata_event = {
+            'type': 'metadata',
+            'data': {
+                'count': len(result["memories"]),
+                'next_cursor': result.get('next_cursor', ''),
+                'has_more': result.get('has_more', False)
+            }
+        }
+        yield f"data: {json.dumps(metadata_event)}\n\n"
+
+        # Send stream completion message
+        yield f"data: {json.dumps({'type': 'stream_end', 'message': 'Recall stream completed'})}\n\n"
+
+    except asyncio.CancelledError:
+        logger.info("Recall stream cancelled by client")
+        raise
+    except Exception as e:
+        logger.error(f"Error in recall stream: {e}", exc_info=True)
+        error_event = {
+            'type': 'error',
+            'message': str(e)
+        }
+        yield f"data: {json.dumps(error_event)}\n\n"
+        raise
 
 
 async def event_stream(event_type_filter: Optional[str] = None) -> AsyncGenerator[str, None]:
