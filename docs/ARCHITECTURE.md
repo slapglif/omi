@@ -239,12 +239,7 @@ def update_centrality():
 
 The `__init__.py` re-exports `storage.GraphPalace` as the primary implementation, but some modules still import from `persistence.py` directly. When modifying GraphPalace code, verify which implementation you're working with.
 
-Similarly, there are **two BeliefNetwork classes**:
-
-| Module | Location | Purpose |
-|--------|----------|---------|
-| `belief.BeliefNetwork` | `src/omi/belief.py` | Used by MCP tools. Takes `persistence.GraphPalace`. |
-| `graph.BeliefNetwork` | `src/omi/graph/belief_network.py` | Standalone with own SQLite schema. |
+The `BeliefNetwork` class is in `src/omi/belief.py` and is used by MCP tools. It takes a `GraphPalace` instance.
 
 ### Tier 4: MoltVault Backup (Cold Storage)
 
@@ -520,12 +515,8 @@ class ConsensusManager:
 ### Graph Modules
 
 - **`belief.py`** — BeliefNetwork for MCP tools
-  - Takes `persistence.GraphPalace`
+  - Takes a `GraphPalace` instance
   - Asymmetric EMA updates
-
-- **`graph/belief_network.py`** — Standalone BeliefNetwork
-  - Own SQLite schema
-  - Independent of GraphPalace
 
 ## Configuration
 

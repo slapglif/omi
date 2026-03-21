@@ -140,3 +140,93 @@ class DailyLogStore:
             except ValueError:
                 continue
         return results
+
+
+# Backward compatibility imports - preserve old import paths
+# GraphPalace moved to storage.graph_palace in v0.3.0
+from .storage.graph_palace import GraphPalace  # noqa: F401
+
+
+# NOWStore is now a compatibility wrapper for NowStorage
+class NOWStore:
+    """Backward compatibility wrapper for NowStorage.
+
+    Provides the old NOWStore API (read/write with NOWEntry objects)
+    while delegating to the new NowStorage implementation.
+
+    DEPRECATED: Use NowStorage directly instead.
+    """
+    def __init__(self, base_path: str) -> None:
+        from .storage.now import NowStorage
+        self.base_path = Path(base_path)
+        self._storage = NowStorage(self.base_path)
+        self.now_path = self._storage.now_file
+        self.hash_file = self.base_path / ".now.hash"
+
+    def read(self) -> Optional["NOWEntry"]:
+        """Read NOW.md and return NOWEntry object or None."""
+        content = self._storage.read()
+        if not content or "No active task" in content:
+            return None
+        try:
+            return NOWEntry.from_markdown(content)
+        except Exception:
+            return None
+
+    def write(self, entry: "NOWEntry") -> None:
+        """Write a NOWEntry object to NOW.md."""
+        if not isinstance(entry, NOWEntry):
+            raise TypeError(f"Expected NOWEntry, got {type(entry)}")
+        self._storage.update(
+            current_task=entry.current_task,
+            recent_completions=entry.recent_completions,
+            pending_decisions=entry.pending_decisions,
+            key_files=entry.key_files
+        )
+        # Create hash file for integrity checking
+        import hashlib
+        current_content = self._storage.now_file.read_text()
+        hash_value = hashlib.sha256(current_content.encode()).hexdigest()
+        self.hash_file.write_text(hash_value)
+
+    def check_integrity(self) -> bool:
+        """Check if NOW.md hash matches stored hash."""
+        import hashlib
+        if not self.hash_file.exists():
+            return False
+        if not self._storage.now_file.exists():
+            return False
+
+        content = self._storage.now_file.read_text()
+        current_hash = hashlib.sha256(content.encode()).hexdigest()
+        stored_hash = self.hash_file.read_text().strip()
+        return current_hash == stored_hash
+
+
+# VaultBackup is now MoltVault in moltvault.py
+# But keep VaultBackup class for backward compatibility
+class VaultBackup:
+    """Backward compatibility wrapper for local vault backups.
+
+    This class provides the old VaultBackup API while delegating to MoltVault.
+    For new code, use MoltVault directly.
+    """
+    def __init__(self, base_path: Path):
+        from .moltvault import MoltVault
+        self.base_path = Path(base_path)
+        self.vault = MoltVault(str(self.base_path))
+
+    def backup(self, db_path: Path) -> Path:
+        """Create a backup archive"""
+        archive_path = self.vault.backup()
+        return Path(archive_path)
+
+    def restore(self, archive_path: Path) -> Dict[str, Any]:
+        """Restore from backup archive"""
+        snapshot = self.vault.restore(str(archive_path))
+        return {"restored_at": snapshot.restored_at, "files": snapshot.files}
+
+    def list_backups(self) -> List[Path]:
+        """List available backup archives"""
+        snapshots = self.vault.list_backups()
+        return [Path(s.path) for s in snapshots]

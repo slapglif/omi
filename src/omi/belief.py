@@ -131,15 +131,41 @@ class BeliefNetwork:
         # Sort by weighted score
         return sorted(weighted, key=lambda x: x['weighted_score'], reverse=True)
     
+    def get_confidence(self, belief_id: str) -> float:
+        """
+        Get current confidence level for belief
+
+        Returns:
+            Confidence value (0.0 to 1.0), or 0.5 if belief not found
+        """
+        belief = self.palace.get_belief(belief_id)
+        return belief.get('confidence', 0.5)
+
+    def get_contradictions(self, belief_id: str) -> List[str]:
+        """
+        Get memory IDs that contradict this belief
+
+        Returns:
+            List of memory IDs with CONTRADICTS edges to this belief
+        """
+        edges = self.palace.get_edges(belief_id)
+        contradictions = []
+
+        for edge in edges:
+            if edge.get('edge_type') == 'CONTRADICTS' and edge.get('target_type') == 'memory':
+                contradictions.append(edge['target_id'])
+
+        return contradictions
+
     def get_evidence_chain(self, belief_id: str) -> List[Evidence]:
         """
         Return evidence chain for a belief
-        
+
         Shows: what supports it, what contradicts it, when evidence was added
         """
         # Get all edges from belief
         edges = self.palace.get_edges(belief_id)
-        
+
         evidence_chain = []
         for edge in edges:
             if edge['target_type'] == 'memory':
@@ -149,7 +175,7 @@ class BeliefNetwork:
                     strength=edge['strength'],
                     timestamp=edge['timestamp']
                 ))
-        
+
         return sorted(evidence_chain, key=lambda e: e.timestamp)
 
 

@@ -14,7 +14,7 @@ __license__ = "MIT"
 # Wire real implementations instead of persistence.py stubs
 from .storage.graph_palace import GraphPalace
 from .storage.now import NowStorage
-from .graph.belief_network import BeliefNetwork
+from .belief import BeliefNetwork
 from .moltvault import MoltVault
 
 # Keep DailyLogStore from persistence (no replacement exists)
