@@ -113,9 +113,7 @@ class GraphPalace:
     # Target: <500ms for 1000 memories
     QUERY_TIMEOUT_MS = 500
 
-    def __init__(
-        self, db_path: Path, enable_wal: bool = True, embedding_dim: Optional[int] = None
-    ):
+    def __init__(self, db_path: Path, enable_wal: bool = True, embedding_dim: Optional[int] = None):
         """
         Initialize Graph Palace.
 
