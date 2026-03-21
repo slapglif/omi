@@ -25,6 +25,9 @@ class Memory:
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
     archived: bool = False  # Whether memory is archived (excluded from default search)
+    version_number: Optional[int] = None  # Version tracking
+    version_id: Optional[str] = None  # Version identifier
+    previous_version_id: Optional[str] = None  # Link to previous version
 
     def __post_init__(self):
         if self.created_at is None:
@@ -49,7 +52,10 @@ class Memory:
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
             "content_hash": self.content_hash,
-            "archived": self.archived
+            "archived": self.archived,
+            "version_number": self.version_number,
+            "version_id": self.version_id,
+            "previous_version_id": self.previous_version_id
         }
 
 

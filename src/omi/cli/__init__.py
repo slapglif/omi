@@ -27,6 +27,7 @@ from .plugins import plugins_group
 from .serve import serve_group
 from .index import index_group
 from .policy import policy_group
+from .snapshot import snapshot_group
 
 # CLI version - matches project version
 __version__ = "0.2.0"
@@ -122,6 +123,9 @@ cli.add_command(index_group, name='index')
 
 # Register policy command group (policy show, dry-run, execute)
 cli.add_command(policy_group, name='policy')
+
+# Register snapshot command group (snapshot create, list, diff, rollback)
+cli.add_command(snapshot_group, name='snapshot')
 
 
 @cli.command()
