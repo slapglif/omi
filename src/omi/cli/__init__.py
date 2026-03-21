@@ -29,6 +29,8 @@ from .index import index_group
 from .policy import policy_group
 from .snapshot import snapshot_group
 from .user import user_group
+from .namespace import namespace_group
+from .subscribe import subscribe_group
 
 # CLI version - matches project version
 __version__ = "0.2.0"
@@ -130,6 +132,12 @@ cli.add_command(snapshot_group, name='snapshot')
 
 # Register user command group (user create, list, delete, permissions, set-role)
 cli.add_command(user_group, name='user')
+
+# Register namespace command group (namespace commands)
+cli.add_command(namespace_group, name='namespace')
+
+# Register subscribe command
+cli.add_command(subscribe_group.commands['subscribe'])
 
 
 @cli.command()

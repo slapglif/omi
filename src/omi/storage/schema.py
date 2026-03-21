@@ -89,6 +89,45 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
             FOREIGN KEY (version_id) REFERENCES memory_versions(version_id) ON DELETE SET NULL
         );
 
+        CREATE TABLE IF NOT EXISTS shared_namespaces (
+            namespace TEXT PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_by TEXT NOT NULL,
+            metadata TEXT  -- JSON for configuration and settings
+        );
+
+        CREATE TABLE IF NOT EXISTS namespace_permissions (
+            namespace TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            permission_level TEXT CHECK(permission_level IN ('read','write','admin')) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (namespace, agent_id),
+            FOREIGN KEY (namespace) REFERENCES shared_namespaces(namespace) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL,
+            namespace TEXT,  -- NULL for global subscriptions
+            memory_id TEXT,  -- NULL for namespace-wide subscriptions
+            event_types TEXT,  -- JSON array of event types to notify on
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (namespace) REFERENCES shared_namespaces(namespace) ON DELETE CASCADE,
+            FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS agent_audit_log (
+            id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL,
+            action_type TEXT NOT NULL,  -- read, write, delete, share, subscribe, etc.
+            resource_type TEXT NOT NULL,  -- memory, namespace, subscription, etc.
+            resource_id TEXT,  -- The specific resource affected
+            namespace TEXT,  -- If applicable
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            metadata TEXT,  -- JSON for additional context
+            FOREIGN KEY (namespace) REFERENCES shared_namespaces(namespace) ON DELETE SET NULL
+        );
+
         -- Indexes for performance
         CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
         CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
@@ -112,6 +151,21 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
         CREATE INDEX IF NOT EXISTS idx_snapshot_memories_memory_id ON snapshot_memories(memory_id);
         CREATE INDEX IF NOT EXISTS idx_snapshot_memories_version_id ON snapshot_memories(version_id);
         CREATE INDEX IF NOT EXISTS idx_snapshot_memories_operation_type ON snapshot_memories(operation_type);
+        CREATE INDEX IF NOT EXISTS idx_shared_namespaces_created_by ON shared_namespaces(created_by);
+        CREATE INDEX IF NOT EXISTS idx_shared_namespaces_created_at ON shared_namespaces(created_at);
+        CREATE INDEX IF NOT EXISTS idx_namespace_permissions_agent_id ON namespace_permissions(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_namespace_permissions_namespace ON namespace_permissions(namespace);
+        CREATE INDEX IF NOT EXISTS idx_namespace_permissions_level ON namespace_permissions(permission_level);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_agent_id ON subscriptions(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_namespace ON subscriptions(namespace);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_memory_id ON subscriptions(memory_id);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_created_at ON subscriptions(created_at);
+        CREATE INDEX IF NOT EXISTS idx_agent_audit_log_agent_id ON agent_audit_log(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_audit_log_action_type ON agent_audit_log(action_type);
+        CREATE INDEX IF NOT EXISTS idx_agent_audit_log_resource_type ON agent_audit_log(resource_type);
+        CREATE INDEX IF NOT EXISTS idx_agent_audit_log_resource_id ON agent_audit_log(resource_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_audit_log_namespace ON agent_audit_log(namespace);
+        CREATE INDEX IF NOT EXISTS idx_agent_audit_log_timestamp ON agent_audit_log(timestamp);
     """)
 
     # Create standalone FTS5 virtual table for full-text search

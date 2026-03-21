@@ -20,7 +20,7 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch, AsyncMock
 from fastapi.testclient import TestClient
 
-from omi.rest_api import app, event_stream
+from omi.rest_api import app, event_stream, subscription_stream
 from omi.event_bus import get_event_bus, reset_event_bus
 from omi.events import (
     MemoryStoredEvent,
@@ -155,6 +155,42 @@ class TestEventStreamGenerator:
         assert len(bus._subscribers[event_type]) > 0
 
         await gen.aclose()
+
+    async def test_subscription_stream_yields_connected_message(self):
+        """
+        Test that subscription_stream yields initial connected message
+        """
+        gen = subscription_stream(agent_id="test-agent")
+        first_message = await gen.__anext__()
+
+        assert first_message.startswith("data: ")
+        data = json.loads(first_message[6:])  # Remove "data: " prefix
+        assert data["type"] == "connected"
+        assert "test-agent" in data["message"]
+
+        # Close generator
+        await gen.aclose()
+
+    async def test_subscription_stream_subscribes_to_event_bus(self):
+        """
+        Test that subscription_stream subscribes to EventBus
+        """
+        bus = get_event_bus()
+        initial_subscribers = len(bus._subscribers.get('*', []))
+
+        gen = subscription_stream(agent_id="test-agent")
+        await gen.__anext__()  # Get connected message
+
+        # Should have added a subscriber
+        current_subscribers = len(bus._subscribers.get('*', []))
+        assert current_subscribers == initial_subscribers + 1
+
+        # Close generator
+        await gen.aclose()
+
+        # Subscriber should be removed
+        final_subscribers = len(bus._subscribers.get('*', []))
+        assert final_subscribers == initial_subscribers
 
 
 class TestEventSerialization:
@@ -408,6 +444,7 @@ class TestAPIDocumentation:
         assert "openapi" in spec
         assert "paths" in spec
         assert "/api/v1/events" in spec["paths"]
+        assert "/api/v1/subscriptions/stream" in spec["paths"]
 
     def test_docs_endpoint_exists(self, client):
         """

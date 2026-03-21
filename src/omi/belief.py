@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, cast
 import math
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -35,17 +38,34 @@ class BeliefNetwork:
     SUPPORT_LAMBDA = 0.15
     CONTRADICT_LAMBDA = 0.30
     
-    def __init__(self, palace_store: Any) -> None:
+    def __init__(self, palace_store: Any, event_bus: Optional[Any] = None) -> None:
         """
         Args:
             palace_store: GraphPalace instance for storage
+            event_bus: Optional EventBus instance for emitting belief update events
         """
         self.palace = palace_store
+        self.event_bus = event_bus
     
-    def create_belief(self, content: str, initial_confidence: float = 0.5) -> str:
+    def create_belief(
+        self,
+        content: str,
+        initial_confidence: float = 0.5,
+        agent_id: Optional[str] = None,
+        namespace: Optional[str] = None
+    ) -> str:
         """
         Create new belief with initial confidence
-        
+
+        Args:
+            content: Belief content/description
+            initial_confidence: Initial confidence value (0.0 to 1.0)
+            agent_id: Optional agent ID for cross-agent tracking
+            namespace: Optional namespace for scoping
+
+        Returns:
+            belief_id: ID of created belief
+
         Beliefs are memories with:
         - memory_type = 'belief'
         - confidence = initial_confidence
@@ -57,45 +77,109 @@ class BeliefNetwork:
             memory_type='belief',
             confidence=initial_confidence
         )
+
+        # Emit belief creation event
+        if self.event_bus:
+            try:
+                from omi.events import BeliefUpdatedEvent
+
+                # Treat creation as an update from 0.5 (neutral) to initial_confidence
+                event = BeliefUpdatedEvent(
+                    belief_id=belief_id,
+                    old_confidence=0.5,
+                    new_confidence=initial_confidence,
+                    evidence_id=None,
+                    metadata={
+                        'agent_id': agent_id,
+                        'namespace': namespace,
+                        'created': True,
+                        'content': content
+                    }
+                )
+                self.event_bus.publish(event)
+                logger.debug(
+                    f"Emitted belief.updated event for new belief {belief_id} "
+                    f"with confidence {initial_confidence:.3f}"
+                )
+            except Exception as e:
+                logger.error(f"Error emitting belief creation event: {e}", exc_info=True)
+
         return cast(str, belief_id)
     
-    def update_with_evidence(self, belief_id: str, evidence: Evidence) -> float:
+    def update_with_evidence(
+        self,
+        belief_id: str,
+        evidence: Evidence,
+        agent_id: Optional[str] = None,
+        namespace: Optional[str] = None
+    ) -> float:
         """
         Update belief confidence with new evidence
-        
+
+        Args:
+            belief_id: ID of belief to update
+            evidence: Evidence for or against the belief
+            agent_id: Optional agent ID for cross-agent propagation tracking
+            namespace: Optional namespace for scoping propagation
+
         Returns:
             new_confidence: Updated confidence value
         """
         # EMA update formula:
         # new_confidence = old_confidence + λ * (target - old_confidence)
         # where target = evidence.strength if supporting, -evidence.strength if contradicting
-        
-        lambda_val = (self.SUPPORT_LAMBDA if evidence.supports 
+
+        lambda_val = (self.SUPPORT_LAMBDA if evidence.supports
                      else self.CONTRADICT_LAMBDA)
-        
+
         # Get current confidence
         current = self.palace.get_belief(belief_id)
         old_confidence: float = current.get('confidence', 0.5)
-        
+
         # Calculate target
         if evidence.supports:
             target = min(1.0, old_confidence + evidence.strength)
         else:
             target = max(0.0, old_confidence - evidence.strength)
-        
+
         # EMA update
         new_confidence = old_confidence + lambda_val * (target - old_confidence)
-        
+
         # Clamp to [0, 1]
         new_confidence = max(0.0, min(1.0, new_confidence))
-        
+
         # Update in palace
         self.palace.update_belief_confidence(belief_id, new_confidence)
-        
+
         # Create evidence edge
         edge_type = 'SUPPORTS' if evidence.supports else 'CONTRADICTS'
         self.palace.create_edge(belief_id, evidence.memory_id, edge_type, evidence.strength)
-        
+
+        # Emit belief update event for cross-agent propagation
+        if self.event_bus:
+            try:
+                from omi.events import BeliefUpdatedEvent
+
+                event = BeliefUpdatedEvent(
+                    belief_id=belief_id,
+                    old_confidence=old_confidence,
+                    new_confidence=new_confidence,
+                    evidence_id=evidence.memory_id,
+                    metadata={
+                        'agent_id': agent_id,
+                        'namespace': namespace,
+                        'supports': evidence.supports,
+                        'strength': evidence.strength
+                    }
+                )
+                self.event_bus.publish(event)
+                logger.debug(
+                    f"Emitted belief.updated event for {belief_id}: "
+                    f"{old_confidence:.3f} -> {new_confidence:.3f}"
+                )
+            except Exception as e:
+                logger.error(f"Error emitting belief update event: {e}", exc_info=True)
+
         return new_confidence
     
     def retrieve_with_confidence_weighting(self, query: str,
