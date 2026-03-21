@@ -2,6 +2,7 @@
 
 This module provides the start_server function used by the CLI serve command.
 """
+
 import logging
 from pathlib import Path
 from typing import Optional
@@ -35,10 +36,4 @@ def start_server(host: str = "0.0.0.0", port: int = 8420, base_path: Optional[Pa
     from omi.rest_api import app
 
     # Run uvicorn server
-    uvicorn.run(
-        app,
-        host=host,
-        port=port,
-        log_level="info",
-        access_log=True
-    )
+    uvicorn.run(app, host=host, port=port, log_level="info", access_log=True)

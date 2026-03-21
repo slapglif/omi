@@ -39,7 +39,9 @@ class MemorySearch:
     # Target: <500ms for 1000 memories
     QUERY_TIMEOUT_MS = 500
 
-    def __init__(self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None):
+    def __init__(
+        self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None
+    ):
         """
         Initialize Memory Search operations.
 
@@ -48,7 +50,7 @@ class MemorySearch:
             enable_wal: Enable WAL mode for concurrent writes (default: True)
             conn: Optional shared connection (for :memory: databases in facade pattern)
         """
-        self.db_path = Path(db_path) if db_path != ':memory:' else db_path
+        self.db_path = Path(db_path) if db_path != ":memory:" else db_path
         self._owns_connection = conn is None
 
         if conn is not None:
@@ -57,17 +59,14 @@ class MemorySearch:
             self._db_lock = threading.Lock()
         else:
             # Create parent directory if needed (skip for :memory:)
-            if self.db_path != ':memory:':
+            if self.db_path != ":memory:":
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Create persistent connection
             # check_same_thread=False allows multi-threaded access (safe with WAL mode)
             # isolation_level=None enables autocommit mode for better concurrency
             self._conn = sqlite3.connect(
-                self.db_path,
-                check_same_thread=False,
-                isolation_level=None,
-                timeout=30.0
+                self.db_path, check_same_thread=False, isolation_level=None, timeout=30.0
             )
 
             # Thread lock for serializing database operations
@@ -86,10 +85,9 @@ class MemorySearch:
         days_ago = (datetime.now() - timestamp).days
         return math.exp(-days_ago / self.RECENCY_HALF_LIFE)
 
-    def recall(self,
-               query_embedding: List[float],
-               limit: int = 10,
-               min_relevance: float = 0.7) -> List[Tuple[Memory, float]]:
+    def recall(
+        self, query_embedding: List[float], limit: int = 10, min_relevance: float = 0.7
+    ) -> List[Tuple[Memory, float]]:
         """
         Semantic search with recency weighting.
 
@@ -151,9 +149,9 @@ class MemorySearch:
 
         # Compute cosine similarities: (n_memories,)
         # Avoid division by zero
-        similarities = np.divide(dots, norms * query_norm,
-                                out=np.zeros_like(dots),
-                                where=(norms * query_norm) > 0)
+        similarities = np.divide(
+            dots, norms * query_norm, out=np.zeros_like(dots), where=(norms * query_norm) > 0
+        )
 
         # Filter by min_relevance
         valid_indices = np.where(similarities >= min_relevance)[0]
@@ -186,7 +184,7 @@ class MemorySearch:
                 last_accessed=last_accessed,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
             )
             results.append((memory, final_score))
 
@@ -208,7 +206,8 @@ class MemorySearch:
         memories = []
 
         # Use FTS5 MATCH via standalone FTS table
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                    m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
             FROM memories_fts fts
@@ -216,7 +215,9 @@ class MemorySearch:
             WHERE memories_fts MATCH ?
             ORDER BY rank
             LIMIT ?
-        """, (query, limit))
+        """,
+            (query, limit),
+        )
 
         for row in cursor:
             embedding = blob_to_embed(row[2]) if row[2] else None
@@ -230,7 +231,7 @@ class MemorySearch:
                 last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
             )
             memories.append(memory)
 
@@ -238,7 +239,7 @@ class MemorySearch:
 
     def close(self) -> None:
         """Close connection and cleanup."""
-        if self._owns_connection and hasattr(self, '_conn') and self._conn:
+        if self._owns_connection and hasattr(self, "_conn") and self._conn:
             self._conn.close()
 
     def __enter__(self):

@@ -1,4 +1,5 @@
 """Cloud sync commands for OMI CLI."""
+
 import os
 import sys
 from pathlib import Path
@@ -19,12 +20,12 @@ def sync_group(ctx):
     pass
 
 
-@sync_group.command('status')
+@sync_group.command("status")
 @click.pass_context
 def sync_status(ctx):
     """Show cloud sync status and configuration."""
-    verbosity = ctx.obj.get('verbosity', 1)
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    verbosity = ctx.obj.get("verbosity", 1)
+    base_path = get_base_path(ctx.obj.get("data_dir"))
 
     # Check if OMI is initialized
     if not base_path.exists():
@@ -37,13 +38,13 @@ def sync_status(ctx):
         sys.exit(1)
 
     # Load config
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         config_data = yaml.safe_load(f)
 
     echo_normal("=== Cloud Sync Status ===\n", verbosity)
 
     # Check if backup is configured
-    if 'backup' not in config_data or not config_data['backup']:
+    if "backup" not in config_data or not config_data["backup"]:
         echo_normal("Status: Disabled", verbosity)
         echo_normal("Cloud sync is not configured.", verbosity)
         echo_normal("\nTo enable, configure backup settings:", verbosity)
@@ -51,36 +52,36 @@ def sync_status(ctx):
         echo_normal("  omi config set backup.bucket my-bucket", verbosity)
         return
 
-    backup_config = config_data['backup']
-    backend = backup_config.get('backend', 'not set')
+    backup_config = config_data["backup"]
+    backend = backup_config.get("backend", "not set")
 
     echo_normal(f"Status: Configured", verbosity)
     echo_normal(f"Backend: {backend}", verbosity)
 
-    if backend == 's3':
-        bucket = backup_config.get('bucket', 'not set')
-        region = backup_config.get('region', 'not set')
+    if backend == "s3":
+        bucket = backup_config.get("bucket", "not set")
+        region = backup_config.get("region", "not set")
         echo_normal(f"Bucket: {bucket}", verbosity)
         echo_verbose(f"Region: {region}", verbosity)
-    elif backend == 'gcs':
-        bucket = backup_config.get('bucket', 'not set')
-        project = backup_config.get('project', 'not set')
+    elif backend == "gcs":
+        bucket = backup_config.get("bucket", "not set")
+        project = backup_config.get("project", "not set")
         echo_normal(f"Bucket: {bucket}", verbosity)
         echo_verbose(f"Project: {project}", verbosity)
-    elif backend == 'azure':
-        container = backup_config.get('container', 'not set')
-        account = backup_config.get('account_name', 'not set')
+    elif backend == "azure":
+        container = backup_config.get("container", "not set")
+        account = backup_config.get("account_name", "not set")
         echo_normal(f"Container: {container}", verbosity)
         echo_verbose(f"Account: {account}", verbosity)
 
 
-@sync_group.command('push')
-@click.option('--encrypt', is_flag=True, help='Encrypt backup before uploading')
+@sync_group.command("push")
+@click.option("--encrypt", is_flag=True, help="Encrypt backup before uploading")
 @click.pass_context
 def sync_push(ctx, encrypt):
     """Push local data to cloud storage."""
-    verbosity = ctx.obj.get('verbosity', 1)
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    verbosity = ctx.obj.get("verbosity", 1)
+    base_path = get_base_path(ctx.obj.get("data_dir"))
 
     # Check if OMI is initialized
     if not base_path.exists():
@@ -93,18 +94,18 @@ def sync_push(ctx, encrypt):
         sys.exit(1)
 
     # Load config
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         config_data = yaml.safe_load(f)
 
     # Check if backup is configured
-    if 'backup' not in config_data or not config_data['backup']:
+    if "backup" not in config_data or not config_data["backup"]:
         click.echo("Error: Cloud sync not configured.", err=True)
         click.echo("Run 'omi sync status' for configuration instructions.", err=True)
         sys.exit(1)
 
-    backup_config = config_data['backup']
-    backend = backup_config.get('backend', '').lower()
-    bucket = backup_config.get('bucket', '')
+    backup_config = config_data["backup"]
+    backend = backup_config.get("backend", "").lower()
+    bucket = backup_config.get("bucket", "")
 
     echo_normal("Pushing to cloud storage...", verbosity)
     echo_verbose(f"Backend: {backend}", verbosity)
@@ -135,13 +136,13 @@ def sync_push(ctx, encrypt):
         sys.exit(1)
 
 
-@sync_group.command('pull')
-@click.option('--backup-id', help='Specific backup ID to restore')
+@sync_group.command("pull")
+@click.option("--backup-id", help="Specific backup ID to restore")
 @click.pass_context
 def sync_pull(ctx, backup_id):
     """Pull data from cloud storage."""
-    verbosity = ctx.obj.get('verbosity', 1)
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    verbosity = ctx.obj.get("verbosity", 1)
+    base_path = get_base_path(ctx.obj.get("data_dir"))
 
     # Check if OMI is initialized
     if not base_path.exists():
@@ -154,17 +155,17 @@ def sync_pull(ctx, backup_id):
         sys.exit(1)
 
     # Load config
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         config_data = yaml.safe_load(f)
 
     # Check if backup is configured
-    if 'backup' not in config_data or not config_data['backup']:
+    if "backup" not in config_data or not config_data["backup"]:
         click.echo("Error: Cloud sync not configured.", err=True)
         click.echo("Run 'omi sync status' for configuration instructions.", err=True)
         sys.exit(1)
 
-    backup_config = config_data['backup']
-    backend = backup_config.get('backend', '').lower()
+    backup_config = config_data["backup"]
+    backend = backup_config.get("backend", "").lower()
 
     echo_normal("Pulling from cloud storage...", verbosity)
     echo_verbose(f"Backend: {backend}", verbosity)

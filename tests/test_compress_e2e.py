@@ -19,6 +19,7 @@ import pytest
 from click.testing import CliRunner
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from omi.cli import cli
@@ -44,10 +45,13 @@ class TestCompressE2E:
 
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at, last_accessed, access_count)
             VALUES (?, ?, ?, ?, ?, 0)
-        """, (memory_id, content, memory_type, created_at.isoformat(), created_at.isoformat()))
+        """,
+            (memory_id, content, memory_type, created_at.isoformat(), created_at.isoformat()),
+        )
         conn.commit()
         conn.close()
 
@@ -65,21 +69,13 @@ class TestCompressE2E:
             # Store some old memories (40 days ago)
             old_date = datetime.now() - timedelta(days=40)
             for i in range(5):
-                self._store_memory_with_date(
-                    base_path,
-                    f"Old memory {i}",
-                    "experience",
-                    old_date
-                )
+                self._store_memory_with_date(base_path, f"Old memory {i}", "experience", old_date)
 
             # Store some recent memories (10 days ago)
             recent_date = datetime.now() - timedelta(days=10)
             for i in range(3):
                 self._store_memory_with_date(
-                    base_path,
-                    f"Recent memory {i}",
-                    "experience",
-                    recent_date
+                    base_path, f"Recent memory {i}", "experience", recent_date
                 )
 
             # Run compress in dry-run mode (default 30 days)
@@ -108,10 +104,7 @@ class TestCompressE2E:
             for days_ago in [5, 15, 25, 35]:
                 date = datetime.now() - timedelta(days=days_ago)
                 self._store_memory_with_date(
-                    base_path,
-                    f"Memory from {days_ago} days ago",
-                    "fact",
-                    date
+                    base_path, f"Memory from {days_ago} days ago", "fact", date
                 )
 
             # Compress with --age-days 20 (should get 2 memories: 25 and 35 days old)
@@ -137,20 +130,10 @@ class TestCompressE2E:
             new_date = datetime(2024, 1, 20)
 
             for i in range(3):
-                self._store_memory_with_date(
-                    base_path,
-                    f"Old memory {i}",
-                    "fact",
-                    old_date
-                )
+                self._store_memory_with_date(base_path, f"Old memory {i}", "fact", old_date)
 
             for i in range(2):
-                self._store_memory_with_date(
-                    base_path,
-                    f"New memory {i}",
-                    "fact",
-                    new_date
-                )
+                self._store_memory_with_date(base_path, f"New memory {i}", "fact", new_date)
 
             # Compress with --before 2024-01-15 (should get 3 old memories)
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
@@ -187,12 +170,9 @@ class TestCompressE2E:
 
             # Try to use both filters
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "compress",
-                    "--dry-run",
-                    "--before", "2024-01-15",
-                    "--age-days", "30"
-                ])
+                result = runner.invoke(
+                    cli, ["compress", "--dry-run", "--before", "2024-01-15", "--age-days", "30"]
+                )
 
             assert result.exit_code == 1
             assert "Cannot use both --before and --age-days" in result.output
@@ -210,10 +190,7 @@ class TestCompressE2E:
             recent_date = datetime.now() - timedelta(days=5)
             for i in range(3):
                 self._store_memory_with_date(
-                    base_path,
-                    f"Recent memory {i}",
-                    "experience",
-                    recent_date
+                    base_path, f"Recent memory {i}", "experience", recent_date
                 )
 
             # Run compress
@@ -235,9 +212,9 @@ class TestCompressE2E:
             assert result.exit_code == 1
             assert "not initialized" in result.output.lower()
 
-    @patch('omi.moltvault.MoltVault')
-    @patch('omi.summarizer.MemorySummarizer')
-    @patch('omi.embeddings.NIMEmbedder')
+    @patch("omi.moltvault.MoltVault")
+    @patch("omi.summarizer.MemorySummarizer")
+    @patch("omi.embeddings.NIMEmbedder")
     def test_compress_live_mode(self, mock_embedder_cls, mock_summarizer_cls, mock_vault_cls):
         """Test compress command in live mode with mocked services."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -253,12 +230,7 @@ class TestCompressE2E:
             for i in range(3):
                 content = f"This is a detailed memory about event {i} with lots of information."
                 original_contents.append(content)
-                self._store_memory_with_date(
-                    base_path,
-                    content,
-                    "experience",
-                    old_date
-                )
+                self._store_memory_with_date(base_path, content, "experience", old_date)
 
             # Mock MoltVault backup
             mock_vault = MagicMock()
@@ -281,10 +253,9 @@ class TestCompressE2E:
             mock_embedder_cls.return_value = mock_embedder
 
             # Run compress in live mode
-            with patch.dict(os.environ, {
-                "OMI_BASE_PATH": str(base_path),
-                "ANTHROPIC_API_KEY": "test-key"
-            }):
+            with patch.dict(
+                os.environ, {"OMI_BASE_PATH": str(base_path), "ANTHROPIC_API_KEY": "test-key"}
+            ):
                 result = runner.invoke(cli, ["compress"])
 
             assert result.exit_code == 0
@@ -306,6 +277,7 @@ class TestCompressE2E:
 
             # Verify database was updated
             import sqlite3
+
             db_path = base_path / "palace.sqlite"
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
@@ -317,8 +289,8 @@ class TestCompressE2E:
             for summary in compressed_summaries:
                 assert summary in updated_contents
 
-    @patch('omi.moltvault.MoltVault')
-    @patch('omi.summarizer.MemorySummarizer')
+    @patch("omi.moltvault.MoltVault")
+    @patch("omi.summarizer.MemorySummarizer")
     def test_compress_missing_api_key(self, mock_summarizer_cls, mock_vault_cls):
         """Test compress command fails gracefully when API key is missing."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -331,12 +303,7 @@ class TestCompressE2E:
             # Store old memories
             old_date = datetime.now() - timedelta(days=40)
             for i in range(2):
-                self._store_memory_with_date(
-                    base_path,
-                    f"Old memory {i}",
-                    "experience",
-                    old_date
-                )
+                self._store_memory_with_date(base_path, f"Old memory {i}", "experience", old_date)
 
             # Mock backup to succeed
             mock_vault = MagicMock()
@@ -370,39 +337,30 @@ class TestCompressE2E:
             # Store old memories
             old_date = datetime.now() - timedelta(days=40)
             for i in range(2):
-                self._store_memory_with_date(
-                    base_path,
-                    f"Old memory {i}",
-                    "experience",
-                    old_date
-                )
+                self._store_memory_with_date(base_path, f"Old memory {i}", "experience", old_date)
 
             # Test with OpenAI provider (dry run)
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "compress",
-                    "--dry-run",
-                    "--llm-provider", "openai"
-                ])
+                result = runner.invoke(cli, ["compress", "--dry-run", "--llm-provider", "openai"])
 
             assert result.exit_code == 0
             assert "LLM Provider: openai" in result.output
 
             # Test with Anthropic provider (default, dry run)
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "compress",
-                    "--dry-run",
-                    "--llm-provider", "anthropic"
-                ])
+                result = runner.invoke(
+                    cli, ["compress", "--dry-run", "--llm-provider", "anthropic"]
+                )
 
             assert result.exit_code == 0
             assert "LLM Provider: anthropic" in result.output
 
-    @patch('omi.summarizer.MemorySummarizer')
-    @patch('omi.embeddings.NIMEmbedder')
-    @patch('omi.moltvault.MoltVault')
-    def test_compress_with_local_backup_fallback(self, mock_vault_cls, mock_embedder_cls, mock_summarizer_cls):
+    @patch("omi.summarizer.MemorySummarizer")
+    @patch("omi.embeddings.NIMEmbedder")
+    @patch("omi.moltvault.MoltVault")
+    def test_compress_with_local_backup_fallback(
+        self, mock_vault_cls, mock_embedder_cls, mock_summarizer_cls
+    ):
         """Test compress creates local backup when MoltVault raises ImportError."""
         with tempfile.TemporaryDirectory() as tmpdir:
             runner = CliRunner()
@@ -414,12 +372,7 @@ class TestCompressE2E:
             # Store old memories
             old_date = datetime.now() - timedelta(days=40)
             for i in range(2):
-                self._store_memory_with_date(
-                    base_path,
-                    f"Old memory {i}",
-                    "experience",
-                    old_date
-                )
+                self._store_memory_with_date(base_path, f"Old memory {i}", "experience", old_date)
 
             # Mock summarizer and embedder
             mock_summarizer = MagicMock()
@@ -433,15 +386,17 @@ class TestCompressE2E:
             # Mock MoltVault constructor to raise ImportError
             mock_vault_cls.side_effect = ImportError("MoltVault not found")
 
-            with patch.dict(os.environ, {
-                "OMI_BASE_PATH": str(base_path),
-                "ANTHROPIC_API_KEY": "test-key"
-            }):
+            with patch.dict(
+                os.environ, {"OMI_BASE_PATH": str(base_path), "ANTHROPIC_API_KEY": "test-key"}
+            ):
                 result = runner.invoke(cli, ["compress"])
 
             # Should succeed with local backup
             assert result.exit_code == 0
-            assert "MoltVault not available" in result.output or "Local backup created" in result.output
+            assert (
+                "MoltVault not available" in result.output
+                or "Local backup created" in result.output
+            )
 
             # Verify local backup was created
             backup_dir = base_path / "backups"

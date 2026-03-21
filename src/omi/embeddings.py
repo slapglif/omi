@@ -77,6 +77,7 @@ class EmbeddingProvider(ABC):
 @dataclass
 class NIMConfig:
     """NVIDIA NIM configuration"""
+
     api_key: str
     base_url: str = "https://integrate.api.nvidia.com/v1"
     model: str = "baai/bge-m3"  # Proven deployment from MEMORY.md
@@ -95,15 +96,17 @@ class NIMEmbedder(EmbeddingProvider):
 
     Fallback: Ollama (local) for airgapped environments
     """
-    
+
     DEFAULT_MODEL = "baai/bge-m3"
     DEFAULT_DIM = 1024
-    
-    def __init__(self,
-                 api_key: Optional[str] = None,
-                 base_url: str = "https://integrate.api.nvidia.com/v1",
-                 model: str = DEFAULT_MODEL,
-                 fallback_to_ollama: bool = True):
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: str = "https://integrate.api.nvidia.com/v1",
+        model: str = DEFAULT_MODEL,
+        fallback_to_ollama: bool = True,
+    ):
         """
         Args:
             api_key: NVIDIA NIM API key (or NIM_API_KEY env var)
@@ -115,20 +118,20 @@ class NIMEmbedder(EmbeddingProvider):
         self.base_url: str = base_url.rstrip("/")
         self.model: str = model
         self.fallback_enabled: bool = fallback_to_ollama
-        self._ollama_embedder: Optional['OllamaEmbedder'] = None
+        self._ollama_embedder: Optional["OllamaEmbedder"] = None
         self._session: Any  # requests.Session
-        
+
         if not self.api_key:
             raise ValueError("NIM_API_KEY required or set NIM_API_KEY env var")
-        
+
         # Initialize HTTP session
         try:
-            import requests
+            import requests  # type: ignore
+
             session = requests.Session()
-            session.headers.update({
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            })
+            session.headers.update(
+                {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+            )
             self._session = session
             self._test_connection()
         except Exception as e:
@@ -136,24 +139,23 @@ class NIMEmbedder(EmbeddingProvider):
                 self._init_ollama_fallback()
             else:
                 raise
-    
+
     def _test_connection(self) -> None:
         """Test NIM connection"""
         test_response = self._session.post(
-            f"{self.base_url}/embeddings",
-            json={"model": self.model, "input": "test"},
-            timeout=10
+            f"{self.base_url}/embeddings", json={"model": self.model, "input": "test"}, timeout=10
         )
         test_response.raise_for_status()
-    
+
     def _init_ollama_fallback(self) -> None:
         """Initialize Ollama fallback"""
         try:
             from .ollama_fallback import OllamaEmbedder  # type: ignore[import-not-found]
+
             self._ollama_embedder = OllamaEmbedder()
         except Exception:
             raise RuntimeError("NIM unavailable and Ollama fallback failed")
-    
+
     def embed(self, text: str) -> List[float]:
         """Generate embedding with fallback"""
         try:
@@ -175,27 +177,26 @@ class NIMEmbedder(EmbeddingProvider):
             json={
                 "model": self.model,
                 "input": text[:512],  # Truncate to max tokens
-                "encoding_format": "float"
+                "encoding_format": "float",
             },
-            timeout=30
+            timeout=30,
         )
         response.raise_for_status()
 
         data = response.json()
         embedding: List[float] = data["data"][0]["embedding"]
         return embedding
-    
+
     def embed_batch(self, texts: List[str], batch_size: int = 8) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
         results = []
         for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
+            batch = texts[i : i + batch_size]
             batch_results = [self.embed(t) for t in batch]
             results.extend(batch_results)
         return results
-    
-    def similarity(self, embedding1: List[float],
-                  embedding2: List[float]) -> float:
+
+    def similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
         """Cosine similarity"""
         v1: Any = np.array(embedding1)  # type: ignore[attr-defined]
         v2: Any = np.array(embedding2)  # type: ignore[attr-defined]
@@ -214,6 +215,7 @@ class NIMEmbedder(EmbeddingProvider):
 @dataclass
 class OpenAIConfig:
     """OpenAI embeddings configuration"""
+
     api_key: str
     base_url: str = "https://api.openai.com/v1"
     model: str = "text-embedding-3-small"
@@ -236,15 +238,14 @@ class OpenAIEmbedder(EmbeddingProvider):
     DEFAULT_MODEL = "text-embedding-3-small"
     DEFAULT_DIM = 1536
 
-    MODEL_DIMENSIONS = {
-        "text-embedding-3-small": 1536,
-        "text-embedding-3-large": 3072
-    }
+    MODEL_DIMENSIONS = {"text-embedding-3-small": 1536, "text-embedding-3-large": 3072}
 
-    def __init__(self,
-                 api_key: Optional[str] = None,
-                 base_url: str = "https://api.openai.com/v1",
-                 model: str = DEFAULT_MODEL):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: str = "https://api.openai.com/v1",
+        model: str = DEFAULT_MODEL,
+    ):
         """
         Args:
             api_key: OpenAI API key (or OPENAI_API_KEY env var)
@@ -259,20 +260,18 @@ class OpenAIEmbedder(EmbeddingProvider):
             raise ValueError("OPENAI_API_KEY required or set OPENAI_API_KEY env var")
 
         # Initialize HTTP session
-        import requests
+        import requests  # type: ignore
+
         self._session = requests.Session()
-        self._session.headers.update({
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        })
+        self._session.headers.update(
+            {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        )
         self._test_connection()
 
     def _test_connection(self) -> None:
         """Test OpenAI API connection"""
         test_response = self._session.post(
-            f"{self.base_url}/embeddings",
-            json={"model": self.model, "input": "test"},
-            timeout=10
+            f"{self.base_url}/embeddings", json={"model": self.model, "input": "test"}, timeout=10
         )
         test_response.raise_for_status()
 
@@ -280,12 +279,8 @@ class OpenAIEmbedder(EmbeddingProvider):
         """Generate embedding via OpenAI API"""
         response = self._session.post(
             f"{self.base_url}/embeddings",
-            json={
-                "model": self.model,
-                "input": text,
-                "encoding_format": "float"
-            },
-            timeout=30
+            json={"model": self.model, "input": text, "encoding_format": "float"},
+            timeout=30,
         )
         response.raise_for_status()
 
@@ -306,15 +301,11 @@ class OpenAIEmbedder(EmbeddingProvider):
         """
         results = []
         for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
+            batch = texts[i : i + batch_size]
             response = self._session.post(
                 f"{self.base_url}/embeddings",
-                json={
-                    "model": self.model,
-                    "input": batch,
-                    "encoding_format": "float"
-                },
-                timeout=60
+                json={"model": self.model, "input": batch, "encoding_format": "float"},
+                timeout=60,
             )
             response.raise_for_status()
 
@@ -328,6 +319,7 @@ class OpenAIEmbedder(EmbeddingProvider):
 @dataclass
 class CohereConfig:
     """Cohere embeddings configuration"""
+
     api_key: str
     base_url: str = "https://api.cohere.ai/v1"
     model: str = "embed-english-v3.0"
@@ -354,14 +346,16 @@ class CohereEmbedder(EmbeddingProvider):
         "embed-english-v3.0": 1024,
         "embed-multilingual-v3.0": 1024,
         "embed-english-light-v3.0": 384,
-        "embed-multilingual-light-v3.0": 384
+        "embed-multilingual-light-v3.0": 384,
     }
 
-    def __init__(self,
-                 api_key: Optional[str] = None,
-                 base_url: str = "https://api.cohere.ai/v1",
-                 model: str = DEFAULT_MODEL,
-                 input_type: str = "search_document"):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: str = "https://api.cohere.ai/v1",
+        model: str = DEFAULT_MODEL,
+        input_type: str = "search_document",
+    ):
         """
         Args:
             api_key: Cohere API key (or COHERE_API_KEY env var)
@@ -378,24 +372,20 @@ class CohereEmbedder(EmbeddingProvider):
             raise ValueError("COHERE_API_KEY required or set COHERE_API_KEY env var")
 
         # Initialize HTTP session
-        import requests
+        import requests  # type: ignore
+
         self._session = requests.Session()
-        self._session.headers.update({
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        })
+        self._session.headers.update(
+            {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        )
         self._test_connection()
 
     def _test_connection(self) -> None:
         """Test Cohere API connection"""
         test_response = self._session.post(
             f"{self.base_url}/embed",
-            json={
-                "model": self.model,
-                "texts": ["test"],
-                "input_type": self.input_type
-            },
-            timeout=10
+            json={"model": self.model, "texts": ["test"], "input_type": self.input_type},
+            timeout=10,
         )
         test_response.raise_for_status()
 
@@ -403,12 +393,8 @@ class CohereEmbedder(EmbeddingProvider):
         """Generate embedding via Cohere API"""
         response = self._session.post(
             f"{self.base_url}/embed",
-            json={
-                "model": self.model,
-                "texts": [text],
-                "input_type": self.input_type
-            },
-            timeout=30
+            json={"model": self.model, "texts": [text], "input_type": self.input_type},
+            timeout=30,
         )
         response.raise_for_status()
 
@@ -428,15 +414,11 @@ class CohereEmbedder(EmbeddingProvider):
         """
         results = []
         for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
+            batch = texts[i : i + batch_size]
             response = self._session.post(
                 f"{self.base_url}/embed",
-                json={
-                    "model": self.model,
-                    "texts": batch,
-                    "input_type": self.input_type
-                },
-                timeout=60
+                json={"model": self.model, "texts": batch, "input_type": self.input_type},
+                timeout=60,
             )
             response.raise_for_status()
 
@@ -458,13 +440,9 @@ class OllamaEmbedder(EmbeddingProvider):
     DEFAULT_MODEL = "nomic-embed-text"
     DEFAULT_DIM = 768
 
-    MODEL_DIMENSIONS = {
-        "nomic-embed-text": 768,
-        "mxbai-embed-large": 1024
-    }
-    
-    def __init__(self, model: str = DEFAULT_MODEL,
-                 base_url: str = "http://localhost:11434"):
+    MODEL_DIMENSIONS = {"nomic-embed-text": 768, "mxbai-embed-large": 1024}
+
+    def __init__(self, model: str = DEFAULT_MODEL, base_url: str = "http://localhost:11434"):
         self.model: str = model
         self.base_url: str = base_url
         self.client: Any  # ollama.Client
@@ -473,30 +451,29 @@ class OllamaEmbedder(EmbeddingProvider):
 
         try:
             import ollama
+
             self.client = ollama.Client(host=base_url)
             self._use_client = True
         except ImportError:
-            import requests
+            import requests  # type: ignore
+
             self._use_client = False
             self._session = requests.Session()
-    
+
     def embed(self, text: str) -> List[float]:
         """Generate embedding via Ollama"""
         if self._use_client:
-            response = self.client.embeddings(
-                model=self.model,
-                prompt=text
-            )
-            embedding: List[float] = response['embedding']
+            response = self.client.embeddings(model=self.model, prompt=text)
+            embedding: List[float] = response["embedding"]
             return embedding
         else:
-            import requests
+            import requests  # type: ignore
+
             resp = self._session.post(
-                f"{self.base_url}/api/embeddings",
-                json={"model": self.model, "prompt": text}
+                f"{self.base_url}/api/embeddings", json={"model": self.model, "prompt": text}
             )
             resp.raise_for_status()
-            embedding_result: List[float] = resp.json()['embedding']
+            embedding_result: List[float] = resp.json()["embedding"]
             return embedding_result
 
     @property
@@ -524,7 +501,7 @@ class SentenceTransformerEmbedder(EmbeddingProvider):
         "all-MiniLM-L6-v2": 384,
         "all-mpnet-base-v2": 768,
         "paraphrase-multilingual-MiniLM-L12-v2": 384,
-        "all-MiniLM-L12-v2": 384
+        "all-MiniLM-L12-v2": 384,
     }
 
     def __init__(self, model: str = DEFAULT_MODEL):
@@ -539,7 +516,8 @@ class SentenceTransformerEmbedder(EmbeddingProvider):
     def _load_model(self) -> None:
         """Load sentence-transformers model"""
         try:
-            from sentence_transformers import SentenceTransformer
+            from sentence_transformers import SentenceTransformer  # type: ignore
+
             self._model_instance = SentenceTransformer(self.model)
         except ImportError:
             raise RuntimeError(
@@ -572,9 +550,7 @@ class SentenceTransformerEmbedder(EmbeddingProvider):
             self._load_model()
 
         embeddings = self._model_instance.encode(
-            texts,
-            batch_size=batch_size,
-            convert_to_numpy=True
+            texts, batch_size=batch_size, convert_to_numpy=True
         )
         return [emb.tolist() for emb in embeddings]
 
@@ -597,7 +573,7 @@ class EmbeddingCache:
         self.cache_dir: Path = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.embedder: EmbeddingProvider = embedder
-    
+
     def get_or_compute(self, text: str) -> List[float]:
         """Get from cache or compute and store"""
         content_hash = hashlib.sha256(text.encode()).hexdigest()
@@ -616,84 +592,81 @@ class EmbeddingCache:
 class NIMInference:
     """
     NVIDIA NIM inference for agent operations
-    
+
     Use cases:
     - Micro-model verification (state capsule validation)
     - Contradiction detection (semantic comparison)
     - Memory classification (fact vs belief)
     """
-    
+
     CAPSULE_VERIFY_MODEL = "baai/bge-m3"
     CONTRADICTION_MODEL = "baai/bge-m3"
-    
+
     def __init__(self, config: Optional[NIMConfig] = None):
-        self.config: NIMConfig = config or NIMConfig(
-            api_key=os.getenv("NIM_API_KEY", "")
-        )
+        self.config: NIMConfig = config or NIMConfig(api_key=os.getenv("NIM_API_KEY", ""))
         self._session: Any  # requests.Session
         self._init_session()
-    
+
     def _init_session(self) -> None:
-        import requests
+        import requests  # type: ignore
+
         self._session = requests.Session()
-        self._session.headers.update({
-            "Authorization": f"Bearer {self.config.api_key}",
-            "Content-Type": "application/json"
-        })
-    
-    def verify_capsule_state(self,
-                           capsule_state: str,
-                           retrieved_clips: List[str],
-                           threshold: float = 0.85) -> Dict[str, Any]:
+        self._session.headers.update(
+            {"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"}
+        )
+
+    def verify_capsule_state(
+        self, capsule_state: str, retrieved_clips: List[str], threshold: float = 0.85
+    ) -> Dict[str, Any]:
         """
         Micro-model verification of state capsule
-        
+
         Returns: accept | patch | reject
         """
         # Embed capsule and clips
         capsule_emb = self._embed(capsule_state)
         clip_embs = [self._embed(clip) for clip in retrieved_clips]
-        
+
         # Calculate semantic coherence
         sims = [self._similarity(capsule_emb, ce) for ce in clip_embs]
         avg_sim = sum(sims) / len(sims) if sims else 0
-        
+
         if avg_sim >= threshold:
             return {"verdict": "accept", "confidence": avg_sim}
         elif avg_sim >= threshold * 0.8:
             return {"verdict": "patch", "confidence": avg_sim, "drift": 1 - avg_sim}
         else:
             return {"verdict": "reject", "confidence": avg_sim}
-    
+
     def _embed(self, text: str) -> List[float]:
         response = self._session.post(
             f"{self.config.base_url}/embeddings",
             json={"model": self.config.model, "input": text},
-            timeout=30
+            timeout=30,
         )
         response.raise_for_status()
         embedding: List[float] = response.json()["data"][0]["embedding"]
         return embedding
-    
+
     def _similarity(self, e1: List[float], e2: List[float]) -> float:
         a: Any = np.array(e1)  # type: ignore[attr-defined]
         b: Any = np.array(e2)  # type: ignore[attr-defined]
         result: Any = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))  # type: ignore[attr-defined]
         return float(result)
-    
+
     def classify_memory_type(self, content: str) -> str:
         """
         Classify memory as: fact | experience | belief | decision
-        
+
         Uses semantic similarity to type examples
         """
         type_examples = {
             "fact": "LanceDB uses ANN for search with O(log n) complexity",
             "experience": "I fixed the bug by checking the null pointer first",
             "belief": "I think this approach works better than alternatives",
-            "decision": "We chose to use PostgreSQL over SQLite"
+            "decision": "We chose to use PostgreSQL over SQLite",
         }
-        
+
         content_emb = self._embed(content)
 
         best_type = "experience"  # default
@@ -789,26 +762,19 @@ class EmbeddingProviderFactory:
         if provider_class is None:
             available = ", ".join(self.PROVIDER_MAP.keys())
             raise ValueError(
-                f"Unknown provider type: {provider_type}. "
-                f"Available providers: {available}"
+                f"Unknown provider type: {provider_type}. " f"Available providers: {available}"
             )
 
         # Extract provider-specific parameters (exclude 'provider' key)
-        provider_params = {
-            k: v for k, v in merged_config.items() if k != "provider"
-        }
+        provider_params = {k: v for k, v in merged_config.items() if k != "provider"}
 
         # Instantiate provider
         try:
             return provider_class(**provider_params)
         except TypeError as e:
-            raise ValueError(
-                f"Invalid configuration for {provider_type} provider: {e}"
-            )
+            raise ValueError(f"Invalid configuration for {provider_type} provider: {e}")
         except Exception as e:
-            raise RuntimeError(
-                f"Failed to initialize {provider_type} provider: {e}"
-            )
+            raise RuntimeError(f"Failed to initialize {provider_type} provider: {e}")
 
 
 # Backwards compatibility

@@ -14,18 +14,19 @@ from dataclasses import dataclass
 @dataclass
 class Memory:
     """A memory node in the graph palace."""
+
     id: str
     content: str
     embedding: Optional[List[float]] = None
     memory_type: str = "experience"  # fact | experience | belief | decision
     confidence: Optional[float] = None  # 0.0-1.0 for beliefs
-    created_at: datetime = None
+    created_at: Optional[datetime] = None
     last_accessed: Optional[datetime] = None
     access_count: int = 0
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.created_at is None:
             self.created_at = datetime.now()
         if self.last_accessed is None:
@@ -47,20 +48,21 @@ class Memory:
             "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
-            "content_hash": self.content_hash
+            "content_hash": self.content_hash,
         }
 
 
 @dataclass
 class Edge:
     """A relationship edge between memories."""
+
     id: str
     source_id: str
     target_id: str
     edge_type: str  # SUPPORTS | CONTRADICTS | RELATED_TO | DEPENDS_ON | POSTED | DISCUSSED
     strength: Optional[float] = None  # 0.0-1.0
-    created_at: datetime = None
+    created_at: Optional[datetime] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.created_at is None:
             self.created_at = datetime.now()

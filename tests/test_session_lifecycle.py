@@ -47,6 +47,7 @@ class TestSessionLifecycleEndToEnd:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace, NOWStore
@@ -62,40 +63,40 @@ class TestSessionLifecycleEndToEnd:
 
             # Step 2: Start session with mocked NOWStore
             mock_store = create_mock_now_store(base_path)
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["session-start"])
                     assert result.exit_code == 0
                     assert "Starting OMI session" in result.output
 
             # Step 3: Store a memory
-            with patch.object(GraphPalace, 'store_memory', return_value="test-memory-id-1"):
+            with patch.object(GraphPalace, "store_memory", return_value="test-memory-id-1"):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                    result = runner.invoke(cli, [
-                        "store",
-                        "Implemented session lifecycle tests",
-                        "--type", "experience"
-                    ])
+                    result = runner.invoke(
+                        cli,
+                        ["store", "Implemented session lifecycle tests", "--type", "experience"],
+                    )
                     assert result.exit_code == 0
 
             # Step 4: Recall the memory
             # Mock Memory object for full_text_search result
             from omi.storage.graph_palace import Memory
+
             mock_memory = Memory(
                 id="test-memory-id-1",
                 content="Implemented session lifecycle tests",
                 memory_type="experience",
                 confidence=0.95,
                 created_at=datetime.now(),
-                embedding=None
+                embedding=None,
             )
-            with patch.object(GraphPalace, 'full_text_search', return_value=[mock_memory]):
+            with patch.object(GraphPalace, "full_text_search", return_value=[mock_memory]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["recall", "lifecycle tests"])
                     assert result.exit_code == 0
 
             # Step 5: End session with mocked NOWStore
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["session-end"])
                     assert result.exit_code == 0
@@ -114,6 +115,7 @@ class TestSessionLifecycleEndToEnd:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import NOWStore
@@ -145,7 +147,7 @@ Writing comprehensive session lifecycle tests
             mock_store.read.return_value = custom_content
 
             # Start session and verify NOW.md is loaded
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["session-start"])
                     assert result.exit_code == 0
@@ -159,6 +161,7 @@ Writing comprehensive session lifecycle tests
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import NOWStore
@@ -171,12 +174,12 @@ Writing comprehensive session lifecycle tests
             mock_store = create_mock_now_store(base_path)
 
             # Start session
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     runner.invoke(cli, ["session-start"])
 
             # End session
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["session-end"])
                     assert result.exit_code == 0
@@ -196,6 +199,7 @@ Writing comprehensive session lifecycle tests
             base_path = Path(tmpdir) / "uninitialized"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -222,6 +226,7 @@ class TestSessionNowManagement:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import NOWStore
@@ -235,7 +240,7 @@ class TestSessionNowManagement:
             mock_store.read.return_value = None
 
             # Start session - should create default
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["session-start"])
                     assert result.exit_code == 0
@@ -250,6 +255,7 @@ class TestSessionNowManagement:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import NOWStore
@@ -277,7 +283,7 @@ Test NOW.md preservation
             mock_store.read.return_value = custom_content
 
             # End session
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["session-end"])
                     assert result.exit_code == 0
@@ -296,6 +302,7 @@ class TestSessionMemoryOperations:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -308,13 +315,11 @@ class TestSessionMemoryOperations:
             # Store multiple memories
             memory_ids = ["mem-1", "mem-2", "mem-3"]
             for i, mem_id in enumerate(memory_ids):
-                with patch.object(GraphPalace, 'store_memory', return_value=mem_id):
+                with patch.object(GraphPalace, "store_memory", return_value=mem_id):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                        result = runner.invoke(cli, [
-                            "store",
-                            f"Test memory {i+1}",
-                            "--type", "fact"
-                        ])
+                        result = runner.invoke(
+                            cli, ["store", f"Test memory {i+1}", "--type", "fact"]
+                        )
                         assert result.exit_code == 0
 
     def test_recall_during_active_session(self):
@@ -324,6 +329,7 @@ class TestSessionMemoryOperations:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace, NOWStore
@@ -334,21 +340,22 @@ class TestSessionMemoryOperations:
 
             # Start session with mocked NOWStore
             mock_store = create_mock_now_store(base_path)
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     runner.invoke(cli, ["session-start"])
 
             # Recall memories
             from omi.storage.graph_palace import Memory
+
             mock_memory = Memory(
                 id="mem-1",
                 content="Python testing best practices",
                 memory_type="fact",
                 confidence=0.90,
                 created_at=datetime.now(),
-                embedding=None
+                embedding=None,
             )
-            with patch.object(GraphPalace, 'full_text_search', return_value=[mock_memory]):
+            with patch.object(GraphPalace, "full_text_search", return_value=[mock_memory]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["recall", "testing"])
                     assert result.exit_code == 0
@@ -364,6 +371,7 @@ class TestSessionBackup:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import NOWStore
@@ -376,12 +384,12 @@ class TestSessionBackup:
             mock_store = create_mock_now_store(base_path)
 
             # Start session
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     runner.invoke(cli, ["session-start"])
 
             # End session with no backup
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["session-end", "--no-backup"])
                     assert result.exit_code == 0
@@ -393,6 +401,7 @@ class TestSessionBackup:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import NOWStore
@@ -407,13 +416,13 @@ class TestSessionBackup:
             # Run multiple session cycles
             for cycle in range(3):
                 # Start session
-                with patch('omi.cli.session.NOWStore', return_value=mock_store):
+                with patch("omi.cli.session.NOWStore", return_value=mock_store):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                         result = runner.invoke(cli, ["session-start"])
                         assert result.exit_code == 0
 
                 # End session
-                with patch('omi.cli.session.NOWStore', return_value=mock_store):
+                with patch("omi.cli.session.NOWStore", return_value=mock_store):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                         result = runner.invoke(cli, ["session-end"])
                         assert result.exit_code == 0
@@ -434,6 +443,7 @@ class TestSessionEventEmission:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import NOWStore
@@ -446,7 +456,7 @@ class TestSessionEventEmission:
             mock_store = create_mock_now_store(base_path)
 
             # Start session
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["session-start"])
                     assert result.exit_code == 0
@@ -461,6 +471,7 @@ class TestSessionEventEmission:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import NOWStore
@@ -473,12 +484,12 @@ class TestSessionEventEmission:
             mock_store = create_mock_now_store(base_path)
 
             # Start session
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     runner.invoke(cli, ["session-start"])
 
             # End session
-            with patch('omi.cli.session.NOWStore', return_value=mock_store):
+            with patch("omi.cli.session.NOWStore", return_value=mock_store):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["session-end"])
                     assert result.exit_code == 0

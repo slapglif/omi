@@ -33,6 +33,7 @@ from .events import (
     SessionEndedEvent,
 )
 
+
 # Backward compatibility wrapper (deprecated, will be removed in v0.2.0)
 class NOWStore:
     """Backward compatibility wrapper for NowStorage.
@@ -42,8 +43,10 @@ class NOWStore:
 
     DEPRECATED: Use NowStorage directly instead.
     """
+
     def __init__(self, base_path: str) -> None:
         from pathlib import Path
+
         self.base_path = Path(base_path)
         self._storage = NowStorage(self.base_path)
         self.now_path = self._storage.now_file
@@ -52,6 +55,7 @@ class NOWStore:
     def read(self) -> Optional[Any]:
         """Read NOW.md and return NOWEntry object or None."""
         from .persistence import NOWEntry
+
         content = self._storage.read()
         if not content or "No active task" in content:
             return None
@@ -63,16 +67,18 @@ class NOWStore:
     def write(self, entry: Any) -> None:
         """Write a NOWEntry object to NOW.md."""
         from .persistence import NOWEntry
+
         if not isinstance(entry, NOWEntry):
             raise TypeError(f"Expected NOWEntry, got {type(entry)}")
         self._storage.update(
             current_task=entry.current_task,
             recent_completions=entry.recent_completions,
             pending_decisions=entry.pending_decisions,
-            key_files=entry.key_files
+            key_files=entry.key_files,
         )
         # Create hash file for integrity checking
         import hashlib
+
         current_content = self._storage.now_file.read_text()
         hash_value = hashlib.sha256(current_content.encode()).hexdigest()
         self.hash_file.write_text(hash_value)
@@ -80,6 +86,7 @@ class NOWStore:
     def check_integrity(self) -> bool:
         """Check if NOW.md hash matches stored hash."""
         import hashlib
+
         if not self.hash_file.exists():
             return False
         if not self._storage.now_file.exists():
@@ -89,6 +96,7 @@ class NOWStore:
         current_hash = hashlib.sha256(content.encode()).hexdigest()
         stored_hash = self.hash_file.read_text().strip()
         return current_hash == stored_hash
+
 
 __all__ = [
     "NowStorage",

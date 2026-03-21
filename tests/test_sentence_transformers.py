@@ -22,10 +22,10 @@ import numpy as np
 # Import core classes - don't skip entire module since we test error handling
 from omi.embeddings import SentenceTransformerEmbedder, EmbeddingProvider
 
-
 # Check if sentence_transformers is available
 try:
     import sentence_transformers
+
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
@@ -35,7 +35,9 @@ class TestSentenceTransformerBasics:
     """Test basic functionality when sentence-transformers is available"""
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_basic_embedding(self):
         """
         Test basic embed() with default model returns correct dimensions
@@ -44,7 +46,9 @@ class TestSentenceTransformerBasics:
         embedding = embedder.embed("hello world")
 
         assert isinstance(embedding, list), "Embedding should be a list"
-        assert len(embedding) == 384, "Default model (all-MiniLM-L6-v2) should produce 384-dim vectors"
+        assert (
+            len(embedding) == 384
+        ), "Default model (all-MiniLM-L6-v2) should produce 384-dim vectors"
         assert all(isinstance(x, float) for x in embedding), "All elements should be floats"
         assert not all(x == 0 for x in embedding), "Embedding should not be all zeros"
 
@@ -53,7 +57,9 @@ class TestSentenceTransformerBasics:
         assert 0.1 < norm < 100, f"L2 norm {norm} seems unreasonable"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_embedding_quality_basic(self):
         """
         Basic quality check: "king" vs "queen" should be more similar than "king" vs "apple"
@@ -73,7 +79,9 @@ class TestSentenceTransformerBasics:
         )
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_dimensions_property(self):
         """
         Test that dimensions property returns correct value for default model
@@ -82,19 +90,23 @@ class TestSentenceTransformerBasics:
         assert embedder.dimensions == 384, "Default model should have 384 dimensions"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_inherits_from_embedding_provider(self):
         """
         Verify SentenceTransformerEmbedder correctly inherits from EmbeddingProvider
         """
         embedder = SentenceTransformerEmbedder()
         assert isinstance(embedder, EmbeddingProvider), "Should be instance of EmbeddingProvider"
-        assert hasattr(embedder, 'embed'), "Should have embed() method"
-        assert hasattr(embedder, 'dimensions'), "Should have dimensions property"
-        assert hasattr(embedder, 'similarity'), "Should have similarity() method"
+        assert hasattr(embedder, "embed"), "Should have embed() method"
+        assert hasattr(embedder, "dimensions"), "Should have dimensions property"
+        assert hasattr(embedder, "similarity"), "Should have similarity() method"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_empty_string_handling(self):
         """
         Test that empty strings are handled gracefully
@@ -106,7 +118,9 @@ class TestSentenceTransformerBasics:
         assert len(embedding) == 384, "Should still return correct dimensions"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_long_text_handling(self):
         """
         Test that long texts are handled correctly
@@ -123,7 +137,9 @@ class TestSentenceTransformerModels:
     """Test different model support"""
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_minilm_model(self):
         """
         Test all-MiniLM-L6-v2 model (default, 384 dimensions)
@@ -135,7 +151,9 @@ class TestSentenceTransformerModels:
         assert embedder.dimensions == 384
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_mpnet_model(self):
         """
         Test all-mpnet-base-v2 model (768 dimensions, higher quality)
@@ -147,23 +165,30 @@ class TestSentenceTransformerModels:
         assert embedder.dimensions == 768
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_model_dimensions_mapping(self):
         """
         Test that MODEL_DIMENSIONS mapping is correct
         """
         assert SentenceTransformerEmbedder.MODEL_DIMENSIONS["all-MiniLM-L6-v2"] == 384
         assert SentenceTransformerEmbedder.MODEL_DIMENSIONS["all-mpnet-base-v2"] == 768
-        assert SentenceTransformerEmbedder.MODEL_DIMENSIONS["paraphrase-multilingual-MiniLM-L12-v2"] == 384
+        assert (
+            SentenceTransformerEmbedder.MODEL_DIMENSIONS["paraphrase-multilingual-MiniLM-L12-v2"]
+            == 384
+        )
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_unknown_model_dimensions_fallback(self):
         """
         Test that unknown models fall back to DEFAULT_DIM for dimensions property
         """
         # Mock the model loading to avoid downloading
-        with patch('sentence_transformers.SentenceTransformer') as mock_st:
+        with patch("sentence_transformers.SentenceTransformer") as mock_st:
             mock_model = MagicMock()
             mock_model.encode.return_value = np.array([0.1] * 512)
             mock_st.return_value = mock_model
@@ -178,7 +203,9 @@ class TestSentenceTransformerBatch:
     """Test batch embedding functionality"""
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_batch_embedding(self):
         """
         Test embed_batch() with multiple texts
@@ -194,7 +221,9 @@ class TestSentenceTransformerBatch:
             assert all(isinstance(x, float) for x in emb), "All elements should be floats"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_batch_embedding_custom_batch_size(self):
         """
         Test embed_batch() with custom batch size
@@ -208,7 +237,9 @@ class TestSentenceTransformerBatch:
             assert len(emb) == 384, "Each embedding should have correct dimensions"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_batch_embedding_consistency(self):
         """
         Test that batch embedding produces same results as individual embeddings
@@ -225,10 +256,14 @@ class TestSentenceTransformerBatch:
         # Should be very similar (allowing for small numerical differences)
         for ind_emb, batch_emb in zip(individual_embs, batch_embs):
             similarity = embedder.similarity(ind_emb, batch_emb)
-            assert similarity > 0.99, f"Batch and individual embeddings should be nearly identical, got {similarity}"
+            assert (
+                similarity > 0.99
+            ), f"Batch and individual embeddings should be nearly identical, got {similarity}"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_batch_embedding_empty_list(self):
         """
         Test that empty list returns empty list
@@ -246,8 +281,8 @@ class TestSentenceTransformerErrorHandling:
         """
         Test clear error message when sentence-transformers is not installed
         """
-        with patch.dict('sys.modules', {'sentence_transformers': None}):
-            with patch('omi.embeddings.SentenceTransformerEmbedder._load_model') as mock_load:
+        with patch.dict("sys.modules", {"sentence_transformers": None}):
+            with patch("omi.embeddings.SentenceTransformerEmbedder._load_model") as mock_load:
                 mock_load.side_effect = RuntimeError(
                     "sentence-transformers not installed. "
                     "Install with: pip install sentence-transformers"
@@ -261,12 +296,16 @@ class TestSentenceTransformerErrorHandling:
                 assert "pip install sentence-transformers" in str(exc_info.value)
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_invalid_model_error(self):
         """
         Test error handling for invalid/non-existent model names
         """
-        with pytest.raises(Exception):  # Can be OSError, ValueError, or other exceptions from HuggingFace
+        with pytest.raises(
+            Exception
+        ):  # Can be OSError, ValueError, or other exceptions from HuggingFace
             embedder = SentenceTransformerEmbedder(model="definitely-not-a-real-model-xyz-123")
 
     def test_model_load_failure_error(self):
@@ -274,7 +313,7 @@ class TestSentenceTransformerErrorHandling:
         Test that model loading failures are handled with clear error messages
         """
         # Mock the _load_model method to simulate a model loading failure
-        with patch.object(SentenceTransformerEmbedder, '_load_model') as mock_load:
+        with patch.object(SentenceTransformerEmbedder, "_load_model") as mock_load:
             mock_load.side_effect = RuntimeError("Failed to load model test-model: Download failed")
 
             with pytest.raises(RuntimeError) as exc_info:
@@ -284,7 +323,9 @@ class TestSentenceTransformerErrorHandling:
             assert "test-model" in str(exc_info.value)
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_embed_without_model_loaded_recovers(self):
         """
         Test that embed() can recover if model wasn't loaded initially
@@ -301,7 +342,9 @@ class TestSentenceTransformerErrorHandling:
         assert len(embedding) == 384, "Should produce valid embedding"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_embed_batch_without_model_loaded_recovers(self):
         """
         Test that embed_batch() can recover if model wasn't loaded initially
@@ -322,7 +365,9 @@ class TestSentenceTransformerSimilarity:
     """Test similarity calculation"""
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_similarity_identical_texts(self):
         """
         Test that identical texts have similarity close to 1.0
@@ -332,10 +377,14 @@ class TestSentenceTransformerSimilarity:
         emb2 = embedder.embed("hello world")
 
         similarity = embedder.similarity(emb1, emb2)
-        assert 0.99 <= similarity <= 1.01, f"Identical texts should have similarity ~1.0, got {similarity}"
+        assert (
+            0.99 <= similarity <= 1.01
+        ), f"Identical texts should have similarity ~1.0, got {similarity}"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_similarity_similar_texts(self):
         """
         Test that similar texts have high similarity
@@ -348,7 +397,9 @@ class TestSentenceTransformerSimilarity:
         assert similarity > 0.5, f"Similar texts should have high similarity, got {similarity}"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_similarity_dissimilar_texts(self):
         """
         Test that dissimilar texts have lower similarity
@@ -359,10 +410,14 @@ class TestSentenceTransformerSimilarity:
 
         similarity = embedder.similarity(emb1, emb2)
         # Dissimilar texts should have lower similarity, but not necessarily negative
-        assert -1.0 <= similarity <= 0.7, f"Dissimilar texts should have lower similarity, got {similarity}"
+        assert (
+            -1.0 <= similarity <= 0.7
+        ), f"Dissimilar texts should have lower similarity, got {similarity}"
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_similarity_range(self):
         """
         Test that similarity values are always in valid range [-1, 1]
@@ -381,9 +436,9 @@ class TestSentenceTransformerSimilarity:
             emb2 = embedder.embed(text2)
             similarity = embedder.similarity(emb1, emb2)
 
-            assert -1.0 <= similarity <= 1.0, (
-                f"Similarity for '{text1}' vs '{text2}' should be in [-1, 1], got {similarity}"
-            )
+            assert (
+                -1.0 <= similarity <= 1.0
+            ), f"Similarity for '{text1}' vs '{text2}' should be in [-1, 1], got {similarity}"
 
 
 class TestSentenceTransformerDefaults:
@@ -399,7 +454,7 @@ class TestSentenceTransformerDefaults:
 
     def test_model_dimensions_dict_exists(self):
         """Test that MODEL_DIMENSIONS dict exists and is not empty"""
-        assert hasattr(SentenceTransformerEmbedder, 'MODEL_DIMENSIONS')
+        assert hasattr(SentenceTransformerEmbedder, "MODEL_DIMENSIONS")
         assert isinstance(SentenceTransformerEmbedder.MODEL_DIMENSIONS, dict)
         assert len(SentenceTransformerEmbedder.MODEL_DIMENSIONS) > 0
 
@@ -408,7 +463,9 @@ class TestSentenceTransformerIntegration:
     """Integration tests with real models (if available)"""
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_multilingual_model(self):
         """
         Test multilingual model support
@@ -428,7 +485,9 @@ class TestSentenceTransformerIntegration:
         assert not all(x == 0 for x in emb_es)
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_end_to_end_semantic_search(self):
         """
         End-to-end test: semantic search over a small corpus
@@ -451,7 +510,9 @@ class TestSentenceTransformerIntegration:
         query_embedding = embedder.embed(query)
 
         # Find most similar
-        similarities = [embedder.similarity(query_embedding, doc_emb) for doc_emb in corpus_embeddings]
+        similarities = [
+            embedder.similarity(query_embedding, doc_emb) for doc_emb in corpus_embeddings
+        ]
         most_similar_idx = similarities.index(max(similarities))
 
         # Should match programming-related sentences (indices 0 or 3)
@@ -461,7 +522,9 @@ class TestSentenceTransformerIntegration:
         )
 
     @pytest.mark.sentence_transformers
-    @pytest.mark.skipif(not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(
+        not SENTENCE_TRANSFORMERS_AVAILABLE, reason="sentence-transformers not installed"
+    )
     def test_special_characters_handling(self):
         """
         Test that special characters are handled correctly

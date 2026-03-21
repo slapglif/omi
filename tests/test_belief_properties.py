@@ -223,8 +223,7 @@ class TestEMAUpdateProperties:
         max_val = max(current, target)
 
         assert min_val <= result <= max_val, (
-            f"EMA result {result} not between {current} and {target} "
-            f"(lambda={lambda_val})"
+            f"EMA result {result} not between {current} and {target} " f"(lambda={lambda_val})"
         )
 
     @given(
@@ -283,8 +282,8 @@ class TestConfidenceWeightingProperties:
         assume(abs(conf1 - conf2) > 0.01)  # Need meaningful difference
 
         CONFIDENCE_EXPONENT = 1.5
-        weight1 = CONFIDENCE_EXPONENT ** conf1
-        weight2 = CONFIDENCE_EXPONENT ** conf2
+        weight1 = CONFIDENCE_EXPONENT**conf1
+        weight2 = CONFIDENCE_EXPONENT**conf2
 
         if conf1 > conf2:
             assert weight1 > weight2
@@ -295,14 +294,14 @@ class TestConfidenceWeightingProperties:
     def test_weight_always_positive(self, confidence):
         """Property: Confidence weight is always positive"""
         CONFIDENCE_EXPONENT = 1.5
-        weight = CONFIDENCE_EXPONENT ** confidence
+        weight = CONFIDENCE_EXPONENT**confidence
         assert weight > 0.0
 
     @given(confidence=confidence_values())
     def test_confidence_weighting_bounds(self, confidence):
         """Property: Weight for confidence in [0,1] stays in reasonable bounds"""
         CONFIDENCE_EXPONENT = 1.5
-        weight = CONFIDENCE_EXPONENT ** confidence
+        weight = CONFIDENCE_EXPONENT**confidence
 
         # For confidence in [0, 1], weight should be in [1.5^0, 1.5^1] = [1.0, 1.5]
         assert 1.0 <= weight <= 1.5

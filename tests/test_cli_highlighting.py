@@ -18,6 +18,7 @@ class TestHighlightTerms:
     def test_single_word_highlighting(self):
         """Test highlighting a single word in text."""
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import highlight_terms
 
@@ -32,6 +33,7 @@ class TestHighlightTerms:
     def test_multi_word_highlighting(self):
         """Test highlighting multiple words from query."""
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import highlight_terms
 
@@ -47,6 +49,7 @@ class TestHighlightTerms:
     def test_case_insensitive_matching(self):
         """Test that matching is case-insensitive."""
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import highlight_terms
 
@@ -62,6 +65,7 @@ class TestHighlightTerms:
     def test_empty_query(self):
         """Test that empty query returns unchanged text."""
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import highlight_terms
 
@@ -76,6 +80,7 @@ class TestHighlightTerms:
     def test_empty_text(self):
         """Test that empty text returns empty string."""
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import highlight_terms
 
@@ -88,6 +93,7 @@ class TestHighlightTerms:
     def test_no_matches(self):
         """Test text with no matching terms."""
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import highlight_terms
 
@@ -101,6 +107,7 @@ class TestHighlightTerms:
     def test_special_characters_in_query(self):
         """Test that special regex characters in query are escaped."""
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import highlight_terms
 
@@ -114,6 +121,7 @@ class TestHighlightTerms:
     def test_overlapping_terms(self):
         """Test highlighting with overlapping or repeated terms."""
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import highlight_terms
 
@@ -128,6 +136,7 @@ class TestHighlightTerms:
     def test_preserves_original_text_content(self):
         """Test that highlighting preserves the original text content."""
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import highlight_terms
         import re
@@ -137,13 +146,14 @@ class TestHighlightTerms:
         result = highlight_terms(text, query)
 
         # Strip ANSI codes to check original text is preserved
-        ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
-        cleaned = ansi_escape.sub('', result)
+        ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
+        cleaned = ansi_escape.sub("", result)
         assert cleaned == text
 
     def test_whitespace_in_query(self):
         """Test handling of extra whitespace in query."""
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import highlight_terms
 
@@ -167,6 +177,7 @@ class TestRecallCommandHighlighting:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -184,7 +195,7 @@ class TestRecallCommandHighlighting:
             mock_mem.created_at = None
             mock_results = [mock_mem]
 
-            with patch.object(GraphPalace, 'full_text_search', return_value=mock_results):
+            with patch.object(GraphPalace, "full_text_search", return_value=mock_results):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     # Enable color output
                     result = runner.invoke(cli, ["recall", "authentication"], color=True)
@@ -202,6 +213,7 @@ class TestRecallCommandHighlighting:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -219,7 +231,7 @@ class TestRecallCommandHighlighting:
             mock_mem.created_at = None
             mock_results = [mock_mem]
 
-            with patch.object(GraphPalace, 'full_text_search', return_value=mock_results):
+            with patch.object(GraphPalace, "full_text_search", return_value=mock_results):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["recall", "authentication", "--json-output"])
 
@@ -239,6 +251,7 @@ class TestRecallCommandHighlighting:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -256,7 +269,7 @@ class TestRecallCommandHighlighting:
             mock_mem.created_at = None
             mock_results = [mock_mem]
 
-            with patch.object(GraphPalace, 'full_text_search', return_value=mock_results):
+            with patch.object(GraphPalace, "full_text_search", return_value=mock_results):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     # Enable color output
                     result = runner.invoke(cli, ["recall", "Python libraries"], color=True)
@@ -275,6 +288,7 @@ class TestRecallCommandHighlighting:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -296,7 +310,7 @@ class TestRecallCommandHighlighting:
             mock_mem.created_at = None
             mock_results = [mock_mem]
 
-            with patch.object(GraphPalace, 'full_text_search', return_value=mock_results):
+            with patch.object(GraphPalace, "full_text_search", return_value=mock_results):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["recall", "content"])
 
@@ -312,6 +326,7 @@ class TestRecallCommandHighlighting:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -321,7 +336,7 @@ class TestRecallCommandHighlighting:
                 runner.invoke(cli, ["init"])
 
             # Mock with empty results
-            with patch.object(GraphPalace, 'full_text_search', return_value=[]):
+            with patch.object(GraphPalace, "full_text_search", return_value=[]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["recall", "nonexistent"])
 

@@ -22,6 +22,7 @@ class TestInspect:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -38,6 +39,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -61,6 +63,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -70,25 +73,35 @@ class TestInspect:
 
                 # Add some test data directly to database
                 import sqlite3
+
                 db_path = base_path / "palace.sqlite"
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
 
                 # Insert test memories
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type, created_at)
                     VALUES (?, ?, ?, ?)
-                """, ("test-1", "Test fact", "fact", "2024-01-01T00:00:00"))
+                """,
+                    ("test-1", "Test fact", "fact", "2024-01-01T00:00:00"),
+                )
 
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type, created_at)
                     VALUES (?, ?, ?, ?)
-                """, ("test-2", "Test experience", "experience", "2024-01-01T00:00:00"))
+                """,
+                    ("test-2", "Test experience", "experience", "2024-01-01T00:00:00"),
+                )
 
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type, created_at)
                     VALUES (?, ?, ?, ?)
-                """, ("test-3", "Test belief", "belief", "2024-01-01T00:00:00"))
+                """,
+                    ("test-3", "Test belief", "belief", "2024-01-01T00:00:00"),
+                )
 
                 conn.commit()
                 conn.close()
@@ -114,6 +127,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -123,13 +137,17 @@ class TestInspect:
 
                 # Add test memory
                 import sqlite3
+
                 db_path = base_path / "palace.sqlite"
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type, created_at)
                     VALUES (?, ?, ?, ?)
-                """, ("test-1", "Test memory", "fact", "2024-01-01T00:00:00"))
+                """,
+                    ("test-1", "Test memory", "fact", "2024-01-01T00:00:00"),
+                )
                 conn.commit()
                 conn.close()
 
@@ -158,6 +176,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -184,6 +203,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -193,6 +213,7 @@ class TestInspect:
 
                 # Create beliefs table and add test data
                 import sqlite3
+
                 db_path = base_path / "palace.sqlite"
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
@@ -208,15 +229,21 @@ class TestInspect:
                 """)
 
                 # Insert test beliefs
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO beliefs (id, content, confidence, evidence_count)
                     VALUES (?, ?, ?, ?)
-                """, ("belief-1", "Python is great for data science", 0.95, 5))
+                """,
+                    ("belief-1", "Python is great for data science", 0.95, 5),
+                )
 
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO beliefs (id, content, confidence, evidence_count)
                     VALUES (?, ?, ?, ?)
-                """, ("belief-2", "Testing is important", 0.75, 3))
+                """,
+                    ("belief-2", "Testing is important", 0.75, 3),
+                )
 
                 conn.commit()
                 conn.close()
@@ -240,6 +267,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -249,6 +277,7 @@ class TestInspect:
 
                 # Create empty beliefs table
                 import sqlite3
+
                 db_path = base_path / "palace.sqlite"
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
@@ -276,6 +305,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -296,6 +326,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -305,6 +336,7 @@ class TestInspect:
 
                 # Create beliefs table and add test data
                 import sqlite3
+
                 db_path = base_path / "palace.sqlite"
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
@@ -318,10 +350,13 @@ class TestInspect:
                     )
                 """)
 
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO beliefs (id, content, confidence, evidence_count)
                     VALUES (?, ?, ?, ?)
-                """, ("belief-1", "Test belief", 0.85, 2))
+                """,
+                    ("belief-1", "Test belief", 0.85, 2),
+                )
 
                 conn.commit()
                 conn.close()
@@ -350,6 +385,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -359,13 +395,17 @@ class TestInspect:
 
                 # Add memory with last_accessed timestamp
                 import sqlite3
+
                 db_path = base_path / "palace.sqlite"
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type, created_at, last_accessed)
                     VALUES (?, ?, ?, ?, ?)
-                """, ("test-1", "Test", "fact", "2024-01-01T00:00:00", "2024-01-15T12:00:00"))
+                """,
+                    ("test-1", "Test", "fact", "2024-01-01T00:00:00", "2024-01-15T12:00:00"),
+                )
                 conn.commit()
                 conn.close()
 
@@ -383,6 +423,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -392,13 +433,17 @@ class TestInspect:
 
                 # Add memory without last_accessed
                 import sqlite3
+
                 db_path = base_path / "palace.sqlite"
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type, created_at)
                     VALUES (?, ?, ?, ?)
-                """, ("test-1", "Test", "fact", "2024-01-01T00:00:00"))
+                """,
+                    ("test-1", "Test", "fact", "2024-01-01T00:00:00"),
+                )
                 conn.commit()
                 conn.close()
 
@@ -407,7 +452,7 @@ class TestInspect:
 
             assert result.exit_code == 0
             assert "Last Activity:" in result.output
-            assert ("No activity recorded" in result.output or "None" in result.output)
+            assert "No activity recorded" in result.output or "None" in result.output
 
     def test_inspect_shows_type_percentages(self):
         """Test that inspect shows percentage breakdown by type."""
@@ -416,6 +461,7 @@ class TestInspect:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -425,21 +471,28 @@ class TestInspect:
 
                 # Add memories with different types
                 import sqlite3
+
                 db_path = base_path / "palace.sqlite"
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
 
                 # 3 facts, 1 experience
                 for i in range(3):
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         INSERT INTO memories (id, content, memory_type, created_at)
                         VALUES (?, ?, ?, ?)
-                    """, (f"fact-{i}", f"Test fact {i}", "fact", "2024-01-01T00:00:00"))
+                    """,
+                        (f"fact-{i}", f"Test fact {i}", "fact", "2024-01-01T00:00:00"),
+                    )
 
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type, created_at)
                     VALUES (?, ?, ?, ?)
-                """, ("exp-1", "Test experience", "experience", "2024-01-01T00:00:00"))
+                """,
+                    ("exp-1", "Test experience", "experience", "2024-01-01T00:00:00"),
+                )
 
                 conn.commit()
                 conn.close()

@@ -2,6 +2,7 @@
 
 The seeking is the continuity. The palace remembers what the river forgets.
 """
+
 import os
 import sys
 import json
@@ -65,19 +66,22 @@ def highlight_terms(text: str, query: str) -> str:
 
         # Find all occurrences (case-insensitive) and replace with highlighted version
         import re
+
         pattern = re.compile(re.escape(term), re.IGNORECASE)
-        result = pattern.sub(
-            lambda m: click.style(m.group(0), fg='yellow', bold=True),
-            result
-        )
+        result = pattern.sub(lambda m: click.style(m.group(0), fg="yellow", bold=True), result)
 
     return result
 
 
 @click.group()
 @click.version_option(version=__version__, prog_name="omi")
-@click.option('--data-dir', type=click.Path(), default=None, envvar='OMI_BASE_PATH',
-              help='Base directory for OMI data (default: ~/.openclaw/omi)')
+@click.option(
+    "--data-dir",
+    type=click.Path(),
+    default=None,
+    envvar="OMI_BASE_PATH",
+    help="Base directory for OMI data (default: ~/.openclaw/omi)",
+)
 @click.pass_context
 def cli(ctx: click.Context, data_dir: Optional[str]) -> None:
     """OMI - OpenClaw Memory Infrastructure
@@ -111,9 +115,9 @@ def cli(ctx: click.Context, data_dir: Optional[str]) -> None:
     """
     ctx.ensure_object(dict)
     if data_dir:
-        ctx.obj['data_dir'] = Path(data_dir)
+        ctx.obj["data_dir"] = Path(data_dir)
     else:
-        ctx.obj['data_dir'] = None
+        ctx.obj["data_dir"] = None
 
 
 @cli.command()
@@ -127,16 +131,16 @@ def init(ctx: click.Context) -> None:
     - SQLite database for Graph Palace
     - NOW.md template
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
-    
+    base_path = get_base_path(ctx.obj.get("data_dir"))
+
     click.echo(click.style("Initializing OMI Memory Infrastructure...", fg="cyan", bold=True))
-    
+
     # 1. Create directory structure
     base_path.mkdir(parents=True, exist_ok=True)
     memory_path = base_path / "memory"
     memory_path.mkdir(exist_ok=True)
     click.echo(f" ✓ Created directory: {base_path}")
-    
+
     # 2. Create config.yaml
     config_template = """# OMI Configuration File
 # OpenClaw Memory Infrastructure
@@ -195,7 +199,7 @@ compression:
         click.echo(f" ✓ Created config: {config_path}")
     else:
         click.echo(f" ⚠ Config exists: {config_path}")
-    
+
     # 3. Initialize SQLite database using GraphPalace
     db_path = base_path / "palace.sqlite"
     if not db_path.exists():
@@ -206,6 +210,7 @@ compression:
         except Exception as e:
             # Fallback: create minimal schema if storage deps not available
             import sqlite3
+
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             cursor.execute("""
@@ -235,7 +240,7 @@ compression:
             click.echo(f" ✓ Initialized database (minimal): {db_path}")
     else:
         click.echo(f" ⚠ Database exists: {db_path}")
-    
+
     # 4. Create NOW.md template
     now_path = base_path / "NOW.md"
     if not now_path.exists():
@@ -264,7 +269,7 @@ Initializing OMI memory infrastructure.
         click.echo(f" ✓ Created NOW.md: {now_path}")
     else:
         click.echo(f" ⚠ NOW.md exists: {now_path}")
-    
+
     click.echo(click.style("\n✓ Initialization complete!", fg="green", bold=True))
     click.echo(f"\nNext steps:")
     click.echo(f"  1. Edit {config_path} to configure your embedding provider")
@@ -282,7 +287,7 @@ def session_start(ctx: click.Context, show_now: bool) -> None:
     - Runs semantic recall of relevant memories
     - Prints session summary
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style(f"Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -291,6 +296,7 @@ def session_start(ctx: click.Context, show_now: bool) -> None:
 
     # 1. Load NOW.md
     from .persistence import NOWEntry
+
     now_storage = NOWStore(str(base_path))
     content = now_storage.read()
 
@@ -299,29 +305,29 @@ def session_start(ctx: click.Context, show_now: bool) -> None:
     if not content or content == default_content:
         click.echo(click.style(" ⚠ NOW.md not found, creating default", fg="yellow"))
         now_storage.update(  # type: ignore[attr-defined]
-            current_task="",
-            recent_completions=[],
-            pending_decisions=[],
-            key_files=[]
+            current_task="", recent_completions=[], pending_decisions=[], key_files=[]
         )
         content = now_storage.read()
 
     # Parse NOW entry
     now_entry = NOWEntry.from_markdown(content) if content else None
-    
+
     # 2. Get database stats
     db_path = base_path / "palace.sqlite"
     mem_count = 0
     if db_path.exists():
         import sqlite3
+
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM memories")
         result = cursor.fetchone()
         mem_count = result[0] if result else 0
         conn.close()
-    
-    click.echo(f" ✓ Loaded context: {len(now_entry.recent_completions) if now_entry else 0} recent completions")
+
+    click.echo(
+        f" ✓ Loaded context: {len(now_entry.recent_completions) if now_entry else 0} recent completions"
+    )
     click.echo(f" ✓ Database: {mem_count} memories stored")
 
     # 3. Semantic recall for current task
@@ -336,6 +342,7 @@ def session_start(ctx: click.Context, show_now: bool) -> None:
 
     # 4. Session status
     from .security import IntegrityChecker
+
     integrity_checker = IntegrityChecker(base_path.parent if base_path.name == "omi" else base_path)
     now_integrity = integrity_checker.check_now_md()
 
@@ -347,9 +354,11 @@ def session_start(ctx: click.Context, show_now: bool) -> None:
         click.echo(f"\n{click.style('Pending Decisions:', fg='yellow')}")
         for item in now_entry.pending_decisions:
             click.echo(f"  - [ ] {item}")
-    
+
     status_color = "green" if now_integrity else "red"
-    click.echo(f"\n NOW.md integrity: {click.style('✓' if now_integrity else '✗', fg=status_color)}")
+    click.echo(
+        f"\n NOW.md integrity: {click.style('✓' if now_integrity else '✗', fg=status_color)}"
+    )
 
     session_timestamp = datetime.now()
     click.echo(f" Session started: {click.style(session_timestamp.isoformat(), fg='cyan')}")
@@ -359,21 +368,27 @@ def session_start(ctx: click.Context, show_now: bool) -> None:
     event = SessionStartedEvent(
         session_id=session_timestamp.isoformat(),
         timestamp=session_timestamp,
-        metadata={
-            "memory_count": mem_count,
-            "now_integrity": now_integrity
-        }
+        metadata={"memory_count": mem_count, "now_integrity": now_integrity},
     )
     get_event_bus().publish(event)
 
 
 @cli.command()
-@click.argument('content')
-@click.option('--type', 'memory_type', default='experience',
-              type=click.Choice(['fact', 'experience', 'belief', 'decision']),
-              help='Type of memory to store')
-@click.option('--confidence', '-c', type=float, default=None,
-              help='Confidence level (0.0-1.0, for beliefs only)')
+@click.argument("content")
+@click.option(
+    "--type",
+    "memory_type",
+    default="experience",
+    type=click.Choice(["fact", "experience", "belief", "decision"]),
+    help="Type of memory to store",
+)
+@click.option(
+    "--confidence",
+    "-c",
+    type=float,
+    default=None,
+    help="Confidence level (0.0-1.0, for beliefs only)",
+)
 @click.pass_context
 def store(ctx: click.Context, content: str, memory_type: str, confidence: Optional[float]) -> None:
     """Store a memory in the Graph Palace.
@@ -388,7 +403,7 @@ def store(ctx: click.Context, content: str, memory_type: str, confidence: Option
         omi store "Python has GIL limitations" --type fact
         omi store "This approach works better" --type belief --confidence 0.85
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -397,19 +412,21 @@ def store(ctx: click.Context, content: str, memory_type: str, confidence: Option
     if not db_path.exists():
         click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
+
     # Validate confidence for beliefs
     if confidence is not None:
-        if memory_type != 'belief':
-            click.echo(click.style("Warning: --confidence is typically used with --type belief", fg="yellow"))
+        if memory_type != "belief":
+            click.echo(
+                click.style(
+                    "Warning: --confidence is typically used with --type belief", fg="yellow"
+                )
+            )
         confidence = max(0.0, min(1.0, confidence))
-    
+
     try:
         palace = GraphPalace(db_path)
         memory_id = palace.store_memory(
-            content=content,
-            memory_type=memory_type,
-            confidence=confidence
+            content=content, memory_type=memory_type, confidence=confidence
         )
         click.echo(click.style("✓ Memory stored", fg="green", bold=True))
         click.echo(f"  ID: {click.style(memory_id[:16] + '...', fg='cyan')}")
@@ -423,14 +440,20 @@ def store(ctx: click.Context, content: str, memory_type: str, confidence: Option
 
 
 @cli.command()
-@click.argument('query')
-@click.option('--limit', '-l', default=10, help='Maximum number of results')
-@click.option('--json-output', is_flag=True, help='Output as JSON')
-@click.option('--type', 'memory_type', default=None,
-              type=click.Choice(['fact', 'experience', 'belief', 'decision']),
-              help='Filter by memory type')
+@click.argument("query")
+@click.option("--limit", "-l", default=10, help="Maximum number of results")
+@click.option("--json-output", is_flag=True, help="Output as JSON")
+@click.option(
+    "--type",
+    "memory_type",
+    default=None,
+    type=click.Choice(["fact", "experience", "belief", "decision"]),
+    help="Filter by memory type",
+)
 @click.pass_context
-def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory_type: Optional[str]) -> None:
+def recall(
+    ctx: click.Context, query: str, limit: int, json_output: bool, memory_type: Optional[str]
+) -> None:
     """Search memories using semantic recall.
 
     Args:
@@ -445,7 +468,7 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory
         omi recall "recent decisions" --json
         omi recall "bugs" --type experience
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -454,7 +477,7 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory
     if not db_path.exists():
         click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
+
     try:
         palace = GraphPalace(db_path)
         # Use full_text_search for query strings
@@ -467,18 +490,20 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory
         if json_output:
             output = []
             for mem in results:
-                output.append({
-                    'id': mem.id,
-                    'content': mem.content,
-                    'memory_type': mem.memory_type,
-                    'confidence': mem.confidence,
-                    'created_at': mem.created_at.isoformat() if mem.created_at else None
-                })
+                output.append(
+                    {
+                        "id": mem.id,
+                        "content": mem.content,
+                        "memory_type": mem.memory_type,
+                        "confidence": mem.confidence,
+                        "created_at": mem.created_at.isoformat() if mem.created_at else None,
+                    }
+                )
             click.echo(json.dumps(output, indent=2, default=str))
         else:
             click.echo(click.style(f"Search Results ({len(results)} found)", fg="cyan", bold=True))
             click.echo("=" * 60)
-            
+
             for i, mem in enumerate(results, 1):
                 mem_type = mem.memory_type
                 content = mem.content
@@ -489,17 +514,17 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory
                 highlighted_content = highlight_terms(content, query)
 
                 type_color = {
-                    'fact': 'blue',
-                    'experience': 'green',
-                    'belief': 'yellow',
-                    'decision': 'magenta'
-                }.get(mem_type, 'white')
+                    "fact": "blue",
+                    "experience": "green",
+                    "belief": "yellow",
+                    "decision": "magenta",
+                }.get(mem_type, "white")
 
                 click.echo(f"\n{i}. [{click.style(mem_type.upper(), fg=type_color)}]")
                 click.echo(f"   {highlighted_content}")
                 if mem.created_at:
                     click.echo(f"   {click.style('─', fg='bright_black') * 50}")
-            
+
             if not results:
                 click.echo(click.style("No memories found. Try a different query.", fg="yellow"))
     except Exception as e:
@@ -508,16 +533,29 @@ def recall(ctx: click.Context, query: str, limit: int, json_output: bool, memory
 
 
 @cli.command()
-@click.option('--operation', required=True, type=click.Choice(['recall', 'store']), help='Operation to debug')
-@click.argument('content')
-@click.option('--limit', '-l', default=10, help='Maximum number of results (for recall)')
-@click.option('--type', 'memory_type', default='experience',
-              type=click.Choice(['fact', 'experience', 'belief', 'decision']),
-              help='Type of memory to store (for store)')
-@click.option('--confidence', '-c', type=float, default=None,
-              help='Confidence level (0.0-1.0, for store with beliefs)')
+@click.option(
+    "--operation", required=True, type=click.Choice(["recall", "store"]), help="Operation to debug"
+)
+@click.argument("content")
+@click.option("--limit", "-l", default=10, help="Maximum number of results (for recall)")
+@click.option(
+    "--type",
+    "memory_type",
+    default="experience",
+    type=click.Choice(["fact", "experience", "belief", "decision"]),
+    help="Type of memory to store (for store)",
+)
+@click.option(
+    "--confidence",
+    "-c",
+    type=float,
+    default=None,
+    help="Confidence level (0.0-1.0, for store with beliefs)",
+)
 @click.pass_context
-def debug(ctx, operation: str, content: str, limit: int, memory_type: str, confidence: Optional[float]) -> None:
+def debug(
+    ctx, operation: str, content: str, limit: int, memory_type: str, confidence: Optional[float]
+) -> None:
     """Debug mode with step-by-step operation output.
 
     Args:
@@ -533,7 +571,7 @@ def debug(ctx, operation: str, content: str, limit: int, memory_type: str, confi
         omi debug --operation store "Fixed the auth bug" --type experience
         omi debug --operation store "Python has GIL" --type fact
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -543,9 +581,9 @@ def debug(ctx, operation: str, content: str, limit: int, memory_type: str, confi
         click.echo(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"))
         sys.exit(1)
 
-    if operation == 'recall':
+    if operation == "recall":
         _debug_recall(content, db_path, limit)
-    elif operation == 'store':
+    elif operation == "store":
         _debug_store(content, memory_type, confidence, db_path)
 
 
@@ -587,7 +625,9 @@ def _debug_recall(query: str, db_path: Path, limit: int) -> None:
 
     # Step 3: Scoring
     click.echo(click.style("Step 3: Scoring results (relevance + recency)", fg="yellow", bold=True))
-    click.echo(f"Formula: {click.style('final_score = (relevance * 0.7) + (recency * 0.3)', fg='bright_black')}")
+    click.echo(
+        f"Formula: {click.style('final_score = (relevance * 0.7) + (recency * 0.3)', fg='bright_black')}"
+    )
 
     if not results:
         click.echo(click.style("No memories found matching the query.", fg="yellow"))
@@ -606,20 +646,26 @@ def _debug_recall(query: str, db_path: Path, limit: int) -> None:
             content = content[:97] + "..."
 
         type_color = {
-            'fact': 'blue',
-            'experience': 'green',
-            'belief': 'yellow',
-            'decision': 'magenta'
-        }.get(mem_type, 'white')
+            "fact": "blue",
+            "experience": "green",
+            "belief": "yellow",
+            "decision": "magenta",
+        }.get(mem_type, "white")
 
-        click.echo(f"\n{i}. [{click.style(mem_type.upper(), fg=type_color)}] Score: {click.style(f'{score:.4f}', fg='cyan', bold=True)}")
+        click.echo(
+            f"\n{i}. [{click.style(mem_type.upper(), fg=type_color)}] Score: {click.style(f'{score:.4f}', fg='cyan', bold=True)}"
+        )
         click.echo(f"   {content}")
-        click.echo(f"   ID: {click.style(mem.id[:8], fg='bright_black')}... | "
-                   f"Created: {click.style(mem.created_at.strftime('%Y-%m-%d %H:%M') if mem.created_at else 'N/A', fg='bright_black')}")
+        click.echo(
+            f"   ID: {click.style(mem.id[:8], fg='bright_black')}... | "
+            f"Created: {click.style(mem.created_at.strftime('%Y-%m-%d %H:%M') if mem.created_at else 'N/A', fg='bright_black')}"
+        )
         click.echo(f"   {click.style('─', fg='bright_black') * 78}")
 
 
-def _debug_store(content: str, memory_type: str, confidence: Optional[float], db_path: Path) -> None:
+def _debug_store(
+    content: str, memory_type: str, confidence: Optional[float], db_path: Path
+) -> None:
     """Debug store operation with step-by-step output."""
     import hashlib
     import time
@@ -633,8 +679,12 @@ def _debug_store(content: str, memory_type: str, confidence: Optional[float], db
     click.echo(f"Content: {click.style(content, fg='white', bold=True)}")
     click.echo(f"Type: {click.style(memory_type, fg='cyan')}")
     if confidence is not None:
-        if memory_type != 'belief':
-            click.echo(click.style("⚠ Warning: --confidence is typically used with --type belief", fg="yellow"))
+        if memory_type != "belief":
+            click.echo(
+                click.style(
+                    "⚠ Warning: --confidence is typically used with --type belief", fg="yellow"
+                )
+            )
         confidence = max(0.0, min(1.0, confidence))
         click.echo(f"Confidence: {click.style(f'{confidence:.2f}', fg='cyan')}")
     click.echo(click.style("✓ Input validated", fg="green"))
@@ -660,7 +710,11 @@ def _debug_store(content: str, memory_type: str, confidence: Optional[float], db
         embedder = NIMEmbedder()
         embedding = embedder.embed(content)
         elapsed = time.time() - start_time
-        click.echo(click.style(f"✓ Generated {len(embedding)}-dimensional embedding [{elapsed:.2f}s]", fg="green"))
+        click.echo(
+            click.style(
+                f"✓ Generated {len(embedding)}-dimensional embedding [{elapsed:.2f}s]", fg="green"
+            )
+        )
         click.echo(f"  First 5 values: {embedding[:5]}")
     except Exception as e:
         click.echo(click.style(f"✗ Failed to generate embedding: {e}", fg="red"))
@@ -676,10 +730,7 @@ def _debug_store(content: str, memory_type: str, confidence: Optional[float], db
         start_time = time.time()
         palace = GraphPalace(db_path)
         memory_id = palace.store_memory(
-            content=content,
-            embedding=embedding,
-            memory_type=memory_type,
-            confidence=confidence
+            content=content, embedding=embedding, memory_type=memory_type, confidence=confidence
         )
         elapsed = time.time() - start_time
         click.echo(click.style(f"✓ Memory stored [{elapsed:.2f}s]", fg="green"))
@@ -699,10 +750,14 @@ def _debug_store(content: str, memory_type: str, confidence: Optional[float], db
 
         if similar_memories:
             # Filter out the newly created memory itself
-            similar_memories = [(mem, score) for mem, score in similar_memories if mem.id != memory_id]
+            similar_memories = [
+                (mem, score) for mem, score in similar_memories if mem.id != memory_id
+            ]
 
         if similar_memories:
-            click.echo(f"Found {click.style(str(len(similar_memories)), fg='cyan')} similar memories (relevance >= 0.7)")
+            click.echo(
+                f"Found {click.style(str(len(similar_memories)), fg='cyan')} similar memories (relevance >= 0.7)"
+            )
 
             # Create edges to similar memories
             edges_created = 0
@@ -712,8 +767,10 @@ def _debug_store(content: str, memory_type: str, confidence: Optional[float], db
                     palace.add_edge(memory_id, mem.id, edge_type="RELATED_TO", strength=score)
                     edges_created += 1
                     mem_preview = mem.content[:50] + "..." if len(mem.content) > 50 else mem.content
-                    click.echo(f"  → {click.style('RELATED_TO', fg='cyan')} {click.style(mem.id[:8], fg='bright_black')}... "
-                             f"[strength: {click.style(f'{score:.2f}', fg='green')}] {mem_preview}")
+                    click.echo(
+                        f"  → {click.style('RELATED_TO', fg='cyan')} {click.style(mem.id[:8], fg='bright_black')}... "
+                        f"[strength: {click.style(f'{score:.2f}', fg='green')}] {mem_preview}"
+                    )
                 except Exception as e:
                     click.echo(click.style(f"  ⚠ Failed to create edge: {e}", fg="yellow"))
 
@@ -723,7 +780,11 @@ def _debug_store(content: str, memory_type: str, confidence: Optional[float], db
             click.echo(click.style("✓ No edges created", fg="green"))
     except Exception as e:
         click.echo(click.style(f"⚠ Edge creation check failed: {e}", fg="yellow"))
-        click.echo(click.style("  Memory was stored successfully, but edges could not be checked", fg="yellow"))
+        click.echo(
+            click.style(
+                "  Memory was stored successfully, but edges could not be checked", fg="yellow"
+            )
+        )
 
     palace.close()
 
@@ -742,12 +803,14 @@ def _debug_store(content: str, memory_type: str, confidence: Optional[float], db
     if confidence is not None:
         conf_color = "green" if confidence > 0.7 else "yellow" if confidence > 0.4 else "red"
         click.echo(f"  Confidence: {click.style(f'{confidence:.2f}', fg=conf_color)}")
-    click.echo(f"  Database size: {db_size_before:,} → {db_size_after:,} bytes ({click.style(f'+{db_size_diff:,}', fg='green')})")
+    click.echo(
+        f"  Database size: {db_size_before:,} → {db_size_after:,} bytes ({click.style(f'+{db_size_diff:,}', fg='green')})"
+    )
 
 
 @cli.command()
-@click.argument('memory_id')
-@click.option('--force', '-f', is_flag=True, help='Skip confirmation prompt')
+@click.argument("memory_id")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
 @click.pass_context
 def delete(ctx, memory_id: str, force: bool) -> None:
     """Delete a memory from the Graph Palace.
@@ -760,7 +823,7 @@ def delete(ctx, memory_id: str, force: bool) -> None:
         omi delete abc123def456...
         omi delete abc123def456... --force
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -792,7 +855,9 @@ def delete(ctx, memory_id: str, force: bool) -> None:
         # Confirmation prompt unless --force is used
         if not force:
             click.echo()
-            if not click.confirm(click.style("Are you sure you want to delete this memory?", fg="red")):
+            if not click.confirm(
+                click.style("Are you sure you want to delete this memory?", fg="red")
+            ):
                 click.echo(click.style("Deletion cancelled.", fg="yellow"))
                 sys.exit(0)
 
@@ -818,7 +883,7 @@ def check(ctx: click.Context) -> None:
     - Creates state capsule
     - Reports memory system status
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -827,6 +892,7 @@ def check(ctx: click.Context) -> None:
 
     # Update NOW.md timestamp
     from .persistence import NOWEntry
+
     now_storage = NOWStore(str(base_path))
     now_file_path = base_path / "NOW.md"
     if now_file_path.exists():
@@ -839,25 +905,24 @@ def check(ctx: click.Context) -> None:
                 current_task=now_entry.current_task,
                 recent_completions=now_entry.recent_completions,
                 pending_decisions=now_entry.pending_decisions,
-                key_files=now_entry.key_files
+                key_files=now_entry.key_files,
             )
             click.echo(f" ✓ Updated NOW.md")
 
     # Create state capsule
     from typing import Dict, cast
+
     capsule: Dict[str, Any] = {
         "timestamp": datetime.now().isoformat(),
         "version": __version__,
         "now_md_hash": None,
-        "memory_summary": {
-            "total_memories": 0,
-            "types": {}
-        }
+        "memory_summary": {"total_memories": 0, "types": {}},
     }
-    
+
     db_path = base_path / "palace.sqlite"
     if db_path.exists():
         import sqlite3
+
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM memories")
@@ -872,28 +937,37 @@ def check(ctx: click.Context) -> None:
             types_dict[row[0]] = row[1]
         conn.close()
         click.echo(f" ✓ Memory capsule created")
-    
+
     # Report status
     click.echo(f"\n" + click.style("Checkpoint Status:", bold=True))
     click.echo(f"  Timestamp: {click.style(str(capsule['timestamp']), fg='cyan')}")
-    memory_summary = cast(Dict[str, Any], capsule['memory_summary'])
+    memory_summary = cast(Dict[str, Any], capsule["memory_summary"])
     click.echo(f"  Memories: {click.style(str(memory_summary['total_memories']), fg='cyan')}")
     types_dict = cast(Dict[str, int], memory_summary["types"])
     if types_dict:
         click.echo(f"\n  Memory types:")
         for mem_type, count in types_dict.items():
             click.echo(f"    {mem_type}: {count}")
-    
+
     click.echo(click.style("\n✓ Checkpoint complete", fg="green", bold=True))
 
 
 @cli.command()
-@click.option('--dry-run', is_flag=True, help='Preview compression without executing')
-@click.option('--before', type=str, default=None, help='Only compress memories before this date (YYYY-MM-DD)')
-@click.option('--age-days', type=int, default=None, help='Only compress memories older than N days')
-@click.option('--llm-provider', type=click.Choice(['openai', 'anthropic'], case_sensitive=False), default='anthropic', help='LLM provider to use for compression (default: anthropic)')
+@click.option("--dry-run", is_flag=True, help="Preview compression without executing")
+@click.option(
+    "--before", type=str, default=None, help="Only compress memories before this date (YYYY-MM-DD)"
+)
+@click.option("--age-days", type=int, default=None, help="Only compress memories older than N days")
+@click.option(
+    "--llm-provider",
+    type=click.Choice(["openai", "anthropic"], case_sensitive=False),
+    default="anthropic",
+    help="LLM provider to use for compression (default: anthropic)",
+)
 @click.pass_context
-def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int], llm_provider: str) -> None:
+def compress(
+    ctx, dry_run: bool, before: Optional[str], age_days: Optional[int], llm_provider: str
+) -> None:
     """Compress and summarize memory data.
 
     Performs:
@@ -907,7 +981,7 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
     Use --age-days to specify memories older than N days (e.g., --age-days 30).
     Use --llm-provider to choose between 'openai' or 'anthropic' for compression (default: anthropic).
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -932,21 +1006,30 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
     try:
         # Validate and parse the before date if provided
         from datetime import timedelta
+
         date_filter = None
         threshold_datetime = None
 
         if before and age_days:
-            click.echo(click.style(f"Error: Cannot use both --before and --age-days. Choose one.", fg="red"))
+            click.echo(
+                click.style(
+                    f"Error: Cannot use both --before and --age-days. Choose one.", fg="red"
+                )
+            )
             sys.exit(1)
 
         if before:
             try:
                 # Validate date format
-                threshold_datetime = datetime.strptime(before, '%Y-%m-%d')
+                threshold_datetime = datetime.strptime(before, "%Y-%m-%d")
                 date_filter = before
                 click.echo(f"  Using date filter: before {click.style(before, fg='cyan')}")
             except ValueError:
-                click.echo(click.style(f"Error: Invalid date format. Use YYYY-MM-DD (e.g., 2024-01-01)", fg="red"))
+                click.echo(
+                    click.style(
+                        f"Error: Invalid date format. Use YYYY-MM-DD (e.g., 2024-01-01)", fg="red"
+                    )
+                )
                 sys.exit(1)
         elif age_days:
             if age_days < 1:
@@ -954,16 +1037,21 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
                 sys.exit(1)
             # Calculate the date from age_days
             threshold_datetime = datetime.now() - timedelta(days=age_days)
-            date_filter = threshold_datetime.strftime('%Y-%m-%d')
-            click.echo(f"  Using date filter: older than {click.style(str(age_days) + ' days', fg='cyan')} (before {click.style(date_filter, fg='cyan')})")
+            date_filter = threshold_datetime.strftime("%Y-%m-%d")
+            click.echo(
+                f"  Using date filter: older than {click.style(str(age_days) + ' days', fg='cyan')} (before {click.style(date_filter, fg='cyan')})"
+            )
         else:
             # Default: 30 days
             threshold_datetime = datetime.now() - timedelta(days=30)
-            date_filter = threshold_datetime.strftime('%Y-%m-%d')
-            click.echo(f"  Using default filter: older than {click.style('30 days', fg='cyan')} (before {click.style(date_filter, fg='cyan')})")
+            date_filter = threshold_datetime.strftime("%Y-%m-%d")
+            click.echo(
+                f"  Using default filter: older than {click.style('30 days', fg='cyan')} (before {click.style(date_filter, fg='cyan')})"
+            )
 
         # Query database directly (works with existing schema)
         import sqlite3
+
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
@@ -972,12 +1060,15 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
         total_memories = cursor.fetchone()[0]
 
         # Get old memories data
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT id, content, memory_type, confidence, created_at
             FROM memories
             WHERE datetime(created_at) < datetime(?)
             ORDER BY created_at ASC
-        """, (threshold_datetime.isoformat(),))
+        """,
+            (threshold_datetime.isoformat(),),
+        )
 
         old_memories_data = cursor.fetchall()
         old_memories_count = len(old_memories_data)
@@ -987,17 +1078,22 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
         estimated_tokens = total_chars // 4
 
         # Get memory type distribution
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT memory_type, COUNT(*)
             FROM memories
             WHERE datetime(created_at) < datetime(?)
             GROUP BY memory_type
-        """, (threshold_datetime.isoformat(),))
+        """,
+            (threshold_datetime.isoformat(),),
+        )
         memories_by_type = dict(cursor.fetchall())
 
         click.echo(f"\n{click.style('Current State:', bold=True)}")
         click.echo(f"  Total memories: {click.style(str(total_memories), fg='cyan')}")
-        click.echo(f"  Old memories (before {date_filter}): {click.style(str(old_memories_count), fg='cyan')}")
+        click.echo(
+            f"  Old memories (before {date_filter}): {click.style(str(old_memories_count), fg='cyan')}"
+        )
         estimated_tokens_str = f"{estimated_tokens:,}"
         click.echo(f"  Estimated tokens: {click.style(estimated_tokens_str, fg='cyan')}")
 
@@ -1021,8 +1117,12 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
         savings_percent = (estimated_savings / original_tokens * 100) if original_tokens > 0 else 0
 
         click.echo(f"  Original tokens: {click.style(f'{original_tokens:,}', fg='cyan')}")
-        click.echo(f"  Estimated compressed tokens: {click.style(f'{estimated_compressed_tokens:,}', fg='cyan')}")
-        click.echo(f"  Estimated savings: {click.style(f'{estimated_savings:,} tokens ({savings_percent:.1f}%)', fg='green')}")
+        click.echo(
+            f"  Estimated compressed tokens: {click.style(f'{estimated_compressed_tokens:,}', fg='cyan')}"
+        )
+        click.echo(
+            f"  Estimated savings: {click.style(f'{estimated_savings:,} tokens ({savings_percent:.1f}%)', fg='green')}"
+        )
 
         # DRY RUN: stop here
         if dry_run:
@@ -1032,7 +1132,9 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
             click.echo(f"  • Regenerate embeddings for summarized content")
             click.echo(f"  • Update Graph Palace with compressed memories")
             click.echo(f"  • Save ~{estimated_savings:,} tokens ({savings_percent:.1f}%)")
-            click.echo(click.style("\n✓ Dry run complete - no changes made", fg="yellow", bold=True))
+            click.echo(
+                click.style("\n✓ Dry run complete - no changes made", fg="yellow", bold=True)
+            )
             conn.close()
             return
 
@@ -1044,20 +1146,26 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
         backup_success = False
         try:
             from .moltvault import MoltVault
+
             vault = MoltVault(base_path)
             metadata = vault.backup(full=True)
             click.echo(f"  ✓ Backup created: {click.style(metadata.backup_id, fg='green')}")
             click.echo(f"    Size: {metadata.file_size / 1024:.1f} KB")
             backup_success = True
         except ImportError:
-            click.echo(click.style(f"  ⚠ MoltVault not available, creating local backup...", fg="yellow"))
+            click.echo(
+                click.style(f"  ⚠ MoltVault not available, creating local backup...", fg="yellow")
+            )
             # Fallback: create local backup
             import shutil
+
             backup_dir = base_path / "backups"
             backup_dir.mkdir(exist_ok=True)
             backup_file = backup_dir / f"pre_compress_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
             shutil.copy2(db_path, backup_file)
-            click.echo(f"  ✓ Local backup created: {click.style(str(backup_file.name), fg='green')}")
+            click.echo(
+                f"  ✓ Local backup created: {click.style(str(backup_file.name), fg='green')}"
+            )
             backup_success = True
         except Exception as e:
             click.echo(click.style(f"  ✗ Backup failed: {e}", fg="red"))
@@ -1093,20 +1201,21 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
 
             # Build metadata from cursor data
             # old_memories_data format: (id, content, memory_type, confidence, created_at)
-            metadata_list = [{
-                "memory_type": row[2],
-                "confidence": row[3],
-                "created_at": row[4]
-            } for row in old_memories_data]
+            metadata_list = [
+                {"memory_type": row[2], "confidence": row[3], "created_at": row[4]}
+                for row in old_memories_data
+            ]
 
             # Extract contents
             contents = [row[1] for row in old_memories_data]
 
             for i in range(0, len(contents), batch_size):
-                batch_contents = contents[i:i+batch_size]
-                batch_metadata = metadata_list[i:i+batch_size]
+                batch_contents = contents[i : i + batch_size]
+                batch_metadata = metadata_list[i : i + batch_size]
 
-                batch_summaries = summarizer.batch_summarize(batch_contents, metadata_list=batch_metadata)
+                batch_summaries = summarizer.batch_summarize(
+                    batch_contents, metadata_list=batch_metadata
+                )
                 summaries.extend(batch_summaries)
                 click.echo(f"  Processed {min(i+batch_size, len(contents))}/{len(contents)}...")
 
@@ -1115,6 +1224,7 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
         except Exception as e:
             click.echo(click.style(f"  ✗ Summarization failed: {e}", fg="red"))
             import traceback
+
             traceback.print_exc()
             conn.close()
             sys.exit(1)
@@ -1131,21 +1241,22 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
             if config_path.exists():
                 try:
                     import yaml
-                    config = yaml.safe_load(config_path.read_text())
-                    embed_config = config.get('embedding', {})
-                    provider = embed_config.get('provider', 'nim')
 
-                    if provider == 'nim':
+                    config = yaml.safe_load(config_path.read_text())
+                    embed_config = config.get("embedding", {})
+                    provider = embed_config.get("provider", "nim")
+
+                    if provider == "nim":
                         embedder = NIMEmbedder(
-                            model=embed_config.get('model', 'baai/bge-m3'),
-                            api_key=os.getenv('NIM_API_KEY')
+                            model=embed_config.get("model", "baai/bge-m3"),
+                            api_key=os.getenv("NIM_API_KEY"),
                         )
                 except Exception:
                     pass
 
             # Fallback to NIM with defaults
             if embedder is None:
-                embedder = NIMEmbedder(api_key=os.getenv('NIM_API_KEY'))
+                embedder = NIMEmbedder(api_key=os.getenv("NIM_API_KEY"))
 
             # Generate embeddings for summaries
             new_embeddings = embedder.embed_batch(summaries)
@@ -1172,42 +1283,57 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
                 actual_compressed_tokens += len(summary) // 4
 
                 # Update content with timestamp
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE memories
                     SET content = ?, last_accessed = ?
                     WHERE id = ?
-                """, (summary, datetime.now().isoformat(), memory_id))
+                """,
+                    (summary, datetime.now().isoformat(), memory_id),
+                )
 
                 # Update embedding if available
                 if embedding is not None:
                     # Convert embedding list to blob
                     import struct
-                    embedding_blob = struct.pack(f'{len(embedding)}f', *embedding)
 
-                    cursor.execute("""
+                    embedding_blob = struct.pack(f"{len(embedding)}f", *embedding)
+
+                    cursor.execute(
+                        """
                         UPDATE memories
                         SET embedding = ?
                         WHERE id = ?
-                    """, (embedding_blob, memory_id))
+                    """,
+                        (embedding_blob, memory_id),
+                    )
 
                 updated_count += 1
             except Exception as e:
-                click.echo(click.style(f"  ⚠ Failed to update memory {memory_id}: {e}", fg="yellow"))
+                click.echo(
+                    click.style(f"  ⚠ Failed to update memory {memory_id}: {e}", fg="yellow")
+                )
 
         conn.commit()
         conn.close()
 
         # Calculate actual savings
         actual_savings = actual_original_tokens - actual_compressed_tokens
-        actual_savings_percent = (actual_savings / actual_original_tokens * 100) if actual_original_tokens > 0 else 0
+        actual_savings_percent = (
+            (actual_savings / actual_original_tokens * 100) if actual_original_tokens > 0 else 0
+        )
 
         # Final report
         click.echo(f"\n{click.style('Compression Complete!', fg='green', bold=True)}")
         click.echo(f"\n{click.style('Results:', bold=True)}")
         click.echo(f"  Memories compressed: {click.style(str(updated_count), fg='cyan')}")
         click.echo(f"  Original tokens: {click.style(f'{actual_original_tokens:,}', fg='cyan')}")
-        click.echo(f"  Compressed tokens: {click.style(f'{actual_compressed_tokens:,}', fg='cyan')}")
-        click.echo(f"  Savings: {click.style(f'{actual_savings:,} tokens ({actual_savings_percent:.1f}%)', fg='green', bold=True)}")
+        click.echo(
+            f"  Compressed tokens: {click.style(f'{actual_compressed_tokens:,}', fg='cyan')}"
+        )
+        click.echo(
+            f"  Savings: {click.style(f'{actual_savings:,} tokens ({actual_savings_percent:.1f}%)', fg='green', bold=True)}"
+        )
 
         db_size_after = db_path.stat().st_size / 1024  # KB
         click.echo(f"\n  Database size: {click.style(f'{db_size_after:.1f} KB', fg='cyan')}")
@@ -1215,12 +1341,13 @@ def compress(ctx, dry_run: bool, before: Optional[str], age_days: Optional[int],
     except Exception as e:
         click.echo(click.style(f"Error: Compression failed: {e}", fg="red"))
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
 @cli.command("session-end")
-@click.option('--no-backup', is_flag=True, help="Skip vault backup")
+@click.option("--no-backup", is_flag=True, help="Skip vault backup")
 @click.pass_context
 def session_end(ctx: click.Context, no_backup: bool) -> None:
     """End session and backup.
@@ -1230,7 +1357,7 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
     - Appends to daily log
     - Triggers vault backup (if enabled and configured)
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -1239,6 +1366,7 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
 
     # Update NOW.md timestamp and get current task for log
     from .persistence import NOWEntry
+
     now_storage = NOWStore(str(base_path))
     now_entry: Optional[NOWEntry] = None
     now_file_path = base_path / "NOW.md"
@@ -1252,7 +1380,7 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
                 current_task=now_entry.current_task,
                 recent_completions=now_entry.recent_completions,
                 pending_decisions=now_entry.pending_decisions,
-                key_files=now_entry.key_files
+                key_files=now_entry.key_files,
             )
             click.echo(f" ✓ Updated NOW.md")
 
@@ -1263,7 +1391,7 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
         entry_content += f"\nLast task: {now_entry.current_task}"
     log_path = daily_store.append(entry_content)
     click.echo(f" ✓ Appended to daily log: {log_path.name}")
-    
+
     # Vault backup
     vault_enabled = False
     if not no_backup:
@@ -1271,11 +1399,12 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
         if config_path.exists():
             try:
                 import yaml  # type: ignore[import-untyped]
+
                 config = yaml.safe_load(config_path.read_text())
                 if config and isinstance(config, dict):
-                    vault_config = config.get('vault', {})
+                    vault_config = config.get("vault", {})
                     if isinstance(vault_config, dict):
-                        vault_enabled = bool(vault_config.get('enabled', False))
+                        vault_enabled = bool(vault_config.get("enabled", False))
             except Exception:
                 pass
         if vault_enabled:
@@ -1291,9 +1420,7 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
     event = SessionEndedEvent(
         session_id=session_timestamp.isoformat(),
         timestamp=session_timestamp,
-        metadata={
-            "vault_backup": not no_backup and vault_enabled
-        }
+        metadata={"vault_backup": not no_backup and vault_enabled},
     )
     get_event_bus().publish(event)
 
@@ -1302,24 +1429,24 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
 @click.pass_context
 def status(ctx: click.Context) -> None:
     """Show OMI health and size statistics."""
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
 
     click.echo(click.style("OMI Status Report", fg="cyan", bold=True))
     click.echo("=" * 50)
-    
+
     # Base path info
     click.echo(f"\nBase Path: {click.style(str(base_path), fg='cyan')}")
-    
+
     # Check files
     files_to_check = [
         ("Config", base_path / "config.yaml"),
         ("Database", base_path / "palace.sqlite"),
         ("NOW.md", base_path / "NOW.md"),
     ]
-    
+
     click.echo(f"\nFiles:")
     for name, path in files_to_check:
         exists = path.exists()
@@ -1327,25 +1454,26 @@ def status(ctx: click.Context) -> None:
         status_symbol = "✓" if exists else "✗"
         status_color = "green" if exists else "red"
         click.echo(f"  {name:12} {click.style(status_symbol, fg=status_color)} {path.name}")
-    
+
     # Database stats
     db_path = base_path / "palace.sqlite"
     if db_path.exists():
         import sqlite3
+
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        
+
         # Total memories
         cursor.execute("SELECT COUNT(*) FROM memories")
         mem_count = cursor.fetchone()[0]
-        
+
         # Memory types breakdown
         cursor.execute("SELECT memory_type, COUNT(*) FROM memories GROUP BY memory_type")
         type_counts = dict(cursor.fetchall())
-        
+
         # Database size
         db_size = db_path.stat().st_size / 1024  # KB
-        
+
         click.echo(f"\nDatabase:")
         click.echo(f"  Size: {click.style(f'{db_size:.1f} KB', fg='cyan')}")
         click.echo(f"  Memories: {click.style(str(mem_count), fg='cyan')}")
@@ -1353,14 +1481,17 @@ def status(ctx: click.Context) -> None:
             click.echo(f"  Breakdown:")
             for mem_type, count in type_counts.items():
                 click.echo(f"    {mem_type}: {count}")
-        
+
         conn.close()
-    
+
     # Integrity check
     click.echo(f"\nIntegrity:")
     try:
         from .security import IntegrityChecker
-        integrity_checker = IntegrityChecker(base_path.parent if base_path.name == "omi" else base_path)
+
+        integrity_checker = IntegrityChecker(
+            base_path.parent if base_path.name == "omi" else base_path
+        )
         now_ok = integrity_checker.check_now_md()
         mem_ok = integrity_checker.check_memory_md()
         now_color = "green" if now_ok else "red"
@@ -1369,15 +1500,15 @@ def status(ctx: click.Context) -> None:
         click.echo(f"  MEMORY.md: {click.style('✓ OK' if mem_ok else '✗ Failed', fg=mem_color)}")
     except Exception as e:
         click.echo(f"  {click.style(f'Check failed: {e}', fg='yellow')}")
-    
+
     # Overall health
     click.echo(f"\n" + click.style("Overall: ", bold=True), nl=False)
     click.echo(click.style("HEALTHY ✓", fg="green", bold=True))
 
 
 @cli.command()
-@click.option('--json-output', is_flag=True, help='Output as JSON')
-@click.option('--beliefs', is_flag=True, help='Show belief network summary')
+@click.option("--json-output", is_flag=True, help="Output as JSON")
+@click.option("--beliefs", is_flag=True, help="Show belief network summary")
 @click.pass_context
 def inspect(ctx, json_output: bool, beliefs: bool) -> None:
     """Show memory statistics and overview.
@@ -1398,7 +1529,7 @@ def inspect(ctx, json_output: bool, beliefs: bool) -> None:
         omi inspect --json-output
         omi inspect --beliefs
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -1410,6 +1541,7 @@ def inspect(ctx, json_output: bool, beliefs: bool) -> None:
 
     try:
         import sqlite3
+
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
@@ -1436,9 +1568,15 @@ def inspect(ctx, json_output: bool, beliefs: bool) -> None:
                 type_counts = dict(cursor.fetchall())
 
                 # Last accessed memory (as proxy for last session)
-                cursor.execute("SELECT MAX(last_accessed) FROM memories WHERE last_accessed IS NOT NULL")
+                cursor.execute(
+                    "SELECT MAX(last_accessed) FROM memories WHERE last_accessed IS NOT NULL"
+                )
                 last_accessed_result = cursor.fetchone()
-                last_session = last_accessed_result[0] if last_accessed_result and last_accessed_result[0] else None
+                last_session = (
+                    last_accessed_result[0]
+                    if last_accessed_result and last_accessed_result[0]
+                    else None
+                )
 
         # Database size
         db_size_kb = db_path.stat().st_size / 1024
@@ -1466,33 +1604,30 @@ def inspect(ctx, json_output: bool, beliefs: bool) -> None:
 
         if json_output:
             output = {
-                'total_memories': total_memories,
-                'memory_types': type_counts,
-                'database_size_kb': round(db_size_kb, 2),
-                'last_session': last_session
+                "total_memories": total_memories,
+                "memory_types": type_counts,
+                "database_size_kb": round(db_size_kb, 2),
+                "last_session": last_session,
             }
             if beliefs:
                 if not beliefs_table_exists:
-                    output['beliefs'] = {'error': 'Belief network not initialized'}
+                    output["beliefs"] = {"error": "Belief network not initialized"}
                 elif beliefs_data:
-                    output['beliefs'] = [
-                        {
-                            'id': b[0],
-                            'content': b[1],
-                            'confidence': b[2],
-                            'evidence_count': b[3]
-                        }
+                    output["beliefs"] = [
+                        {"id": b[0], "content": b[1], "confidence": b[2], "evidence_count": b[3]}
                         for b in beliefs_data
                     ]
                 else:
-                    output['beliefs'] = []
+                    output["beliefs"] = []
             click.echo(json.dumps(output, indent=2, default=str))
         else:
             click.echo(click.style("Memory Inspection Report", fg="cyan", bold=True))
             click.echo("=" * 50)
 
             # Total memories
-            click.echo(f"\nTotal Memories: {click.style(str(total_memories), fg='cyan', bold=True)}")
+            click.echo(
+                f"\nTotal Memories: {click.style(str(total_memories), fg='cyan', bold=True)}"
+            )
 
             # Database size
             click.echo(f"Database Size: {click.style(f'{db_size_kb:.2f} KB', fg='cyan')}")
@@ -1502,15 +1637,17 @@ def inspect(ctx, json_output: bool, beliefs: bool) -> None:
                 click.echo(f"\n{click.style('Breakdown by Type:', bold=True)}")
                 for mem_type, count in sorted(type_counts.items()):
                     type_color = {
-                        'fact': 'blue',
-                        'experience': 'green',
-                        'belief': 'yellow',
-                        'decision': 'magenta'
-                    }.get(mem_type, 'white')
+                        "fact": "blue",
+                        "experience": "green",
+                        "belief": "yellow",
+                        "decision": "magenta",
+                    }.get(mem_type, "white")
 
                     percentage = (count / total_memories * 100) if total_memories > 0 else 0
                     mem_type_str = mem_type.capitalize().ljust(12)
-                    click.echo(f"  {click.style(mem_type_str, fg=type_color)} {count:4} ({percentage:5.1f}%)")
+                    click.echo(
+                        f"  {click.style(mem_type_str, fg=type_color)} {count:4} ({percentage:5.1f}%)"
+                    )
             else:
                 click.echo(f"\n{click.style('No memories stored yet.', fg='yellow')}")
 
@@ -1518,32 +1655,40 @@ def inspect(ctx, json_output: bool, beliefs: bool) -> None:
             if last_session:
                 click.echo(f"\nLast Activity: {click.style(last_session, fg='cyan')}")
             else:
-                click.echo(f"\nLast Activity: {click.style('No activity recorded', fg='bright_black')}")
+                click.echo(
+                    f"\nLast Activity: {click.style('No activity recorded', fg='bright_black')}"
+                )
 
             # Beliefs network summary
             if beliefs:
                 if not beliefs_table_exists:
-                    click.echo(f"\n{click.style('Belief network not initialized yet.', fg='yellow')}")
+                    click.echo(
+                        f"\n{click.style('Belief network not initialized yet.', fg='yellow')}"
+                    )
                     click.echo(f"  Tip: Beliefs are tracked when created with confidence scores.")
                 elif beliefs_data:
                     click.echo(f"\n{click.style('Belief Network Summary:', bold=True)}")
-                    click.echo(f"Total Beliefs: {click.style(str(len(beliefs_data)), fg='cyan', bold=True)}")
+                    click.echo(
+                        f"Total Beliefs: {click.style(str(len(beliefs_data)), fg='cyan', bold=True)}"
+                    )
                     click.echo()
                     for belief_id, content, confidence, evidence_count in beliefs_data:
                         # Color code confidence: high (green), medium (yellow), low (red)
                         if confidence >= 0.7:
-                            conf_color = 'green'
+                            conf_color = "green"
                         elif confidence >= 0.4:
-                            conf_color = 'yellow'
+                            conf_color = "yellow"
                         else:
-                            conf_color = 'red'
+                            conf_color = "red"
 
                         # Truncate content if too long
                         display_content = content if len(content) <= 60 else content[:57] + "..."
 
                         click.echo(f"  {click.style('•', fg=conf_color)} {display_content}")
-                        click.echo(f"    Confidence: {click.style(f'{confidence:.2f}', fg=conf_color)} | "
-                                 f"Evidence: {click.style(str(evidence_count), fg='cyan')}")
+                        click.echo(
+                            f"    Confidence: {click.style(f'{confidence:.2f}', fg=conf_color)} | "
+                            f"Evidence: {click.style(str(evidence_count), fg='cyan')}"
+                        )
                 else:
                     click.echo(f"\n{click.style('No beliefs in network yet.', fg='yellow')}")
 
@@ -1555,9 +1700,17 @@ def inspect(ctx, json_output: bool, beliefs: bool) -> None:
 
 
 @cli.command()
-@click.option('--limit', '-l', default=20, type=int, help='Maximum number of nodes to display')
-@click.option('--type', '-t', 'edge_type_filter', default=None, help='Filter by edge type (e.g., SUPPORTS, RELATED_TO)')
-@click.option('--depth', '-d', default=3, type=int, help='Maximum traversal depth (not currently used)')
+@click.option("--limit", "-l", default=20, type=int, help="Maximum number of nodes to display")
+@click.option(
+    "--type",
+    "-t",
+    "edge_type_filter",
+    default=None,
+    help="Filter by edge type (e.g., SUPPORTS, RELATED_TO)",
+)
+@click.option(
+    "--depth", "-d", default=3, type=int, help="Maximum traversal depth (not currently used)"
+)
 @click.pass_context
 def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
     """Show ASCII graph of memory relationships.
@@ -1578,7 +1731,7 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
         omi graph -t SUPPORTS
         omi graph --limit 10 --type SUPPORTS
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -1590,6 +1743,7 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
 
     try:
         import sqlite3
+
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
@@ -1600,17 +1754,22 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
         """)
         tables = {row[0] for row in cursor.fetchall()}
 
-        if 'memories' not in tables or 'edges' not in tables:
-            click.echo(click.style("Error: Database schema incomplete. Run 'omi init' first.", fg="red"))
+        if "memories" not in tables or "edges" not in tables:
+            click.echo(
+                click.style("Error: Database schema incomplete. Run 'omi init' first.", fg="red")
+            )
             sys.exit(1)
 
         # Get edges first (with optional filtering)
         if edge_type_filter:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT source_id, target_id, edge_type, strength
                 FROM edges
                 WHERE edge_type = ?
-            """, (edge_type_filter,))
+            """,
+                (edge_type_filter,),
+            )
         else:
             cursor.execute("""
                 SELECT source_id, target_id, edge_type, strength
@@ -1627,22 +1786,30 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
         # Get top N nodes by centrality (or all memories if no edges)
         if node_degrees:
             # Sort by degree (descending) and take top N
-            top_node_ids = sorted(node_degrees.keys(), key=lambda x: node_degrees[x], reverse=True)[:limit]
-            placeholders = ','.join('?' * len(top_node_ids))
-            cursor.execute(f"""
+            top_node_ids = sorted(node_degrees.keys(), key=lambda x: node_degrees[x], reverse=True)[
+                :limit
+            ]
+            placeholders = ",".join("?" * len(top_node_ids))
+            cursor.execute(
+                f"""
                 SELECT id, content, memory_type
                 FROM memories
                 WHERE id IN ({placeholders})
-            """, top_node_ids)
+            """,
+                top_node_ids,
+            )
         else:
             # If no edges, just get first N memories
-            cursor.execute(f"""
+            cursor.execute(
+                f"""
                 SELECT id, content, memory_type
                 FROM memories
                 LIMIT ?
-            """, (limit,))
+            """,
+                (limit,),
+            )
 
-        memories = {row[0]: {'content': row[1], 'type': row[2]} for row in cursor.fetchall()}
+        memories = {row[0]: {"content": row[1], "type": row[2]} for row in cursor.fetchall()}
 
         # Get total counts for summary (before closing connection)
         cursor.execute("SELECT COUNT(*) FROM memories")
@@ -1658,14 +1825,26 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
 
         # Display header
         click.echo(click.style("\n╔══════════════════════════════════════════════════╗", fg="cyan"))
-        click.echo(click.style("║          Memory Graph Visualization             ║", fg="cyan", bold=True))
+        click.echo(
+            click.style("║          Memory Graph Visualization             ║", fg="cyan", bold=True)
+        )
         click.echo(click.style("╚══════════════════════════════════════════════════╝\n", fg="cyan"))
 
         # Display stats
         if node_degrees:
-            click.echo(click.style(f"Total: {total_memories} nodes, {total_edges} edges (showing top {len(memories)} by centrality)", fg="cyan"))
+            click.echo(
+                click.style(
+                    f"Total: {total_memories} nodes, {total_edges} edges (showing top {len(memories)} by centrality)",
+                    fg="cyan",
+                )
+            )
         else:
-            click.echo(click.style(f"Total: {total_memories} nodes, {total_edges} edges (showing {len(memories)})", fg="cyan"))
+            click.echo(
+                click.style(
+                    f"Total: {total_memories} nodes, {total_edges} edges (showing {len(memories)})",
+                    fg="cyan",
+                )
+            )
 
         if edge_type_filter:
             click.echo(click.style(f"Filter: {edge_type_filter} edges only", fg="cyan"))
@@ -1689,23 +1868,25 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
 
                 # Display node
                 short_id = memory_id[:8]
-                content = memories[memory_id]['content']
-                mem_type = memories[memory_id]['type']
+                content = memories[memory_id]["content"]
+                mem_type = memories[memory_id]["type"]
 
                 # Truncate content for display
                 display_content = content[:50] + "..." if len(content) > 50 else content
 
                 # Color by memory type
                 type_colors = {
-                    'fact': 'blue',
-                    'experience': 'green',
-                    'belief': 'yellow',
-                    'decision': 'magenta'
+                    "fact": "blue",
+                    "experience": "green",
+                    "belief": "yellow",
+                    "decision": "magenta",
                 }
-                node_color = type_colors.get(mem_type, 'white')
+                node_color = type_colors.get(mem_type, "white")
 
-                click.echo(click.style(f"[{short_id}]", fg=node_color, bold=True) +
-                          f" ({mem_type}) {display_content}")
+                click.echo(
+                    click.style(f"[{short_id}]", fg=node_color, bold=True)
+                    + f" ({mem_type}) {display_content}"
+                )
 
                 # Display edges from this node
                 if memory_id in adjacency:
@@ -1716,25 +1897,31 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
 
                             # Edge type colors
                             edge_colors = {
-                                'SUPPORTS': 'green',
-                                'CONTRADICTS': 'red',
-                                'RELATED_TO': 'cyan',
-                                'DEPENDS_ON': 'yellow',
-                                'POSTED': 'blue',
-                                'DISCUSSED': 'magenta'
+                                "SUPPORTS": "green",
+                                "CONTRADICTS": "red",
+                                "RELATED_TO": "cyan",
+                                "DEPENDS_ON": "yellow",
+                                "POSTED": "blue",
+                                "DISCUSSED": "magenta",
                             }
-                            edge_color = edge_colors.get(edge_type, 'white')
+                            edge_color = edge_colors.get(edge_type, "white")
 
                             click.echo(f"  │")
-                            click.echo(f"  ├─[{click.style(edge_type, fg=edge_color)}]─> " +
-                                     click.style(f"[{target_short_id}]", fg=node_color) +
-                                     f" {strength_str}")
+                            click.echo(
+                                f"  ├─[{click.style(edge_type, fg=edge_color)}]─> "
+                                + click.style(f"[{target_short_id}]", fg=node_color)
+                                + f" {strength_str}"
+                            )
 
                 click.echo()  # Blank line between nodes
 
         # Legend
         click.echo(click.style("\n╔══════════════════════════════════════════════════╗", fg="cyan"))
-        click.echo(click.style("║                    Legend                        ║", fg="cyan", bold=True))
+        click.echo(
+            click.style(
+                "║                    Legend                        ║", fg="cyan", bold=True
+            )
+        )
         click.echo(click.style("╚══════════════════════════════════════════════════╝\n", fg="cyan"))
 
         click.echo(click.style("Memory Types:", bold=True))
@@ -1755,6 +1942,7 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
     except Exception as e:
         click.echo(click.style(f"Error: Failed to display graph: {e}", fg="red"))
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -1769,73 +1957,74 @@ def audit(ctx: click.Context) -> None:
     - Graph topology (orphan nodes, sudden cores)
     - Git history for suspicious modifications
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
 
     click.echo(click.style("Running Security Audit...", fg="cyan", bold=True))
     click.echo("=" * 50)
-    
+
     db_path = base_path / "palace.sqlite"
     try:
         detector = PoisonDetector(base_path, GraphPalace(db_path) if db_path.exists() else None)
         results = detector.full_security_audit()
-        
+
         # File integrity
         click.echo(f"\n{click.style('File Integrity:', bold=True)}")
-        file_ok = results.get('file_integrity', False)
+        file_ok = results.get("file_integrity", False)
         file_status = "✓ VERIFIED" if file_ok else "✗ FAILED"
         file_color = "green" if file_ok else "red"
         click.echo(f"  Status: {click.style(file_status, fg=file_color)}")
-        
+
         # Topology
         click.echo(f"\n{click.style('Graph Topology:', bold=True)}")
-        orphans = results.get('orphan_nodes', [])
-        cores = results.get('sudden_cores', [])
-        
+        orphans = results.get("orphan_nodes", [])
+        cores = results.get("sudden_cores", [])
+
         if orphans:
             click.echo(click.style(f"  ⚠ {len(orphans)} orphan nodes detected", fg="yellow"))
         else:
             click.echo(click.style(f"  ✓ No orphan nodes", fg="green"))
-        
+
         if cores:
             click.echo(click.style(f"  ⚠ {len(cores)} sudden cores detected", fg="yellow"))
         else:
             click.echo(click.style(f"  ✓ No sudden cores", fg="green"))
-        
+
         # Git audit
         click.echo(f"\n{click.style('Git History:', bold=True)}")
-        git_check = results.get('git_audit', {})
-        if 'error' in git_check:
+        git_check = results.get("git_audit", {})
+        if "error" in git_check:
             click.echo(click.style(f"  ⚠ {git_check['error']}", fg="yellow"))
         else:
-            commits = git_check.get('recent_commits', 0)
-            suspicious = git_check.get('suspicious', [])
+            commits = git_check.get("recent_commits", 0)
+            suspicious = git_check.get("suspicious", [])
             click.echo(f"  Recent commits: {commits}")
             if suspicious:
                 click.echo(click.style(f"  ⚠ {len(suspicious)} suspicious commits", fg="yellow"))
             else:
                 click.echo(click.style(f"  ✓ No suspicious commits", fg="green"))
-        
+
         # Overall
-        overall = results.get('overall_safe', False)
+        overall = results.get("overall_safe", False)
         click.echo(f"\n" + click.style("Overall Safety: ", bold=True), nl=False)
         if overall:
             click.echo(click.style("SAFE ✓", fg="green", bold=True))
         else:
             click.echo(click.style("ATTENTION REQUIRED ⚠", fg="yellow", bold=True))
-            
+
     except Exception as e:
         click.echo(click.style(f"Error: Audit failed: {e}", fg="red"))
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
 @cli.command()
-@click.option('--host', default='0.0.0.0', help='Host to bind the server to (default: 0.0.0.0)')
-@click.option('--port', default=8420, type=int, help='Port to bind the server to (default: 8420)')
+@click.option("--host", default="0.0.0.0", help="Host to bind the server to (default: 0.0.0.0)")
+@click.option("--port", default=8420, type=int, help="Port to bind the server to (default: 8420)")
 @click.pass_context
 def serve(ctx, host: str, port: int) -> None:
     """Start the OMI REST API server.
@@ -1848,7 +2037,7 @@ def serve(ctx, host: str, port: int) -> None:
         omi serve --port 8080
         omi serve --host 127.0.0.1 --port 9000
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -1861,42 +2050,51 @@ def serve(ctx, host: str, port: int) -> None:
     if config_path.exists():
         try:
             import yaml
+
             config_data = yaml.safe_load(config_path.read_text()) or {}
-            server_config = config_data.get('server', {})
+            server_config = config_data.get("server", {})
 
             # Use config values if command-line options are defaults
-            if host == '0.0.0.0' and 'host' in server_config:
-                host = server_config['host']
-            if port == 8420 and 'port' in server_config:
-                port = server_config['port']
+            if host == "0.0.0.0" and "host" in server_config:
+                host = server_config["host"]
+            if port == 8420 and "port" in server_config:
+                port = server_config["port"]
 
             # Set API key from config if not already in environment
-            if 'api_key' in server_config and 'OMI_API_KEY' not in os.environ:
-                api_key_value = server_config['api_key']
+            if "api_key" in server_config and "OMI_API_KEY" not in os.environ:
+                api_key_value = server_config["api_key"]
                 # Handle environment variable expansion like ${VAR_NAME}
-                if isinstance(api_key_value, str) and api_key_value.startswith('${') and api_key_value.endswith('}'):
+                if (
+                    isinstance(api_key_value, str)
+                    and api_key_value.startswith("${")
+                    and api_key_value.endswith("}")
+                ):
                     env_var_name = api_key_value[2:-1]
                     api_key_value = os.environ.get(env_var_name)
                     if api_key_value:
-                        os.environ['OMI_API_KEY'] = api_key_value
+                        os.environ["OMI_API_KEY"] = api_key_value
                         api_key_configured = True
                 elif isinstance(api_key_value, str) and api_key_value:
-                    os.environ['OMI_API_KEY'] = api_key_value
+                    os.environ["OMI_API_KEY"] = api_key_value
                     api_key_configured = True
 
             # Set CORS origins from config if not already in environment
-            cors_config = server_config.get('cors', {})
-            if 'origins' in cors_config and 'OMI_CORS_ORIGINS' not in os.environ:
-                origins_value = cors_config['origins']
+            cors_config = server_config.get("cors", {})
+            if "origins" in cors_config and "OMI_CORS_ORIGINS" not in os.environ:
+                origins_value = cors_config["origins"]
                 # Handle environment variable expansion
-                if isinstance(origins_value, str) and origins_value.startswith('${') and origins_value.endswith('}'):
+                if (
+                    isinstance(origins_value, str)
+                    and origins_value.startswith("${")
+                    and origins_value.endswith("}")
+                ):
                     env_var_name = origins_value[2:-1]
                     origins_value = os.environ.get(env_var_name)
                     if origins_value:
-                        os.environ['OMI_CORS_ORIGINS'] = origins_value
+                        os.environ["OMI_CORS_ORIGINS"] = origins_value
                         cors_origins_configured = True
                 elif isinstance(origins_value, str) and origins_value:
-                    os.environ['OMI_CORS_ORIGINS'] = origins_value
+                    os.environ["OMI_CORS_ORIGINS"] = origins_value
                     cors_origins_configured = True
         except Exception as e:
             click.echo(click.style(f"Warning: Could not load config: {e}", fg="yellow"))
@@ -1907,14 +2105,14 @@ def serve(ctx, host: str, port: int) -> None:
     click.echo(f"  Base Path: {click.style(str(base_path), fg='cyan')}")
 
     # Show authentication status
-    if os.environ.get('OMI_API_KEY'):
+    if os.environ.get("OMI_API_KEY"):
         click.echo(f"  Auth: {click.style('Enabled (API key configured)', fg='green')}")
     else:
         click.echo(f"  Auth: {click.style('Disabled (development mode)', fg='yellow')}")
 
     # Show CORS status
-    cors_origins = os.environ.get('OMI_CORS_ORIGINS', '*')
-    if cors_origins == '*':
+    cors_origins = os.environ.get("OMI_CORS_ORIGINS", "*")
+    if cors_origins == "*":
         click.echo(f"  CORS: {click.style('All origins allowed', fg='yellow')}")
     else:
         click.echo(f"  CORS: {click.style(cors_origins, fg='green')}")
@@ -1943,6 +2141,7 @@ def serve(ctx, host: str, port: int) -> None:
     except Exception as e:
         click.echo(click.style(f"Error: Failed to start server: {e}", fg="red"))
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -1954,9 +2153,9 @@ def config(ctx: click.Context) -> None:
     ctx.ensure_object(dict)
 
 
-@config.command('set')
-@click.argument('key')
-@click.argument('value')
+@config.command("set")
+@click.argument("key")
+@click.argument("value")
 @click.pass_context
 def config_set(ctx: click.Context, key: str, value: str) -> None:
     """Set a configuration value.
@@ -1971,20 +2170,21 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
         omi config set vault.enabled true
         omi config set events.webhook https://example.com/hook
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     config_path = base_path / "config.yaml"
-    
+
     if not config_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
 
     try:
         import yaml
+
         config_data_raw = yaml.safe_load(config_path.read_text())
         config_data: Dict[str, Any] = config_data_raw if isinstance(config_data_raw, dict) else {}
 
         # Parse nested keys (e.g., 'embedding.provider')
-        keys = key.split('.')
+        keys = key.split(".")
         current: Dict[str, Any] = config_data
         for k in keys[:-1]:
             if k not in current:
@@ -2006,8 +2206,8 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
         sys.exit(1)
 
 
-@config.command('get')
-@click.argument('key')
+@config.command("get")
+@click.argument("key")
 @click.pass_context
 def config_get(ctx: click.Context, key: str) -> None:
     """Get a configuration value.
@@ -2019,20 +2219,21 @@ def config_get(ctx: click.Context, key: str) -> None:
         omi config get embedding.provider
         omi config get vault.enabled
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     config_path = base_path / "config.yaml"
-    
+
     if not config_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
 
     try:
         import yaml
+
         config_data_raw = yaml.safe_load(config_path.read_text())
         config_data: Dict[str, Any] = config_data_raw if isinstance(config_data_raw, dict) else {}
 
         # Parse nested keys
-        keys = key.split('.')
+        keys = key.split(".")
         current: Any = config_data
         for k in keys:
             if not isinstance(current, dict) or k not in current:
@@ -2046,17 +2247,17 @@ def config_get(ctx: click.Context, key: str) -> None:
         sys.exit(1)
 
 
-@config.command('show')
+@config.command("show")
 @click.pass_context
 def config_show(ctx: click.Context) -> None:
     """Display full configuration."""
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     config_path = base_path / "config.yaml"
-    
+
     if not config_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
-    
+
     content = config_path.read_text()
     click.echo(click.style("Current configuration:", fg="cyan", bold=True))
     click.echo(content)
@@ -2069,15 +2270,21 @@ def events(ctx: click.Context) -> None:
     ctx.ensure_object(dict)
 
 
-@events.command('list')
-@click.option('--type', '-t', 'event_type', default=None, help='Filter by event type')
-@click.option('--since', default=None, help='Filter events after this timestamp (ISO format)')
-@click.option('--until', default=None, help='Filter events before this timestamp (ISO format)')
-@click.option('--limit', '-l', default=100, help='Maximum number of results (default: 100)')
-@click.option('--json-output', is_flag=True, help='Output as JSON')
+@events.command("list")
+@click.option("--type", "-t", "event_type", default=None, help="Filter by event type")
+@click.option("--since", default=None, help="Filter events after this timestamp (ISO format)")
+@click.option("--until", default=None, help="Filter events before this timestamp (ISO format)")
+@click.option("--limit", "-l", default=100, help="Maximum number of results (default: 100)")
+@click.option("--json-output", is_flag=True, help="Output as JSON")
 @click.pass_context
-def list_events(ctx: click.Context, event_type: Optional[str], since: Optional[str], until: Optional[str],
-                limit: int, json_output: bool) -> None:
+def list_events(
+    ctx: click.Context,
+    event_type: Optional[str],
+    since: Optional[str],
+    until: Optional[str],
+    limit: int,
+    json_output: bool,
+) -> None:
     """List events from history with filters.
 
     Args:
@@ -2094,7 +2301,7 @@ def list_events(ctx: click.Context, event_type: Optional[str], since: Optional[s
     """
     from .event_history import EventHistory
 
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -2116,23 +2323,30 @@ def list_events(ctx: click.Context, event_type: Optional[str], since: Optional[s
         try:
             since_dt = datetime.fromisoformat(since)
         except ValueError:
-            click.echo(click.style(f"Error: Invalid --since timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)", fg="red"))
+            click.echo(
+                click.style(
+                    f"Error: Invalid --since timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)",
+                    fg="red",
+                )
+            )
             sys.exit(1)
 
     if until:
         try:
             until_dt = datetime.fromisoformat(until)
         except ValueError:
-            click.echo(click.style(f"Error: Invalid --until timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)", fg="red"))
+            click.echo(
+                click.style(
+                    f"Error: Invalid --until timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)",
+                    fg="red",
+                )
+            )
             sys.exit(1)
 
     try:
         history = EventHistory(events_db_path)
         events_list = history.query_events(
-            event_type=event_type,
-            since=since_dt,
-            until=until_dt,
-            limit=limit
+            event_type=event_type, since=since_dt, until=until_dt, limit=limit
         )
 
         if json_output:
@@ -2153,15 +2367,23 @@ def list_events(ctx: click.Context, event_type: Optional[str], since: Optional[s
                 filter_info.append(f"until={until}")
             filter_str = f" ({', '.join(filter_info)})" if filter_info else ""
 
-            click.echo(click.style(f"Event History ({len(events_list)} found{filter_str})", fg="cyan", bold=True))
+            click.echo(
+                click.style(
+                    f"Event History ({len(events_list)} found{filter_str})", fg="cyan", bold=True
+                )
+            )
             click.echo()
 
             # Display events
             for event in events_list:
                 # Event header
-                timestamp_str = event.timestamp.strftime('%Y-%m-%d %H:%M:%S') if event.timestamp else 'N/A'
-                click.echo(click.style(f"[{timestamp_str}] ", fg="blue") +
-                          click.style(event.event_type, fg="green", bold=True))
+                timestamp_str = (
+                    event.timestamp.strftime("%Y-%m-%d %H:%M:%S") if event.timestamp else "N/A"
+                )
+                click.echo(
+                    click.style(f"[{timestamp_str}] ", fg="blue")
+                    + click.style(event.event_type, fg="green", bold=True)
+                )
 
                 # Event ID
                 click.echo(f"  ID: {click.style(event.id[:16] + '...', fg='cyan')}")
@@ -2170,9 +2392,9 @@ def list_events(ctx: click.Context, event_type: Optional[str], since: Optional[s
                 payload_str = json.dumps(event.payload, indent=2)
                 if len(payload_str) > 200:
                     # Truncate long payloads
-                    lines = payload_str.split('\n')
+                    lines = payload_str.split("\n")
                     if len(lines) > 5:
-                        payload_str = '\n'.join(lines[:5]) + '\n  ...'
+                        payload_str = "\n".join(lines[:5]) + "\n  ..."
 
                 click.echo(f"  Payload: {payload_str}")
 
@@ -2187,8 +2409,10 @@ def list_events(ctx: click.Context, event_type: Optional[str], since: Optional[s
         sys.exit(1)
 
 
-@events.command('subscribe')
-@click.option('--type', '-t', 'event_type', default=None, help='Filter by event type (default: all events)')
+@events.command("subscribe")
+@click.option(
+    "--type", "-t", "event_type", default=None, help="Filter by event type (default: all events)"
+)
 @click.pass_context
 def subscribe_events(ctx: click.Context, event_type: Optional[str]) -> None:
     """Subscribe to live event stream.
@@ -2208,7 +2432,7 @@ def subscribe_events(ctx: click.Context, event_type: Optional[str]) -> None:
     from .event_bus import get_event_bus
     import time
 
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -2217,7 +2441,7 @@ def subscribe_events(ctx: click.Context, event_type: Optional[str]) -> None:
     bus = get_event_bus()
 
     # Determine subscription type
-    subscription_type = event_type if event_type else '*'
+    subscription_type = event_type if event_type else "*"
 
     # Display subscription info
     if event_type:
@@ -2232,18 +2456,24 @@ def subscribe_events(ctx: click.Context, event_type: Optional[str]) -> None:
         """Print event to stdout when received."""
         try:
             # Format timestamp
-            timestamp_str = event.timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(event, 'timestamp') and event.timestamp else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            timestamp_str = (
+                event.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                if hasattr(event, "timestamp") and event.timestamp
+                else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            )
 
             # Print event header
-            click.echo(click.style(f"[{timestamp_str}] ", fg="blue") +
-                      click.style(event.event_type, fg="green", bold=True))
+            click.echo(
+                click.style(f"[{timestamp_str}] ", fg="blue")
+                + click.style(event.event_type, fg="green", bold=True)
+            )
 
             # Print event details (convert to dict for pretty printing)
-            if hasattr(event, 'to_dict'):
+            if hasattr(event, "to_dict"):
                 event_dict = event.to_dict()
                 # Remove redundant fields for cleaner output
-                event_dict.pop('event_type', None)
-                event_dict.pop('timestamp', None)
+                event_dict.pop("event_type", None)
+                event_dict.pop("timestamp", None)
 
                 # Print each field
                 for key, value in event_dict.items():
@@ -2283,9 +2513,9 @@ def belief(ctx):
     ctx.ensure_object(dict)
 
 
-@belief.command('evidence')
-@click.argument('belief_id')
-@click.option('--json', 'json_output', is_flag=True, help='Output as JSON')
+@belief.command("evidence")
+@click.argument("belief_id")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.pass_context
 def belief_evidence(ctx, belief_id: str, json_output: bool) -> None:
     """Display evidence chain for a belief.
@@ -2301,7 +2531,7 @@ def belief_evidence(ctx, belief_id: str, json_output: bool) -> None:
         omi belief evidence abc123
         omi belief evidence abc123 --json
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -2328,17 +2558,19 @@ def belief_evidence(ctx, belief_id: str, json_output: bool) -> None:
         if json_output:
             output = []
             for evidence in evidence_chain:
-                output.append({
-                    'memory_id': evidence.memory_id,
-                    'supports': evidence.supports,
-                    'strength': evidence.strength,
-                    'timestamp': evidence.timestamp.isoformat()
-                })
+                output.append(
+                    {
+                        "memory_id": evidence.memory_id,
+                        "supports": evidence.supports,
+                        "strength": evidence.strength,
+                        "timestamp": evidence.timestamp.isoformat(),
+                    }
+                )
             click.echo(json.dumps(output, indent=2))
         else:
             # Display belief info first
-            belief_content = belief.get('content', 'Unknown')
-            confidence = belief.get('confidence', 0.0)
+            belief_content = belief.get("content", "Unknown")
+            confidence = belief.get("confidence", 0.0)
             click.echo(click.style(f"Belief: {belief_content}", fg="cyan", bold=True))
             click.echo(click.style(f"Current Confidence: {confidence:.2f}", fg="white"))
             click.echo("=" * 60)
@@ -2346,7 +2578,11 @@ def belief_evidence(ctx, belief_id: str, json_output: bool) -> None:
             if not evidence_chain:
                 click.echo(click.style("\nNo evidence entries found.", fg="yellow"))
             else:
-                click.echo(click.style(f"\nEvidence Chain ({len(evidence_chain)} entries)", fg="cyan", bold=True))
+                click.echo(
+                    click.style(
+                        f"\nEvidence Chain ({len(evidence_chain)} entries)", fg="cyan", bold=True
+                    )
+                )
                 click.echo()
 
                 for i, evidence in enumerate(evidence_chain, 1):
@@ -2367,7 +2603,7 @@ def belief_evidence(ctx, belief_id: str, json_output: bool) -> None:
                     try:
                         memory = palace.get_memory(evidence.memory_id)
                         if memory:
-                            content = memory.get('content', '')
+                            content = memory.get("content", "")
                             if len(content) > 80:
                                 content = content[:77] + "..."
                             click.echo(f"   Content: {content}")
@@ -2385,15 +2621,25 @@ def belief_evidence(ctx, belief_id: str, json_output: bool) -> None:
         sys.exit(1)
 
 
-@belief.command('update')
-@click.argument('belief_id')
-@click.option('--evidence', required=True, help='Memory ID to use as evidence')
-@click.option('--supports', 'evidence_type', flag_value='supports', default=True,
-              help='Evidence supports the belief (default)')
-@click.option('--contradicts', 'evidence_type', flag_value='contradicts',
-              help='Evidence contradicts the belief')
-@click.option('--strength', type=float, default=0.8,
-              help='Evidence strength (0.0-1.0, default: 0.8)')
+@belief.command("update")
+@click.argument("belief_id")
+@click.option("--evidence", required=True, help="Memory ID to use as evidence")
+@click.option(
+    "--supports",
+    "evidence_type",
+    flag_value="supports",
+    default=True,
+    help="Evidence supports the belief (default)",
+)
+@click.option(
+    "--contradicts",
+    "evidence_type",
+    flag_value="contradicts",
+    help="Evidence contradicts the belief",
+)
+@click.option(
+    "--strength", type=float, default=0.8, help="Evidence strength (0.0-1.0, default: 0.8)"
+)
 @click.pass_context
 def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, strength: float) -> None:
     """Update a belief with new evidence.
@@ -2414,7 +2660,7 @@ def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, streng
         omi belief update abc123 --evidence mem456 --supports --strength 0.8
         omi belief update abc123 --evidence mem789 --contradicts --strength 0.6
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
@@ -2426,7 +2672,9 @@ def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, streng
 
     # Validate strength
     if not 0.0 <= strength <= 1.0:
-        click.echo(click.style(f"Error: Strength must be between 0.0 and 1.0, got {strength}", fg="red"))
+        click.echo(
+            click.style(f"Error: Strength must be between 0.0 and 1.0, got {strength}", fg="red")
+        )
         sys.exit(1)
 
     try:
@@ -2440,7 +2688,7 @@ def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, streng
             palace.close()
             sys.exit(1)
 
-        old_confidence = belief.get('confidence', 0.5)
+        old_confidence = belief.get("confidence", 0.5)
 
         # Verify evidence memory exists
         memory = palace.get_memory(evidence)
@@ -2450,19 +2698,16 @@ def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, streng
             sys.exit(1)
 
         # Create Evidence object
-        supports = (evidence_type == 'supports')
+        supports = evidence_type == "supports"
         evidence_obj = Evidence(
-            memory_id=evidence,
-            supports=supports,
-            strength=strength,
-            timestamp=datetime.now()
+            memory_id=evidence, supports=supports, strength=strength, timestamp=datetime.now()
         )
 
         # Update belief with evidence
         new_confidence = belief_network.update_with_evidence(belief_id, evidence_obj)
 
         # Display results
-        belief_content = belief.get('content', 'Unknown')
+        belief_content = belief.get("content", "Unknown")
         click.echo(click.style(f"Belief: {belief_content}", fg="cyan", bold=True))
         click.echo("=" * 60)
         click.echo()
@@ -2481,7 +2726,9 @@ def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, streng
         # Show confidence change
         click.echo("Confidence Update:")
         click.echo(f"  Old: {click.style(f'{old_confidence:.4f}', fg='yellow')}")
-        click.echo(f"  New: {click.style(f'{new_confidence:.4f}', fg='green' if new_confidence > old_confidence else 'red')}")
+        click.echo(
+            f"  New: {click.style(f'{new_confidence:.4f}', fg='green' if new_confidence > old_confidence else 'red')}"
+        )
 
         # Show delta
         delta = new_confidence - old_confidence
@@ -2497,7 +2744,6 @@ def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, streng
     except Exception as e:
         click.echo(click.style(f"Error: {str(e)}", fg="red"))
         sys.exit(1)
-
 
 
 @cli.group()

@@ -1,6 +1,7 @@
 """
 Comprehensive tests for migration registry (MigrationRegistry)
 """
+
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, Mock
@@ -12,6 +13,7 @@ from omi.migrations.migration_base import MigrationBase
 
 class TestMigration1(MigrationBase):
     """Test migration v1"""
+
     version = 1
     description = "Test migration 1"
 
@@ -24,6 +26,7 @@ class TestMigration1(MigrationBase):
 
 class TestMigration2(MigrationBase):
     """Test migration v2"""
+
     version = 2
     description = "Test migration 2"
 
@@ -36,6 +39,7 @@ class TestMigration2(MigrationBase):
 
 class TestMigration3(MigrationBase):
     """Test migration v3"""
+
     version = 3
     description = "Test migration 3"
 
@@ -65,7 +69,7 @@ class TestMigrationRegistry:
         """Test discovery when versions package doesn't exist"""
         registry = MigrationRegistry(versions_package="nonexistent.package")
 
-        with patch('importlib.import_module', side_effect=ImportError):
+        with patch("importlib.import_module", side_effect=ImportError):
             registry.discover()
 
         assert registry._discovered is True
@@ -76,8 +80,8 @@ class TestMigrationRegistry:
         mock_package = Mock()
         mock_package.__file__ = "/tmp/test/__init__.py"
 
-        with patch('importlib.import_module', return_value=mock_package):
-            with patch('pathlib.Path.glob', return_value=[]):
+        with patch("importlib.import_module", return_value=mock_package):
+            with patch("pathlib.Path.glob", return_value=[]):
                 registry = MigrationRegistry()
                 registry.discover()
 
@@ -161,7 +165,7 @@ class TestMigrationRegistry:
         """Test get_migration triggers discovery if needed"""
         registry = MigrationRegistry()
 
-        with patch.object(registry, 'discover') as mock_discover:
+        with patch.object(registry, "discover") as mock_discover:
             registry.get_migration(1)
 
         mock_discover.assert_called_once()
@@ -327,7 +331,8 @@ class TestMigrationRegistry:
         mock_module = Mock()
         mock_module.TestMigration = TestMigration1
 
-        with patch('importlib.import_module') as mock_import:
+        with patch("importlib.import_module") as mock_import:
+
             def import_side_effect(name):
                 if name == "test.migrations":
                     return mock_package
@@ -337,9 +342,9 @@ class TestMigrationRegistry:
 
             mock_import.side_effect = import_side_effect
 
-            with patch('pathlib.Path.glob', return_value=[Path("/tmp/test/migrations/v1.py")]):
-                with patch('inspect.getmembers', return_value=[("TestMigration", TestMigration1)]):
-                    with patch('inspect.isclass', return_value=True):
+            with patch("pathlib.Path.glob", return_value=[Path("/tmp/test/migrations/v1.py")]):
+                with patch("inspect.getmembers", return_value=[("TestMigration", TestMigration1)]):
+                    with patch("inspect.isclass", return_value=True):
                         registry.discover()
 
         assert registry._discovered is True

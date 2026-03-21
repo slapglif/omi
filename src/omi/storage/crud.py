@@ -39,7 +39,9 @@ class MemoryCRUD:
     # Valid memory types
     MEMORY_TYPES = {"fact", "experience", "belief", "decision"}
 
-    def __init__(self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None):
+    def __init__(
+        self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None
+    ):
         """
         Initialize Memory CRUD operations.
 
@@ -48,7 +50,7 @@ class MemoryCRUD:
             enable_wal: Enable WAL mode for concurrent writes (default: True)
             conn: Optional shared connection (for :memory: databases in facade pattern)
         """
-        self.db_path = Path(db_path) if db_path != ':memory:' else db_path
+        self.db_path = Path(db_path) if db_path != ":memory:" else db_path
         self._owns_connection = conn is None
 
         if conn is not None:
@@ -57,17 +59,14 @@ class MemoryCRUD:
             self._db_lock = threading.Lock()
         else:
             # Create parent directory if needed (skip for :memory:)
-            if self.db_path != ':memory:':
+            if self.db_path != ":memory:":
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Create persistent connection
             # check_same_thread=False allows multi-threaded access (safe with WAL mode)
             # isolation_level=None enables autocommit mode for better concurrency
             self._conn = sqlite3.connect(
-                self.db_path,
-                check_same_thread=False,
-                isolation_level=None,
-                timeout=30.0
+                self.db_path, check_same_thread=False, isolation_level=None, timeout=30.0
             )
 
             # Thread lock for serializing database operations
@@ -82,13 +81,17 @@ class MemoryCRUD:
     def _validate_memory_type(self, memory_type: str) -> None:
         """Validate memory type."""
         if memory_type not in self.MEMORY_TYPES:
-            raise ValueError(f"Invalid memory_type: {memory_type}. Must be one of: {self.MEMORY_TYPES}")
+            raise ValueError(
+                f"Invalid memory_type: {memory_type}. Must be one of: {self.MEMORY_TYPES}"
+            )
 
-    def store_memory(self,
-                   content: str,
-                   embedding: List[float] = None,
-                   memory_type: str = "experience",
-                   confidence: Optional[float] = None) -> str:
+    def store_memory(
+        self,
+        content: str,
+        embedding: Optional[List[float]] = None,
+        memory_type: str = "experience",
+        confidence: Optional[float] = None,
+    ) -> str:
         """
         Store a memory in the palace.
 
@@ -115,27 +118,33 @@ class MemoryCRUD:
 
         # Use lock for thread-safe database access
         with self._db_lock:
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 INSERT INTO memories
                 (id, content, embedding, memory_type, confidence, created_at,
                  last_accessed, access_count, instance_ids, content_hash)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                memory_id,
-                content,
-                embedding_blob,
-                memory_type,
-                confidence,
-                now,
-                now,
-                0,
-                json.dumps([]),
-                content_hash
-            ))
+            """,
+                (
+                    memory_id,
+                    content,
+                    embedding_blob,
+                    memory_type,
+                    confidence,
+                    now,
+                    now,
+                    0,
+                    json.dumps([]),
+                    content_hash,
+                ),
+            )
             # Insert into FTS index
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
-            """, (memory_id, content))
+            """,
+                (memory_id, content),
+            )
             self._conn.commit()
 
         # Cache the embedding for fast access
@@ -156,19 +165,25 @@ class MemoryCRUD:
             Memory object or None if not found
         """
         # Update access stats
-        self._conn.execute("""
+        self._conn.execute(
+            """
             UPDATE memories
             SET access_count = access_count + 1, last_accessed = ?
             WHERE id = ?
-        """, (datetime.now().isoformat(), memory_id))
+        """,
+            (datetime.now().isoformat(), memory_id),
+        )
         self._conn.commit()
 
         # Retrieve memory
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             SELECT id, content, embedding, memory_type, confidence,
                    created_at, last_accessed, access_count, instance_ids, content_hash
             FROM memories WHERE id = ?
-        """, (memory_id,))
+        """,
+            (memory_id,),
+        )
 
         row = cursor.fetchone()
         if not row:
@@ -188,7 +203,7 @@ class MemoryCRUD:
             last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
             access_count=row[7],
             instance_ids=instance_ids,
-            content_hash=row[9]
+            content_hash=row[9],
         )
 
         # Update cache
@@ -211,19 +226,25 @@ class MemoryCRUD:
         new_content_hash = hashlib.sha256(new_content.encode()).hexdigest()
         now = datetime.now().isoformat()
 
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             UPDATE memories
             SET content = ?, content_hash = ?, last_accessed = ?
             WHERE id = ?
-        """, (new_content, new_content_hash, now, memory_id))
+        """,
+            (new_content, new_content_hash, now, memory_id),
+        )
 
         # Update FTS index
         if cursor.rowcount > 0:
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 UPDATE memories_fts
                 SET content = ?
                 WHERE memory_id = ?
-            """, (new_content, memory_id))
+            """,
+                (new_content, memory_id),
+            )
 
         self._conn.commit()
         return cursor.rowcount > 0
@@ -241,9 +262,12 @@ class MemoryCRUD:
         """
         embedding_blob = embed_to_blob(embedding) if embedding else None
 
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             UPDATE memories SET embedding = ? WHERE id = ?
-        """, (embedding_blob, memory_id))
+        """,
+            (embedding_blob, memory_id),
+        )
         self._conn.commit()
 
         if cursor.rowcount > 0 and embedding:
@@ -262,9 +286,12 @@ class MemoryCRUD:
             True if deleted, False if not found
         """
         # Remove from FTS index first
-        self._conn.execute("""
+        self._conn.execute(
+            """
             DELETE FROM memories_fts WHERE memory_id = ?
-        """, (memory_id,))
+        """,
+            (memory_id,),
+        )
         cursor = self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         self._conn.commit()
 
@@ -276,7 +303,7 @@ class MemoryCRUD:
 
     def close(self) -> None:
         """Close connection and cleanup."""
-        if self._owns_connection and hasattr(self, '_conn') and self._conn:
+        if self._owns_connection and hasattr(self, "_conn") and self._conn:
             self._conn.close()
         self._embedding_cache.clear()
 

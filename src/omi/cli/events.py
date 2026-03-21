@@ -1,4 +1,5 @@
 """Event history commands for OMI CLI."""
+
 import sys
 import json
 import time
@@ -23,15 +24,21 @@ def events_group():
     pass
 
 
-@events_group.command('list')
-@click.option('--type', '-t', 'event_type', default=None, help='Filter by event type')
-@click.option('--since', default=None, help='Filter events after this timestamp (ISO format)')
-@click.option('--until', default=None, help='Filter events before this timestamp (ISO format)')
-@click.option('--limit', '-l', default=100, help='Maximum number of results (default: 100)')
-@click.option('--json-output', is_flag=True, help='Output as JSON')
+@events_group.command("list")
+@click.option("--type", "-t", "event_type", default=None, help="Filter by event type")
+@click.option("--since", default=None, help="Filter events after this timestamp (ISO format)")
+@click.option("--until", default=None, help="Filter events before this timestamp (ISO format)")
+@click.option("--limit", "-l", default=100, help="Maximum number of results (default: 100)")
+@click.option("--json-output", is_flag=True, help="Output as JSON")
 @click.pass_context
-def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Optional[str],
-                limit: int, json_output: bool) -> None:
+def list_events(
+    ctx,
+    event_type: Optional[str],
+    since: Optional[str],
+    until: Optional[str],
+    limit: int,
+    json_output: bool,
+) -> None:
     """List events from history with filters.
 
     Args:
@@ -48,10 +55,12 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
     """
     from omi.event_history import EventHistory
 
-    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    verbosity = ctx.obj.get("verbosity", VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
-        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        echo_quiet(
+            click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity
+        )
         sys.exit(1)
 
     # Event history database path
@@ -60,7 +69,9 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
         if json_output:
             click.echo(json.dumps([], indent=2))
         else:
-            echo_normal(click.style("No events found. Event history is empty.", fg="yellow"), verbosity)
+            echo_normal(
+                click.style("No events found. Event history is empty.", fg="yellow"), verbosity
+            )
         return
 
     # Parse timestamps if provided
@@ -71,23 +82,32 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
         try:
             since_dt = datetime.fromisoformat(since)
         except ValueError:
-            echo_quiet(click.style(f"Error: Invalid --since timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)", fg="red"), verbosity)
+            echo_quiet(
+                click.style(
+                    f"Error: Invalid --since timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)",
+                    fg="red",
+                ),
+                verbosity,
+            )
             sys.exit(1)
 
     if until:
         try:
             until_dt = datetime.fromisoformat(until)
         except ValueError:
-            echo_quiet(click.style(f"Error: Invalid --until timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)", fg="red"), verbosity)
+            echo_quiet(
+                click.style(
+                    f"Error: Invalid --until timestamp format. Use ISO format (e.g., 2024-01-01T00:00:00)",
+                    fg="red",
+                ),
+                verbosity,
+            )
             sys.exit(1)
 
     try:
         history = EventHistory(events_db_path)
         events_list = history.query_events(
-            event_type=event_type,
-            since=since_dt,
-            until=until_dt,
-            limit=limit
+            event_type=event_type, since=since_dt, until=until_dt, limit=limit
         )
 
         if json_output:
@@ -95,7 +115,9 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
             click.echo(json.dumps(output, indent=2))
         else:
             if not events_list:
-                echo_normal(click.style("No events found matching filters.", fg="yellow"), verbosity)
+                echo_normal(
+                    click.style("No events found matching filters.", fg="yellow"), verbosity
+                )
                 return
 
             # Display header
@@ -108,15 +130,25 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
                 filter_info.append(f"until={until}")
             filter_str = f" ({', '.join(filter_info)})" if filter_info else ""
 
-            echo_normal(click.style(f"Event History ({len(events_list)} found{filter_str})", fg="cyan", bold=True), verbosity)
+            echo_normal(
+                click.style(
+                    f"Event History ({len(events_list)} found{filter_str})", fg="cyan", bold=True
+                ),
+                verbosity,
+            )
             echo_normal("", verbosity)
 
             # Display events
             for event in events_list:
                 # Event header
-                timestamp_str = event.timestamp.strftime('%Y-%m-%d %H:%M:%S') if event.timestamp else 'N/A'
-                echo_normal(click.style(f"[{timestamp_str}] ", fg="blue") +
-                          click.style(event.event_type, fg="green", bold=True), verbosity)
+                timestamp_str = (
+                    event.timestamp.strftime("%Y-%m-%d %H:%M:%S") if event.timestamp else "N/A"
+                )
+                echo_normal(
+                    click.style(f"[{timestamp_str}] ", fg="blue")
+                    + click.style(event.event_type, fg="green", bold=True),
+                    verbosity,
+                )
 
                 # Event ID
                 echo_normal(f"  ID: {click.style(event.id[:16] + '...', fg='cyan')}", verbosity)
@@ -125,9 +157,9 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
                 payload_str = json.dumps(event.payload, indent=2)
                 if len(payload_str) > 200:
                     # Truncate long payloads
-                    lines = payload_str.split('\n')
+                    lines = payload_str.split("\n")
                     if len(lines) > 5:
-                        payload_str = '\n'.join(lines[:5]) + '\n  ...'
+                        payload_str = "\n".join(lines[:5]) + "\n  ..."
 
                 echo_normal(f"  Payload: {payload_str}", verbosity)
 
@@ -142,8 +174,10 @@ def list_events(ctx, event_type: Optional[str], since: Optional[str], until: Opt
         sys.exit(1)
 
 
-@events_group.command('subscribe')
-@click.option('--type', '-t', 'event_type', default=None, help='Filter by event type (default: all events)')
+@events_group.command("subscribe")
+@click.option(
+    "--type", "-t", "event_type", default=None, help="Filter by event type (default: all events)"
+)
 @click.pass_context
 def subscribe_events(ctx, event_type: Optional[str]) -> None:
     """Subscribe to live event stream.
@@ -162,21 +196,25 @@ def subscribe_events(ctx, event_type: Optional[str]) -> None:
     """
     from omi.event_bus import get_event_bus
 
-    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    verbosity = ctx.obj.get("verbosity", VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     if not base_path.exists():
-        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        echo_quiet(
+            click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity
+        )
         sys.exit(1)
 
     # Get the global event bus
     bus = get_event_bus()
 
     # Determine subscription type
-    subscription_type = event_type if event_type else '*'
+    subscription_type = event_type if event_type else "*"
 
     # Display subscription info
     if event_type:
-        echo_normal(click.style(f"Subscribing to events: {event_type}", fg="cyan", bold=True), verbosity)
+        echo_normal(
+            click.style(f"Subscribing to events: {event_type}", fg="cyan", bold=True), verbosity
+        )
     else:
         echo_normal(click.style("Subscribing to all events", fg="cyan", bold=True), verbosity)
     echo_normal(click.style("Press Ctrl+C to exit", fg="yellow"), verbosity)
@@ -187,18 +225,25 @@ def subscribe_events(ctx, event_type: Optional[str]) -> None:
         """Print event to stdout when received."""
         try:
             # Format timestamp
-            timestamp_str = event.timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(event, 'timestamp') and event.timestamp else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            timestamp_str = (
+                event.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                if hasattr(event, "timestamp") and event.timestamp
+                else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            )
 
             # Print event header
-            echo_normal(click.style(f"[{timestamp_str}] ", fg="blue") +
-                      click.style(event.event_type, fg="green", bold=True), verbosity)
+            echo_normal(
+                click.style(f"[{timestamp_str}] ", fg="blue")
+                + click.style(event.event_type, fg="green", bold=True),
+                verbosity,
+            )
 
             # Print event details (convert to dict for pretty printing)
-            if hasattr(event, 'to_dict'):
+            if hasattr(event, "to_dict"):
                 event_dict = event.to_dict()
                 # Remove redundant fields for cleaner output
-                event_dict.pop('event_type', None)
-                event_dict.pop('timestamp', None)
+                event_dict.pop("event_type", None)
+                event_dict.pop("timestamp", None)
 
                 # Print each field
                 for key, value in event_dict.items():

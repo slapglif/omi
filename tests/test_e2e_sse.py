@@ -15,6 +15,7 @@ For complete E2E testing, manually test with a running server:
 
 Issue: https://github.com/slapglif/omi/issues/4
 """
+
 import pytest
 import json
 import time
@@ -31,7 +32,7 @@ from omi.events import MemoryStoredEvent
 def find_free_port():
     """Find an available port."""
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(('', 0))
+        s.bind(("", 0))
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         return s.getsockname()[1]
 
@@ -50,11 +51,7 @@ def run_server(port: int, ready_event: threading.Event, stop_event: threading.Ev
 
     # Configure server
     config = uvicorn.Config(
-        app=app,
-        host="127.0.0.1",
-        port=port,
-        log_level="error",
-        access_log=False
+        app=app, host="127.0.0.1", port=port, log_level="error", access_log=False
     )
     server = uvicorn.Server(config)
 
@@ -90,9 +87,7 @@ def server_thread(server_port):
 
     # Start server thread
     thread = threading.Thread(
-        target=run_server,
-        args=(server_port, ready_event, stop_event),
-        daemon=True
+        target=run_server, args=(server_port, ready_event, stop_event), daemon=True
     )
     thread.start()
 
@@ -108,10 +103,7 @@ def server_thread(server_port):
     max_retries = 10
     for i in range(max_retries):
         try:
-            response = requests.get(
-                f"http://127.0.0.1:{server_port}/health",
-                timeout=2
-            )
+            response = requests.get(f"http://127.0.0.1:{server_port}/health", timeout=2)
             if response.status_code == 200:
                 break
         except Exception as e:
@@ -150,9 +142,9 @@ class TestSSEIntegration:
 
         try:
             assert response.status_code == 200
-            assert 'text/event-stream' in response.headers['content-type']
-            assert response.headers['cache-control'] == 'no-cache'
-            assert response.headers['connection'] == 'keep-alive'
+            assert "text/event-stream" in response.headers["content-type"]
+            assert response.headers["cache-control"] == "no-cache"
+            assert response.headers["connection"] == "keep-alive"
         finally:
             response.close()
 
@@ -179,15 +171,15 @@ class TestSSEIntegration:
 
             assert first_line is not None, "Should receive at least one line"
 
-            decoded = first_line.decode('utf-8')
-            assert decoded.startswith('data: '), f"Expected 'data: ' prefix, got: {decoded}"
+            decoded = first_line.decode("utf-8")
+            assert decoded.startswith("data: "), f"Expected 'data: ' prefix, got: {decoded}"
 
             # Parse JSON payload
             json_str = decoded[6:]  # Remove "data: " prefix
             data = json.loads(json_str)
 
-            assert data['type'] == 'connected'
-            assert data['message'] == 'SSE stream connected'
+            assert data["type"] == "connected"
+            assert data["message"] == "SSE stream connected"
 
         finally:
             response.close()
@@ -215,11 +207,11 @@ class TestSSEIntegration:
             first_line = next(iter_lines, None)
 
             assert first_line is not None
-            decoded = first_line.decode('utf-8')
-            assert decoded.startswith('data: ')
+            decoded = first_line.decode("utf-8")
+            assert decoded.startswith("data: ")
 
             data = json.loads(decoded[6:])
-            assert data['type'] == 'connected'
+            assert data["type"] == "connected"
 
         finally:
             response.close()
@@ -250,8 +242,8 @@ class TestSSEIntegration:
 
             for line in iter_lines:
                 if line:
-                    decoded = line.decode('utf-8')
-                    if decoded.startswith(': keepalive'):
+                    decoded = line.decode("utf-8")
+                    if decoded.startswith(": keepalive"):
                         keepalive_received = True
                         break
 
@@ -286,10 +278,10 @@ class TestSSEIntegration:
                 connections.append(response)
 
                 # Verify connected message
-                first_line = next(response.iter_lines()).decode('utf-8')
-                assert first_line.startswith('data: ')
+                first_line = next(response.iter_lines()).decode("utf-8")
+                assert first_line.startswith("data: ")
                 data = json.loads(first_line[6:])
-                assert data['type'] == 'connected'
+                assert data["type"] == "connected"
 
         finally:
             # Close all connections
@@ -311,17 +303,17 @@ class TestSSEIntegration:
         assert response.status_code == 200
 
         data = response.json()
-        assert data['service'] == 'OMI Event Streaming API'
-        assert data['version'] == '1.0.0'
-        assert '/api/v1/events' in data['endpoints']
+        assert data["service"] == "OMI Event Streaming API"
+        assert data["version"] == "1.0.0"
+        assert "/api/v1/events" in data["endpoints"]
 
         # Test health endpoint
         response = requests.get(f"http://127.0.0.1:{port}/health", timeout=2)
         assert response.status_code == 200
 
         health_data = response.json()
-        assert health_data['status'] == 'healthy'
-        assert health_data['service'] == 'omi-event-api'
+        assert health_data["status"] == "healthy"
+        assert health_data["service"] == "omi-event-api"
 
 
 if __name__ == "__main__":

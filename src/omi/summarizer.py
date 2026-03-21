@@ -12,6 +12,7 @@ from enum import Enum
 
 class LLMProvider(Enum):
     """Supported LLM providers"""
+
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
@@ -20,6 +21,7 @@ class LLMProvider(Enum):
 @dataclass
 class LLMConfig:
     """LLM configuration for memory summarization"""
+
     provider: LLMProvider
     api_key: str
     base_url: Optional[str] = None
@@ -52,22 +54,24 @@ class MemorySummarizer:
     DEFAULT_MODELS = {
         LLMProvider.OPENAI: "gpt-4o-mini",
         LLMProvider.ANTHROPIC: "claude-3-haiku-20240307",
-        LLMProvider.OLLAMA: "llama3.2:3b"
+        LLMProvider.OLLAMA: "llama3.2:3b",
     }
 
     DEFAULT_BASE_URLS = {
         LLMProvider.OPENAI: "https://api.openai.com/v1",
         LLMProvider.ANTHROPIC: "https://api.anthropic.com/v1",
-        LLMProvider.OLLAMA: "http://localhost:11434"
+        LLMProvider.OLLAMA: "http://localhost:11434",
     }
 
-    def __init__(self,
-                 provider: Union[str, LLMProvider] = LLMProvider.OPENAI,
-                 api_key: Optional[str] = None,
-                 base_url: Optional[str] = None,
-                 model: Optional[str] = None,
-                 temperature: float = 0.3,
-                 max_tokens: int = 1000):
+    def __init__(
+        self,
+        provider: Union[str, LLMProvider] = LLMProvider.OPENAI,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: float = 0.3,
+        max_tokens: int = 1000,
+    ):
         """
         Args:
             provider: LLM provider (openai, anthropic, ollama)
@@ -109,28 +113,26 @@ class MemorySummarizer:
 
     def _init_session(self) -> None:
         """Initialize HTTP session with provider-specific headers"""
-        import requests
+        import requests  # type: ignore
+
         self._session = requests.Session()
 
         if self.provider == LLMProvider.OPENAI:
-            self._session.headers.update({
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            })
+            self._session.headers.update(
+                {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+            )
         elif self.provider == LLMProvider.ANTHROPIC:
-            self._session.headers.update({
-                "x-api-key": self.api_key,
-                "Content-Type": "application/json",
-                "anthropic-version": "2023-06-01"
-            })
+            self._session.headers.update(
+                {
+                    "x-api-key": self.api_key,
+                    "Content-Type": "application/json",
+                    "anthropic-version": "2023-06-01",
+                }
+            )
         elif self.provider == LLMProvider.OLLAMA:
-            self._session.headers.update({
-                "Content-Type": "application/json"
-            })
+            self._session.headers.update({"Content-Type": "application/json"})
 
-    def summarize_memory(self,
-                        memory_content: str,
-                        metadata: Optional[Dict] = None) -> str:
+    def summarize_memory(self, memory_content: str, metadata: Optional[Dict] = None) -> str:
         """
         Summarize a single memory, preserving key facts
 
@@ -154,10 +156,12 @@ class MemorySummarizer:
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
 
-    def batch_summarize(self,
-                       memory_contents: List[str],
-                       metadata_list: Optional[List[Optional[Dict]]] = None,
-                       batch_size: int = 8) -> List[str]:
+    def batch_summarize(
+        self,
+        memory_contents: List[str],
+        metadata_list: Optional[List[Optional[Dict]]] = None,
+        batch_size: int = 8,
+    ) -> List[str]:
         """
         Summarize multiple memories efficiently
 
@@ -184,8 +188,8 @@ class MemorySummarizer:
 
         # Process in batches
         for i in range(0, len(memory_contents), batch_size):
-            batch_contents = memory_contents[i:i + batch_size]
-            batch_metadata = metadata_list[i:i + batch_size]
+            batch_contents = memory_contents[i : i + batch_size]
+            batch_metadata = metadata_list[i : i + batch_size]
 
             # Summarize each memory in the batch
             batch_results = [
@@ -196,9 +200,7 @@ class MemorySummarizer:
 
         return results
 
-    def _build_summarization_prompt(self,
-                                    content: str,
-                                    metadata: Optional[Dict] = None) -> str:
+    def _build_summarization_prompt(self, content: str, metadata: Optional[Dict] = None) -> str:
         """
         Build prompt for memory summarization
 
@@ -239,17 +241,14 @@ SUMMARIZED MEMORY (concise but complete):"""
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a precise memory compression assistant. Summarize memories concisely while preserving all key facts."
+                        "content": "You are a precise memory compression assistant. Summarize memories concisely while preserving all key facts.",
                     },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+                    {"role": "user", "content": prompt},
                 ],
                 "temperature": self.temperature,
-                "max_tokens": self.max_tokens
+                "max_tokens": self.max_tokens,
             },
-            timeout=60
+            timeout=60,
         )
         response.raise_for_status()
 
@@ -265,14 +264,9 @@ SUMMARIZED MEMORY (concise but complete):"""
                 "max_tokens": self.max_tokens,
                 "temperature": self.temperature,
                 "system": "You are a precise memory compression assistant. Summarize memories concisely while preserving all key facts.",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+                "messages": [{"role": "user", "content": prompt}],
             },
-            timeout=60
+            timeout=60,
         )
         response.raise_for_status()
 
@@ -287,12 +281,9 @@ SUMMARIZED MEMORY (concise but complete):"""
                 "model": self.model,
                 "prompt": prompt,
                 "stream": False,
-                "options": {
-                    "temperature": self.temperature,
-                    "num_predict": self.max_tokens
-                }
+                "options": {"temperature": self.temperature, "num_predict": self.max_tokens},
             },
-            timeout=60
+            timeout=60,
         )
         response.raise_for_status()
 
@@ -327,7 +318,7 @@ SUMMARIZED MEMORY (concise but complete):"""
             "original_tokens": original_tokens,
             "summary_tokens": summary_tokens,
             "savings_percent": round(savings_percent, 1),
-            "tokens_saved": original_tokens - summary_tokens
+            "tokens_saved": original_tokens - summary_tokens,
         }
 
 
@@ -343,18 +334,18 @@ class OllamaSummarizer:
 
     DEFAULT_MODEL = "llama3.2:3b"
 
-    def __init__(self,
-                 model: str = DEFAULT_MODEL,
-                 base_url: str = "http://localhost:11434"):
+    def __init__(self, model: str = DEFAULT_MODEL, base_url: str = "http://localhost:11434"):
         self.model = model
         self.base_url = base_url
 
         try:
             import ollama
+
             self.client = ollama.Client(host=base_url)
             self._use_client = True
         except ImportError:
             import requests
+
             self._use_client = False
             self._session = requests.Session()
 
@@ -367,20 +358,14 @@ class OllamaSummarizer:
 SUMMARY:"""
 
         if self._use_client:
-            response = self.client.generate(
-                model=self.model,
-                prompt=prompt
-            )
-            return response['response'].strip()
+            response = self.client.generate(model=self.model, prompt=prompt)
+            return response["response"].strip()
         else:
             import requests
+
             response = self._session.post(
                 f"{self.base_url}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False
-                }
+                json={"model": self.model, "prompt": prompt, "stream": False},
             )
             response.raise_for_status()
-            return response.json()['response'].strip()
+            return response.json()["response"].strip()

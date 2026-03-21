@@ -9,8 +9,9 @@ import hashlib
 import numpy as np
 
 
-def cosine_similarity(embedding1: Union[List[float], np.ndarray],
-                     embedding2: Union[List[float], np.ndarray]) -> float:
+def cosine_similarity(
+    embedding1: Union[List[float], np.ndarray], embedding2: Union[List[float], np.ndarray]
+) -> float:
     """
     Calculate cosine similarity between two vectors.
 
@@ -66,8 +67,8 @@ def hash_file(file_path: Path) -> str:
         64
     """
     sha256 = hashlib.sha256()
-    with open(file_path, 'rb') as f:
-        for chunk in iter(lambda: f.read(8192), b''):
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
             sha256.update(chunk)
     return sha256.hexdigest()
 
@@ -90,5 +91,5 @@ def hash_content(content: str) -> str:
         True
     """
     sha256 = hashlib.sha256()
-    sha256.update(content.encode('utf-8'))
+    sha256.update(content.encode("utf-8"))
     return sha256.hexdigest()

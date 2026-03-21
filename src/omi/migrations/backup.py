@@ -23,11 +23,12 @@ from dataclasses import dataclass, asdict
 @dataclass
 class BackupInfo:
     """Information about a database backup."""
+
     path: Path
     original_db: Path
-    created_at: datetime
-    size_bytes: int
     schema_version: int
+    created_at: Optional[datetime] = None
+    size_bytes: int = 0
     metadata: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -38,19 +39,21 @@ class BackupInfo:
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "size_bytes": self.size_bytes,
             "schema_version": self.schema_version,
-            "metadata": self.metadata or {}
+            "metadata": self.metadata or {},
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'BackupInfo':
+    def from_dict(cls, data: Dict[str, Any]) -> "BackupInfo":
         """Create BackupInfo from dictionary."""
         return cls(
             path=Path(data["path"]),
             original_db=Path(data["original_db"]),
-            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
+            created_at=(
+                datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
+            ),
             size_bytes=data["size_bytes"],
             schema_version=data["schema_version"],
-            metadata=data.get("metadata")
+            metadata=data.get("metadata"),
         )
 
 
@@ -141,7 +144,7 @@ class BackupManager:
             created_at=datetime.now(),
             size_bytes=size_bytes,
             schema_version=schema_version,
-            metadata=metadata
+            metadata=metadata,
         )
 
         # Save metadata to sidecar file
@@ -196,11 +199,9 @@ class BackupManager:
         Args:
             backup_info: Backup information to save
         """
-        metadata_path = backup_info.path.with_suffix(
-            backup_info.path.suffix + self.METADATA_SUFFIX
-        )
+        metadata_path = backup_info.path.with_suffix(backup_info.path.suffix + self.METADATA_SUFFIX)
 
-        with open(metadata_path, 'w') as f:
+        with open(metadata_path, "w") as f:
             json.dump(backup_info.to_dict(), f, indent=2)
 
     def _load_metadata(self, backup_path: Path) -> Optional[BackupInfo]:
@@ -213,15 +214,13 @@ class BackupManager:
         Returns:
             BackupInfo if metadata exists, None otherwise
         """
-        metadata_path = backup_path.with_suffix(
-            backup_path.suffix + self.METADATA_SUFFIX
-        )
+        metadata_path = backup_path.with_suffix(backup_path.suffix + self.METADATA_SUFFIX)
 
         if not metadata_path.exists():
             return None
 
         try:
-            with open(metadata_path, 'r') as f:
+            with open(metadata_path, "r") as f:
                 data = json.load(f)
                 return BackupInfo.from_dict(data)
         except (json.JSONDecodeError, KeyError):
@@ -286,7 +285,7 @@ class BackupManager:
                     created_at=datetime.fromtimestamp(backup_file.stat().st_mtime),
                     size_bytes=backup_file.stat().st_size,
                     schema_version=-1,  # Unknown
-                    metadata=None
+                    metadata=None,
                 )
 
             backups.append(backup_info)
@@ -401,7 +400,7 @@ class BackupManager:
                 created_at=datetime.fromtimestamp(backup_path.stat().st_mtime),
                 size_bytes=backup_path.stat().st_size,
                 schema_version=schema_version,
-                metadata=None
+                metadata=None,
             )
 
         return backup_info

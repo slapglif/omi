@@ -34,6 +34,7 @@ class TestNIMMissingAPIKey:
         with patch.dict("os.environ", {}, clear=True):
             # Remove NIM_API_KEY from environment
             import os
+
             if "NIM_API_KEY" in os.environ:
                 del os.environ["NIM_API_KEY"]
 
@@ -72,10 +73,7 @@ class TestNIMConnectionFailure:
             # The actual code has a bug - it tries to import from .ollama_fallback
             # which doesn't exist, so it raises RuntimeError
             with pytest.raises(RuntimeError, match="NIM unavailable and Ollama fallback failed"):
-                embedder = NIMEmbedder(
-                    api_key="test_key",
-                    fallback_to_ollama=True
-                )
+                embedder = NIMEmbedder(api_key="test_key", fallback_to_ollama=True)
 
     def test_nim_connection_failure_without_fallback_raises(self):
         """
@@ -94,10 +92,7 @@ class TestNIMConnectionFailure:
             )
 
             with pytest.raises(requests.exceptions.ConnectionError):
-                NIMEmbedder(
-                    api_key="test_key",
-                    fallback_to_ollama=False
-                )
+                NIMEmbedder(api_key="test_key", fallback_to_ollama=False)
 
     def test_nim_http_error_during_init_falls_back(self):
         """
@@ -113,15 +108,14 @@ class TestNIMConnectionFailure:
 
             # Simulate HTTP 500 error
             mock_response = MagicMock()
-            mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("500 Server Error")
+            mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+                "500 Server Error"
+            )
             mock_session.post.return_value = mock_response
 
             # Current implementation raises RuntimeError due to import issue
             with pytest.raises(RuntimeError, match="NIM unavailable and Ollama fallback failed"):
-                embedder = NIMEmbedder(
-                    api_key="test_key",
-                    fallback_to_ollama=True
-                )
+                embedder = NIMEmbedder(api_key="test_key", fallback_to_ollama=True)
 
 
 class TestNIMEmbedFailure:
@@ -144,12 +138,11 @@ class TestNIMEmbedFailure:
             # Second call (actual embed) times out
             mock_session.post.side_effect = [
                 mock_test_response,  # Test connection succeeds
-                requests.exceptions.Timeout("Embed timeout")  # Embed times out
+                requests.exceptions.Timeout("Embed timeout"),  # Embed times out
             ]
 
             embedder = NIMEmbedder(
-                api_key="test_key",
-                fallback_to_ollama=False  # No fallback during init
+                api_key="test_key", fallback_to_ollama=False  # No fallback during init
             )
 
             # Manually set up Ollama fallback
@@ -185,13 +178,10 @@ class TestNIMEmbedFailure:
 
             mock_session.post.side_effect = [
                 mock_test_response,  # Test connection
-                mock_rate_limit_response  # Rate limit
+                mock_rate_limit_response,  # Rate limit
             ]
 
-            embedder = NIMEmbedder(
-                api_key="test_key",
-                fallback_to_ollama=False
-            )
+            embedder = NIMEmbedder(api_key="test_key", fallback_to_ollama=False)
 
             # Set up Ollama fallback
             mock_ollama = MagicMock()
@@ -220,13 +210,10 @@ class TestNIMEmbedFailure:
             # Embed fails
             mock_session.post.side_effect = [
                 mock_test_response,
-                requests.exceptions.Timeout("Timeout")
+                requests.exceptions.Timeout("Timeout"),
             ]
 
-            embedder = NIMEmbedder(
-                api_key="test_key",
-                fallback_to_ollama=False
-            )
+            embedder = NIMEmbedder(api_key="test_key", fallback_to_ollama=False)
 
             # No fallback available
             assert embedder._ollama_embedder is None
@@ -254,15 +241,9 @@ class TestNIMEmbedFailure:
                 "500 Internal Server Error"
             )
 
-            mock_session.post.side_effect = [
-                mock_test_response,
-                mock_error_response
-            ]
+            mock_session.post.side_effect = [mock_test_response, mock_error_response]
 
-            embedder = NIMEmbedder(
-                api_key="test_key",
-                fallback_to_ollama=False
-            )
+            embedder = NIMEmbedder(api_key="test_key", fallback_to_ollama=False)
 
             # Set up fallback
             mock_ollama = MagicMock()
@@ -294,11 +275,10 @@ class TestOllamaFallbackInitialization:
             with patch("omi.embeddings.OllamaEmbedder") as mock_ollama_class:
                 mock_ollama_class.side_effect = ImportError("Ollama not installed")
 
-                with pytest.raises(RuntimeError, match="NIM unavailable and Ollama fallback failed"):
-                    NIMEmbedder(
-                        api_key="test_key",
-                        fallback_to_ollama=True
-                    )
+                with pytest.raises(
+                    RuntimeError, match="NIM unavailable and Ollama fallback failed"
+                ):
+                    NIMEmbedder(api_key="test_key", fallback_to_ollama=True)
 
     def test_successful_ollama_fallback_initialization(self):
         """
@@ -318,10 +298,7 @@ class TestOllamaFallbackInitialization:
             mock_test_response.raise_for_status = MagicMock()
             mock_session.post.return_value = mock_test_response
 
-            embedder = NIMEmbedder(
-                api_key="test_key",
-                fallback_to_ollama=False
-            )
+            embedder = NIMEmbedder(api_key="test_key", fallback_to_ollama=False)
 
             # Manually set up Ollama fallback (simulating successful fallback init)
             mock_ollama = MagicMock()
@@ -360,18 +337,11 @@ class TestBatchEmbeddingFallback:
                 requests.exceptions.Timeout("Timeout"),  # Third embed
             ]
 
-            embedder = NIMEmbedder(
-                api_key="test_key",
-                fallback_to_ollama=False
-            )
+            embedder = NIMEmbedder(api_key="test_key", fallback_to_ollama=False)
 
             # Set up Ollama fallback
             mock_ollama = MagicMock()
-            mock_ollama.embed.side_effect = [
-                [0.1] * 768,
-                [0.2] * 768,
-                [0.3] * 768
-            ]
+            mock_ollama.embed.side_effect = [[0.1] * 768, [0.2] * 768, [0.3] * 768]
             embedder._ollama_embedder = mock_ollama
 
             texts = ["text1", "text2", "text3"]
@@ -403,9 +373,7 @@ class TestBatchEmbeddingFallback:
             # First embed succeeds, second fails
             mock_success_response = MagicMock()
             mock_success_response.raise_for_status = MagicMock()
-            mock_success_response.json.return_value = {
-                "data": [{"embedding": [0.9] * 1024}]
-            }
+            mock_success_response.json.return_value = {"data": [{"embedding": [0.9] * 1024}]}
 
             mock_session.post.side_effect = [
                 mock_test_response,  # Test connection
@@ -413,10 +381,7 @@ class TestBatchEmbeddingFallback:
                 requests.exceptions.Timeout("Timeout"),  # Second embed fails
             ]
 
-            embedder = NIMEmbedder(
-                api_key="test_key",
-                fallback_to_ollama=False
-            )
+            embedder = NIMEmbedder(api_key="test_key", fallback_to_ollama=False)
 
             # Set up Ollama fallback
             mock_ollama = MagicMock()
@@ -429,7 +394,7 @@ class TestBatchEmbeddingFallback:
             # Should have 2 results: one from NIM, one from Ollama
             assert len(results) == 2
             assert results[0] == [0.9] * 1024  # From NIM
-            assert results[1] == [0.2] * 768   # From Ollama fallback
+            assert results[1] == [0.2] * 768  # From Ollama fallback
 
             # Verify Ollama was called once (for the failed embed)
             assert mock_ollama.embed.call_count == 1
@@ -469,10 +434,7 @@ class TestFallbackBehaviorConfiguration:
             mock_response.raise_for_status = MagicMock()
             mock_session.post.return_value = mock_response
 
-            embedder = NIMEmbedder(
-                api_key="test_key",
-                fallback_to_ollama=False
-            )
+            embedder = NIMEmbedder(api_key="test_key", fallback_to_ollama=False)
 
             # Should have fallback disabled
             assert embedder.fallback_enabled is False
@@ -491,20 +453,17 @@ class TestOllamaEmbedderStandalone:
         # Create mock ollama module
         mock_ollama_module = MagicMock()
         mock_client = MagicMock()
-        mock_client.embeddings.return_value = {
-            'embedding': [0.1] * 768
-        }
+        mock_client.embeddings.return_value = {"embedding": [0.1] * 768}
         mock_ollama_module.Client.return_value = mock_client
 
-        with patch.dict('sys.modules', {'ollama': mock_ollama_module}):
+        with patch.dict("sys.modules", {"ollama": mock_ollama_module}):
             embedder = OllamaEmbedder()
             result = embedder.embed("test text")
 
             assert result == [0.1] * 768
             assert embedder._use_client is True
             mock_client.embeddings.assert_called_once_with(
-                model="nomic-embed-text",
-                prompt="test text"
+                model="nomic-embed-text", prompt="test text"
             )
 
     def test_ollama_embedder_without_client(self):
@@ -514,24 +473,25 @@ class TestOllamaEmbedderStandalone:
         import sys
 
         # Mock ImportError for ollama by removing it from sys.modules
-        with patch.dict('sys.modules', {'ollama': None}):
+        with patch.dict("sys.modules", {"ollama": None}):
             # Make import ollama raise ImportError
             def mock_import(name, *args, **kwargs):
-                if name == 'ollama':
+                if name == "ollama":
                     raise ImportError("ollama not installed")
                 return orig_import(name, *args, **kwargs)
 
             import builtins
+
             orig_import = builtins.__import__
 
-            with patch('builtins.__import__', side_effect=mock_import):
+            with patch("builtins.__import__", side_effect=mock_import):
                 with patch("requests.Session") as mock_session_class:
                     mock_session = MagicMock()
                     mock_session_class.return_value = mock_session
 
                     mock_response = MagicMock()
                     mock_response.raise_for_status = MagicMock()
-                    mock_response.json.return_value = {'embedding': [0.2] * 768}
+                    mock_response.json.return_value = {"embedding": [0.2] * 768}
                     mock_session.post.return_value = mock_response
 
                     embedder = OllamaEmbedder()

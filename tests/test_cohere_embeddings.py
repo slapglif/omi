@@ -44,7 +44,9 @@ class TestCohereConnection:
         embedding = embedder.embed("hello world")
 
         assert isinstance(embedding, list), "Embedding should be a list"
-        assert len(embedding) == REQUIRED_DIM, f"Expected {REQUIRED_DIM} dimensions, got {len(embedding)}"
+        assert (
+            len(embedding) == REQUIRED_DIM
+        ), f"Expected {REQUIRED_DIM} dimensions, got {len(embedding)}"
         assert all(isinstance(x, float) for x in embedding), "All elements should be floats"
         assert not all(x == 0 for x in embedding), "Embedding should not be all zeros"
 
@@ -64,7 +66,9 @@ class TestCohereConnection:
         embedder = CohereEmbedder(api_key=COHERE_API_KEY, model="embed-multilingual-v3.0")
         embedding = embedder.embed("hello world")
 
-        assert len(embedding) == REQUIRED_DIM, f"Expected {REQUIRED_DIM} dimensions, got {len(embedding)}"
+        assert (
+            len(embedding) == REQUIRED_DIM
+        ), f"Expected {REQUIRED_DIM} dimensions, got {len(embedding)}"
 
         # Check L2 norm is reasonable
         norm = np.linalg.norm(embedding)
@@ -263,7 +267,7 @@ class TestCohereEmbedderClass:
             "embed-english-v3.0": 1024,
             "embed-multilingual-v3.0": 1024,
             "embed-english-light-v3.0": 384,
-            "embed-multilingual-light-v3.0": 384
+            "embed-multilingual-light-v3.0": 384,
         }
         assert CohereEmbedder.MODEL_DIMENSIONS == expected_dims
 
@@ -336,17 +340,11 @@ class TestCohereSimilarity:
         }
 
         ml_ai_sim = embedder.similarity(
-            embeddings["machine learning"],
-            embeddings["artificial intelligence"]
+            embeddings["machine learning"], embeddings["artificial intelligence"]
         )
-        ml_pizza_sim = embedder.similarity(
-            embeddings["machine learning"],
-            embeddings["pizza"]
-        )
+        ml_pizza_sim = embedder.similarity(embeddings["machine learning"], embeddings["pizza"])
 
-        assert ml_ai_sim > ml_pizza_sim, (
-            "ML should be more similar to AI than to pizza"
-        )
+        assert ml_ai_sim > ml_pizza_sim, "ML should be more similar to AI than to pizza"
 
 
 class TestCohereBatchProcessing:

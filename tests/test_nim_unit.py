@@ -50,7 +50,7 @@ class TestNIMBatchAPIUnit:
                 "data": [
                     {"embedding": [0.1] * REQUIRED_DIM},
                     {"embedding": [0.2] * REQUIRED_DIM},
-                    {"embedding": [0.3] * REQUIRED_DIM}
+                    {"embedding": [0.3] * REQUIRED_DIM},
                 ]
             }
 
@@ -65,7 +65,7 @@ class TestNIMBatchAPIUnit:
 
             # Extract the call arguments
             call_args = mock_session.post.call_args
-            json_payload = call_args.kwargs['json']
+            json_payload = call_args.kwargs["json"]
 
             # Verify batch API format
             assert json_payload["model"] == "baai/bge-m3", "Should use correct model"
@@ -77,7 +77,9 @@ class TestNIMBatchAPIUnit:
             # Verify result format
             assert isinstance(result, list), "Should return list for batch input"
             assert len(result) == 3, "Should return 3 embeddings"
-            assert all(len(emb) == REQUIRED_DIM for emb in result), "All embeddings should have correct dimension"
+            assert all(
+                len(emb) == REQUIRED_DIM for emb in result
+            ), "All embeddings should have correct dimension"
 
     def test_nim_batch_api_single_vs_batch(self):
         """
@@ -100,9 +102,7 @@ class TestNIMBatchAPIUnit:
             # Mock response for single string
             mock_response_single = Mock()
             mock_response_single.status_code = 200
-            mock_response_single.json.return_value = {
-                "data": [{"embedding": [0.1] * REQUIRED_DIM}]
-            }
+            mock_response_single.json.return_value = {"data": [{"embedding": [0.1] * REQUIRED_DIM}]}
 
             mock_session.post.return_value = mock_response_single
             mock_session.post.reset_mock()
@@ -116,17 +116,16 @@ class TestNIMBatchAPIUnit:
             assert len(result_single) == REQUIRED_DIM, "Should have correct dimensions"
 
             # Verify API received list (even for single input)
-            json_payload = mock_session.post.call_args.kwargs['json']
-            assert json_payload["input"] == ["single text"], "Should send single text as list to API"
+            json_payload = mock_session.post.call_args.kwargs["json"]
+            assert json_payload["input"] == [
+                "single text"
+            ], "Should send single text as list to API"
 
             # Mock response for batch
             mock_response_batch = Mock()
             mock_response_batch.status_code = 200
             mock_response_batch.json.return_value = {
-                "data": [
-                    {"embedding": [0.1] * REQUIRED_DIM},
-                    {"embedding": [0.2] * REQUIRED_DIM}
-                ]
+                "data": [{"embedding": [0.1] * REQUIRED_DIM}, {"embedding": [0.2] * REQUIRED_DIM}]
             }
 
             mock_session.post.return_value = mock_response_batch
@@ -137,11 +136,13 @@ class TestNIMBatchAPIUnit:
 
             # Verify batch returns List[List[float]]
             assert isinstance(result_batch, list), "Should return list"
-            assert isinstance(result_batch[0], list), "Should return List[List[float]] for batch input"
+            assert isinstance(
+                result_batch[0], list
+            ), "Should return List[List[float]] for batch input"
             assert len(result_batch) == 2, "Should return 2 embeddings"
 
             # Verify API received batch as-is
-            json_payload = mock_session.post.call_args.kwargs['json']
+            json_payload = mock_session.post.call_args.kwargs["json"]
             assert json_payload["input"] == ["text1", "text2"], "Should send batch as list to API"
 
     def test_nim_batch_api_empty_batch(self):
@@ -201,7 +202,11 @@ class TestNIMBatchAPIUnit:
             result = embedder.embed_batch(texts, batch_size=3)
 
             # Should make 3 batches: [3, 3, 1]
-            assert batches_received == [3, 3, 1], f"Expected batches [3, 3, 1], got {batches_received}"
+            assert batches_received == [
+                3,
+                3,
+                1,
+            ], f"Expected batches [3, 3, 1], got {batches_received}"
             assert len(result) == 7, "Should return all 7 embeddings"
 
 

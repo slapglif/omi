@@ -1,4 +1,5 @@
 """Pytest fixtures for OMI MCP integration tests"""
+
 import sys
 from pathlib import Path
 
@@ -23,7 +24,7 @@ def omi_db():
 @pytest.fixture
 def temp_omi_setup(tmp_path):
     """Create temporary OMI instance for testing.
-    
+
     Returns a dict with:
         - base_path: Path to temp directory
         - db_path: Path to SQLite database
@@ -31,15 +32,15 @@ def temp_omi_setup(tmp_path):
     """
     base_path = tmp_path / "omi"
     base_path.mkdir(parents=True, exist_ok=True)
-    
+
     db_path = base_path / "palace.sqlite"
     now_path = base_path / "NOW.md"
     memory_path = base_path / "MEMORY.md"
-    
+
     # Create required directories
     (base_path / "memory").mkdir(exist_ok=True)
     (base_path / "embeddings").mkdir(exist_ok=True)
-    
+
     return {
         "base_path": base_path,
         "db_path": db_path,
@@ -52,18 +53,18 @@ def temp_omi_setup(tmp_path):
 def mock_embedder():
     """Mock embedder that returns consistent embeddings for testing."""
     from unittest.mock import MagicMock
-    
+
     mock = MagicMock()
     # Return a consistent 768-dim embedding
     mock.embed.return_value = [0.1] * 768
     mock.embed_batch.return_value = [[0.1] * 768]
-    
+
     def mock_similarity(e1, e2):
         # Simple cosine similarity - identical vectors = 1.0
         if e1 == e2:
             return 1.0
         return 0.85  # Decent similarity for testing
-    
+
     mock.similarity = mock_similarity
     return mock
 
@@ -72,6 +73,7 @@ def mock_embedder():
 def mock_embedding_cache(tmp_path, mock_embedder):
     """Create a mock embedding cache."""
     from omi.embeddings import EmbeddingCache
+
     cache_dir = tmp_path / "embeddings"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return EmbeddingCache(cache_dir, mock_embedder)
@@ -81,11 +83,11 @@ def mock_embedding_cache(tmp_path, mock_embedder):
 def persistence_stores(temp_omi_setup):
     """Create persistence stores for testing."""
     from omi import NOWStore, DailyLogStore, GraphPalace
-    
+
     now_store = NOWStore(temp_omi_setup["base_path"])
     daily_store = DailyLogStore(temp_omi_setup["base_path"])
     palace = GraphPalace(temp_omi_setup["db_path"])
-    
+
     return {
         "now_store": now_store,
         "daily_store": daily_store,
@@ -97,7 +99,7 @@ def persistence_stores(temp_omi_setup):
 def mock_vault():
     """Mock vault backup."""
     from unittest.mock import MagicMock
-    
+
     vault = MagicMock()
     vault.backup.return_value = "backup_id_12345"
     vault.restore.return_value = "restored_memory_content"
@@ -109,11 +111,11 @@ def belief_network_setup(temp_omi_setup, mock_embedder, mock_embedding_cache):
     """Setup for belief network tests."""
     from omi import GraphPalace
     from omi.belief import BeliefNetwork, ContradictionDetector
-    
+
     palace = GraphPalace(temp_omi_setup["db_path"])
     belief_network = BeliefNetwork(palace)
     detector = ContradictionDetector()
-    
+
     return {
         "palace": palace,
         "belief_network": belief_network,
@@ -125,10 +127,10 @@ def belief_network_setup(temp_omi_setup, mock_embedder, mock_embedding_cache):
 def security_setup(temp_omi_setup, persistence_stores):
     """Setup for security tests."""
     from omi.security import IntegrityChecker, TopologyVerifier
-    
+
     integrity = IntegrityChecker(temp_omi_setup["base_path"])
     topology = TopologyVerifier(persistence_stores["palace"])
-    
+
     return {
         "integrity": integrity,
         "topology": topology,

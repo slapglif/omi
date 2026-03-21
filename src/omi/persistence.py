@@ -18,12 +18,13 @@ from dataclasses import dataclass, asdict
 @dataclass
 class NOWEntry:
     """Hot context - <1k tokens, loaded first on session start"""
+
     current_task: str
     recent_completions: List[str]
     pending_decisions: List[str]
     key_files: List[str]
     timestamp: datetime
-    
+
     def to_markdown(self) -> str:
         """Serialize to NOW.md format"""
         lines = [
@@ -43,7 +44,7 @@ class NOWEntry:
         for item in self.key_files:
             lines.append(f"- `{item}`")
         return "\n".join(lines)
-    
+
     @classmethod
     def from_markdown(cls, content: str) -> "NOWEntry":
         """Parse from NOW.md format"""
@@ -95,38 +96,38 @@ class NOWEntry:
 class DailyLogStore:
     """
     Tier 2: Daily logs - raw timeline
-    
+
     Pattern: Append-only, chronological, human-readable
     Lifetime: Weeks (deprioritized in retrieval)
     """
-    
+
     def __init__(self, base_path: Path):
         self.log_path = base_path / "memory"
         self.log_path.mkdir(exist_ok=True)
-    
+
     def append(self, content: str) -> Path:
         """Append entry to today's log"""
         today = datetime.now().strftime("%Y-%m-%d")
         file_path = self.log_path / f"{today}.md"
-        
+
         timestamp = datetime.now().isoformat()
         entry = f"\n\n## [{timestamp}]\n\n{content}\n"
-        
+
         with open(file_path, "a") as f:
             f.write(entry)
-        
+
         return file_path
-    
+
     def read_daily(self, date: Optional[datetime] = None) -> str:
         """Read specific day's log"""
         if date is None:
             date = datetime.now()
-        
+
         file_path = self.log_path / f"{date.strftime('%Y-%m-%d')}.md"
         if file_path.exists():
             return file_path.read_text()
         return ""
-    
+
     def list_days(self, days: int = 30) -> List[Path]:
         """List recent daily log files, sorted newest first"""
         cutoff = datetime.now() - timedelta(days=days)

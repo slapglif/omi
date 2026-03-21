@@ -19,6 +19,7 @@ from typing import List, Dict, Any
 import numpy as np
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from omi.storage.graph_palace import GraphPalace, Memory
@@ -27,7 +28,7 @@ from omi.export_import import (
     MemoryImporter,
     ConflictResolution,
     serialize_embedding,
-    deserialize_embedding
+    deserialize_embedding,
 )
 
 
@@ -48,6 +49,7 @@ class TestMemoryExporter(unittest.TestCase):
         """Clean up test database."""
         self.palace.close()
         import shutil
+
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
@@ -68,55 +70,44 @@ class TestMemoryExporter(unittest.TestCase):
             content="Python is a programming language",
             embedding=self._generate_embedding(),
             memory_type="fact",
-            confidence=0.95
+            confidence=0.95,
         )
         # Manually set created_at for testing
         self.palace._conn.execute(
             "UPDATE memories SET created_at = ? WHERE id = ?",
-            (two_days_ago.isoformat(), self.memory1_id)
+            (two_days_ago.isoformat(), self.memory1_id),
         )
 
         self.memory2_id = self.palace.store_memory(
             content="I learned Python last year",
             embedding=self._generate_embedding(),
             memory_type="experience",
-            confidence=0.85
+            confidence=0.85,
         )
         # Set created_at to yesterday
         self.palace._conn.execute(
             "UPDATE memories SET created_at = ? WHERE id = ?",
-            (yesterday.isoformat(), self.memory2_id)
+            (yesterday.isoformat(), self.memory2_id),
         )
 
         self.memory3_id = self.palace.store_memory(
             content="Python is better than Java",
             embedding=self._generate_embedding(),
             memory_type="belief",
-            confidence=0.70
+            confidence=0.70,
         )
         # Set created_at to now
         self.palace._conn.execute(
-            "UPDATE memories SET created_at = ? WHERE id = ?",
-            (now.isoformat(), self.memory3_id)
+            "UPDATE memories SET created_at = ? WHERE id = ?", (now.isoformat(), self.memory3_id)
         )
 
         self.memory4_id = self.palace.store_memory(
-            content="Use Python for the new project",
-            memory_type="decision",
-            confidence=0.90
+            content="Use Python for the new project", memory_type="decision", confidence=0.90
         )
 
         # Create edges
-        self.edge1_id = self.palace.create_edge(
-            self.memory1_id,
-            self.memory2_id,
-            "SUPPORTS"
-        )
-        self.edge2_id = self.palace.create_edge(
-            self.memory2_id,
-            self.memory3_id,
-            "RELATED_TO"
-        )
+        self.edge1_id = self.palace.create_edge(self.memory1_id, self.memory2_id, "SUPPORTS")
+        self.edge2_id = self.palace.create_edge(self.memory2_id, self.memory3_id, "RELATED_TO")
 
     # ==================== Basic Export Tests ====================
 
@@ -223,9 +214,7 @@ class TestMemoryExporter(unittest.TestCase):
         yesterday = now - timedelta(days=1)
 
         result = self.exporter.export_to_dict(
-            memory_type="experience",
-            min_confidence=0.80,
-            date_from=yesterday
+            memory_type="experience", min_confidence=0.80, date_from=yesterday
         )
 
         # Should match specific criteria
@@ -237,10 +226,7 @@ class TestMemoryExporter(unittest.TestCase):
 
     def test_filter_no_matches(self):
         """Test filter that matches no memories."""
-        result = self.exporter.export_to_dict(
-            memory_type="fact",
-            min_confidence=0.99
-        )
+        result = self.exporter.export_to_dict(memory_type="fact", min_confidence=0.99)
 
         self.assertEqual(result["metadata"]["memory_count"], 0)
         self.assertEqual(len(result["memories"]), 0)
@@ -269,7 +255,7 @@ class TestMemoryExporter(unittest.TestCase):
         self.assertTrue(output_path.exists())
 
         # Verify JSON is valid
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = json.load(f)
 
         self.assertIn("metadata", data)
@@ -281,15 +267,13 @@ class TestMemoryExporter(unittest.TestCase):
         output_path = Path(self.temp_dir) / "filtered.json"
 
         count = self.exporter.export_to_json(
-            output_path,
-            memory_type="fact",
-            include_embeddings=True
+            output_path, memory_type="fact", include_embeddings=True
         )
 
         self.assertEqual(count, 1)
 
         # Verify filtered content
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = json.load(f)
 
         self.assertEqual(len(data["memories"]), 1)
@@ -311,7 +295,7 @@ class TestMemoryExporter(unittest.TestCase):
 
         self.exporter.export_to_json(output_path, indent=0)
 
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             content = f.read()
 
         # Compact JSON should have less whitespace
@@ -326,6 +310,7 @@ class TestMemoryExporter(unittest.TestCase):
 
         try:
             import yaml
+
             yaml_available = True
         except ImportError:
             yaml_available = False
@@ -341,7 +326,7 @@ class TestMemoryExporter(unittest.TestCase):
         self.assertTrue(output_path.exists())
 
         # Verify YAML is valid
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = yaml.safe_load(f)
 
         self.assertIn("metadata", data)
@@ -354,6 +339,7 @@ class TestMemoryExporter(unittest.TestCase):
 
         try:
             import yaml
+
             yaml_available = True
         except ImportError:
             yaml_available = False
@@ -361,16 +347,12 @@ class TestMemoryExporter(unittest.TestCase):
         if not yaml_available:
             self.skipTest("PyYAML not installed")
 
-        count = self.exporter.export_to_yaml(
-            output_path,
-            memory_type="belief",
-            min_confidence=0.70
-        )
+        count = self.exporter.export_to_yaml(output_path, memory_type="belief", min_confidence=0.70)
 
         self.assertGreater(count, 0)
 
         # Verify filtered content
-        with open(output_path, 'r') as f:
+        with open(output_path, "r") as f:
             data = yaml.safe_load(f)
 
         for memory in data["memories"]:
@@ -442,7 +424,7 @@ class TestMemoryExporter(unittest.TestCase):
             min_confidence=0.9,
             date_from=yesterday,
             date_to=now,
-            include_embeddings=True
+            include_embeddings=True,
         )
 
         filters = result["metadata"]["filters"]
@@ -472,9 +454,9 @@ class TestMemoryExporter(unittest.TestCase):
     def test_serialize_empty_embedding(self):
         """Test serializing empty embedding."""
         serialized = serialize_embedding([])
-        self.assertEqual(serialized, b'')
+        self.assertEqual(serialized, b"")
 
-        deserialized = deserialize_embedding(b'')
+        deserialized = deserialize_embedding(b"")
         self.assertEqual(deserialized, [])
 
     def test_serialize_large_embedding(self):
@@ -503,6 +485,7 @@ class TestMemoryImporter(unittest.TestCase):
         """Clean up test database."""
         self.palace.close()
         import shutil
+
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
@@ -520,7 +503,7 @@ class TestMemoryImporter(unittest.TestCase):
                 "exported_at": datetime.now().isoformat(),
                 "memory_count": 2,
                 "edge_count": 1,
-                "filters": {}
+                "filters": {},
             },
             "memories": [
                 {
@@ -533,7 +516,7 @@ class TestMemoryImporter(unittest.TestCase):
                     "last_accessed": datetime.now().isoformat(),
                     "access_count": 1,
                     "instance_ids": [],
-                    "content_hash": "hash-1"
+                    "content_hash": "hash-1",
                 },
                 {
                     "id": "test-memory-2",
@@ -545,8 +528,8 @@ class TestMemoryImporter(unittest.TestCase):
                     "last_accessed": datetime.now().isoformat(),
                     "access_count": 2,
                     "instance_ids": [],
-                    "content_hash": "hash-2"
-                }
+                    "content_hash": "hash-2",
+                },
             ],
             "edges": [
                 {
@@ -555,9 +538,9 @@ class TestMemoryImporter(unittest.TestCase):
                     "target_id": "test-memory-2",
                     "edge_type": "SUPPORTS",
                     "strength": 0.8,
-                    "created_at": datetime.now().isoformat()
+                    "created_at": datetime.now().isoformat(),
                 }
-            ]
+            ],
         }
 
     # ==================== Basic Import Tests ====================
@@ -697,10 +680,7 @@ class TestMemoryImporter(unittest.TestCase):
     def test_conflict_detection_by_id(self):
         """Test conflict detection by memory ID."""
         # Create first memory
-        memory_id = self.palace.store_memory(
-            content="Original content",
-            memory_type="fact"
-        )
+        memory_id = self.palace.store_memory(content="Original content", memory_type="fact")
 
         # Import data with same ID but different content
         data = {
@@ -715,9 +695,9 @@ class TestMemoryImporter(unittest.TestCase):
                     "last_accessed": datetime.now().isoformat(),
                     "access_count": 1,
                     "instance_ids": [],
-                    "content_hash": "different-hash"
+                    "content_hash": "different-hash",
                 }
-            ]
+            ],
         }
 
         # SKIP should detect conflict by ID
@@ -731,10 +711,7 @@ class TestMemoryImporter(unittest.TestCase):
     def test_conflict_detection_by_content_hash(self):
         """Test conflict detection by content hash."""
         # Create memory with known content hash
-        original_id = self.palace.store_memory(
-            content="Test content",
-            memory_type="fact"
-        )
+        original_id = self.palace.store_memory(content="Test content", memory_type="fact")
 
         # Get the content hash
         original_memory = self.palace.get_memory(original_id)
@@ -753,9 +730,9 @@ class TestMemoryImporter(unittest.TestCase):
                     "last_accessed": datetime.now().isoformat(),
                     "access_count": 1,
                     "instance_ids": [],
-                    "content_hash": content_hash
+                    "content_hash": content_hash,
                 }
-            ]
+            ],
         }
 
         # Should detect conflict by hash
@@ -811,9 +788,9 @@ class TestMemoryImporter(unittest.TestCase):
                     "created_at": datetime.now().isoformat(),
                     "last_accessed": datetime.now().isoformat(),
                     "access_count": 1,
-                    "instance_ids": []
+                    "instance_ids": [],
                 }
-            ]
+            ],
         }
 
         stats = self.importer.import_from_dict(data)
@@ -827,10 +804,7 @@ class TestMemoryImporter(unittest.TestCase):
     def test_statistics_mixed_results(self):
         """Test statistics with mixed import results."""
         # Create one existing memory
-        existing_id = self.palace.store_memory(
-            content="Existing memory",
-            memory_type="fact"
-        )
+        existing_id = self.palace.store_memory(content="Existing memory", memory_type="fact")
 
         # Import data with one new and one existing
         data = {
@@ -845,7 +819,7 @@ class TestMemoryImporter(unittest.TestCase):
                     "last_accessed": datetime.now().isoformat(),
                     "access_count": 1,
                     "instance_ids": [],
-                    "content_hash": "hash-1"
+                    "content_hash": "hash-1",
                 },
                 {
                     "id": "new-memory",
@@ -856,9 +830,9 @@ class TestMemoryImporter(unittest.TestCase):
                     "last_accessed": datetime.now().isoformat(),
                     "access_count": 1,
                     "instance_ids": [],
-                    "content_hash": "hash-2"
-                }
-            ]
+                    "content_hash": "hash-2",
+                },
+            ],
         }
 
         # SKIP strategy
@@ -880,12 +854,12 @@ class TestMemoryImporter(unittest.TestCase):
                     "created_at": datetime.now().isoformat(),
                     "last_accessed": datetime.now().isoformat(),
                     "access_count": 1,
-                    "instance_ids": []
+                    "instance_ids": [],
                 },
                 {
                     # Missing ID - will cause error
                     "content": "Invalid",
-                    "memory_type": "fact"
+                    "memory_type": "fact",
                 },
                 {
                     "id": "another-valid",
@@ -895,9 +869,9 @@ class TestMemoryImporter(unittest.TestCase):
                     "created_at": datetime.now().isoformat(),
                     "last_accessed": datetime.now().isoformat(),
                     "access_count": 1,
-                    "instance_ids": []
-                }
-            ]
+                    "instance_ids": [],
+                },
+            ],
         }
 
         stats = self.importer.import_from_dict(data)
@@ -913,7 +887,7 @@ class TestMemoryImporter(unittest.TestCase):
         json_path = Path(self.temp_dir) / "test_import.json"
 
         # Write JSON file
-        with open(json_path, 'w') as f:
+        with open(json_path, "w") as f:
             json.dump(data, f)
 
         # Import from file
@@ -936,7 +910,7 @@ class TestMemoryImporter(unittest.TestCase):
         json_path = Path(self.temp_dir) / "invalid.json"
 
         # Write invalid JSON
-        with open(json_path, 'w') as f:
+        with open(json_path, "w") as f:
             f.write("{ invalid json }")
 
         with self.assertRaises(ValueError) as context:
@@ -948,6 +922,7 @@ class TestMemoryImporter(unittest.TestCase):
         """Test importing from YAML file."""
         try:
             import yaml
+
             yaml_available = True
         except ImportError:
             yaml_available = False
@@ -961,7 +936,7 @@ class TestMemoryImporter(unittest.TestCase):
         yaml_path = Path(self.temp_dir) / "test_import.yaml"
 
         # Write YAML file
-        with open(yaml_path, 'w') as f:
+        with open(yaml_path, "w") as f:
             yaml.dump(data, f)
 
         # Import from file
@@ -977,6 +952,7 @@ class TestMemoryImporter(unittest.TestCase):
         """Test import from non-existent YAML file."""
         try:
             import yaml
+
             yaml_available = True
         except ImportError:
             yaml_available = False
@@ -996,13 +972,13 @@ class TestMemoryImporter(unittest.TestCase):
             content="Original memory 1",
             embedding=self._generate_embedding(),
             memory_type="fact",
-            confidence=0.95
+            confidence=0.95,
         )
         memory2_id = self.palace.store_memory(
             content="Original memory 2",
             embedding=self._generate_embedding(),
             memory_type="experience",
-            confidence=0.85
+            confidence=0.85,
         )
         edge_id = self.palace.create_edge(memory1_id, memory2_id, "SUPPORTS")
 
@@ -1040,19 +1016,19 @@ class TestMemoryImporter(unittest.TestCase):
             content="Python is a programming language",
             embedding=self._generate_embedding(),
             memory_type="fact",
-            confidence=0.95
+            confidence=0.95,
         )
         memory2_id = self.palace.store_memory(
             content="I learned Python last year",
             embedding=self._generate_embedding(),
             memory_type="experience",
-            confidence=0.85
+            confidence=0.85,
         )
         memory3_id = self.palace.store_memory(
             content="Python is better than Java",
             embedding=self._generate_embedding(),
             memory_type="belief",
-            confidence=0.70
+            confidence=0.70,
         )
 
         # Create edges between memories
@@ -1086,7 +1062,9 @@ class TestMemoryImporter(unittest.TestCase):
         # Verify metadata matches (except timestamp)
         self.assertEqual(export2["metadata"]["memory_count"], export1["metadata"]["memory_count"])
         self.assertEqual(export2["metadata"]["edge_count"], export1["metadata"]["edge_count"])
-        self.assertEqual(export2["metadata"]["export_version"], export1["metadata"]["export_version"])
+        self.assertEqual(
+            export2["metadata"]["export_version"], export1["metadata"]["export_version"]
+        )
 
         # Verify memories match
         self.assertEqual(len(export2["memories"]), len(export1["memories"]))
@@ -1131,9 +1109,7 @@ class TestMemoryImporter(unittest.TestCase):
         """Test partial import with overwrite strategy."""
         # Create initial memory
         memory_id = self.palace.store_memory(
-            content="Version 1",
-            memory_type="fact",
-            confidence=0.8
+            content="Version 1", memory_type="fact", confidence=0.8
         )
 
         # Export and modify
@@ -1174,19 +1150,18 @@ class TestCLIExport(unittest.TestCase):
             content="Python is a programming language",
             embedding=self._generate_embedding(),
             memory_type="fact",
-            confidence=0.95
+            confidence=0.95,
         )
 
         memory2_id = palace.store_memory(
             content="I learned Python last year",
             embedding=self._generate_embedding(),
             memory_type="experience",
-            confidence=0.85
+            confidence=0.85,
         )
         # Set created_at to yesterday for filtering tests
         palace._conn.execute(
-            "UPDATE memories SET created_at = ? WHERE id = ?",
-            (yesterday.isoformat(), memory2_id)
+            "UPDATE memories SET created_at = ? WHERE id = ?", (yesterday.isoformat(), memory2_id)
         )
         palace._conn.commit()
 
@@ -1194,7 +1169,7 @@ class TestCLIExport(unittest.TestCase):
             content="Python is better than Java",
             embedding=self._generate_embedding(),
             memory_type="belief",
-            confidence=0.70
+            confidence=0.70,
         )
 
         # Create an edge
@@ -1212,19 +1187,19 @@ class TestCLIExport(unittest.TestCase):
         """Test that export command requires initialized database."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
             # Point to non-existent database
             with runner.isolated_filesystem(temp_dir=tmpdir):
-                result = runner.invoke(cli, [
-                    '--data-dir', tmpdir,
-                    'export',
-                    '--output', 'memories.json'
-                ])
+                result = runner.invoke(
+                    cli, ["--data-dir", tmpdir, "export", "--output", "memories.json"]
+                )
 
             assert result.exit_code == 1
             assert "not found" in result.output.lower()
@@ -1233,9 +1208,11 @@ class TestCLIExport(unittest.TestCase):
         """Test exporting memories to JSON file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1246,19 +1223,25 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'json',
-                '--output', str(output_path)
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--data-dir",
+                    str(base_path),
+                    "export",
+                    "--format",
+                    "json",
+                    "--output",
+                    str(output_path),
+                ],
+            )
 
             assert result.exit_code == 0
             assert output_path.exists()
             assert "exported" in result.output.lower()
 
             # Verify JSON content
-            with open(output_path, 'r') as f:
+            with open(output_path, "r") as f:
                 data = json.load(f)
 
             assert "metadata" in data
@@ -1269,6 +1252,7 @@ class TestCLIExport(unittest.TestCase):
         """Test exporting memories to YAML file."""
         try:
             import yaml
+
             yaml_available = True
         except ImportError:
             yaml_available = False
@@ -1278,9 +1262,11 @@ class TestCLIExport(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1291,19 +1277,25 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'yaml',
-                '--output', str(output_path)
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--data-dir",
+                    str(base_path),
+                    "export",
+                    "--format",
+                    "yaml",
+                    "--output",
+                    str(output_path),
+                ],
+            )
 
             assert result.exit_code == 0
             assert output_path.exists()
             assert "exported" in result.output.lower()
 
             # Verify YAML content
-            with open(output_path, 'r') as f:
+            with open(output_path, "r") as f:
                 data = yaml.safe_load(f)
 
             assert "metadata" in data
@@ -1314,9 +1306,11 @@ class TestCLIExport(unittest.TestCase):
         """Test exporting to stdout as JSON."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1325,11 +1319,9 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'json'
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "export", "--format", "json"]
+            )
 
             assert result.exit_code == 0
 
@@ -1343,6 +1335,7 @@ class TestCLIExport(unittest.TestCase):
         """Test exporting to stdout as YAML."""
         try:
             import yaml
+
             yaml_available = True
         except ImportError:
             yaml_available = False
@@ -1352,9 +1345,11 @@ class TestCLIExport(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1363,11 +1358,9 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'yaml'
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "export", "--format", "yaml"]
+            )
 
             assert result.exit_code == 0
 
@@ -1382,9 +1375,11 @@ class TestCLIExport(unittest.TestCase):
         """Test filtering export by memory type."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1393,12 +1388,9 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'json',
-                '--type', 'fact'
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "export", "--format", "json", "--type", "fact"]
+            )
 
             assert result.exit_code == 0
 
@@ -1411,9 +1403,11 @@ class TestCLIExport(unittest.TestCase):
         """Test filtering export by minimum confidence."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1422,12 +1416,18 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'json',
-                '--min-confidence', '0.80'
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--data-dir",
+                    str(base_path),
+                    "export",
+                    "--format",
+                    "json",
+                    "--min-confidence",
+                    "0.80",
+                ],
+            )
 
             assert result.exit_code == 0
 
@@ -1442,9 +1442,11 @@ class TestCLIExport(unittest.TestCase):
         """Test filtering export by date range."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1456,12 +1458,10 @@ class TestCLIExport(unittest.TestCase):
             # Export from today onwards (should exclude yesterday's memory)
             today = datetime.now().date().isoformat()
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'json',
-                '--date-from', today
-            ])
+            result = runner.invoke(
+                cli,
+                ["--data-dir", str(base_path), "export", "--format", "json", "--date-from", today],
+            )
 
             assert result.exit_code == 0
 
@@ -1474,9 +1474,11 @@ class TestCLIExport(unittest.TestCase):
         """Test that invalid date format returns error."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1485,11 +1487,9 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--date-from', 'invalid-date'
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "export", "--date-from", "invalid-date"]
+            )
 
             assert result.exit_code == 1
             assert "invalid" in result.output.lower()
@@ -1500,9 +1500,11 @@ class TestCLIExport(unittest.TestCase):
         """Test export includes edges by default."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1511,11 +1513,9 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'json'
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "export", "--format", "json"]
+            )
 
             assert result.exit_code == 0
 
@@ -1528,9 +1528,11 @@ class TestCLIExport(unittest.TestCase):
         """Test export with --no-edges flag."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1539,12 +1541,9 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'json',
-                '--no-edges'
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "export", "--format", "json", "--no-edges"]
+            )
 
             assert result.exit_code == 0
 
@@ -1556,9 +1555,11 @@ class TestCLIExport(unittest.TestCase):
         """Test that embeddings are excluded by default."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1567,11 +1568,9 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'json'
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "export", "--format", "json"]
+            )
 
             assert result.exit_code == 0
 
@@ -1584,9 +1583,11 @@ class TestCLIExport(unittest.TestCase):
         """Test export with --include-embeddings flag."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1595,12 +1596,17 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'json',
-                '--include-embeddings'
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--data-dir",
+                    str(base_path),
+                    "export",
+                    "--format",
+                    "json",
+                    "--include-embeddings",
+                ],
+            )
 
             assert result.exit_code == 0
 
@@ -1621,9 +1627,11 @@ class TestCLIExport(unittest.TestCase):
         """Test export with multiple filters combined."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1632,14 +1640,21 @@ class TestCLIExport(unittest.TestCase):
             base_path.mkdir()
             self._create_test_database(base_path)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'export',
-                '--format', 'json',
-                '--type', 'belief',
-                '--min-confidence', '0.5',
-                '--no-edges'
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--data-dir",
+                    str(base_path),
+                    "export",
+                    "--format",
+                    "json",
+                    "--type",
+                    "belief",
+                    "--min-confidence",
+                    "0.5",
+                    "--no-edges",
+                ],
+            )
 
             assert result.exit_code == 0
 
@@ -1665,13 +1680,13 @@ class TestCLIImport:
             content="Test memory 1",
             embedding=self._generate_embedding(),
             memory_type="fact",
-            confidence=0.95
+            confidence=0.95,
         )
         memory2_id = palace.store_memory(
             content="Test memory 2",
             embedding=self._generate_embedding(),
             memory_type="experience",
-            confidence=0.85
+            confidence=0.85,
         )
 
         # Create edge
@@ -1686,7 +1701,7 @@ class TestCLIImport:
         vec = vec / np.linalg.norm(vec)
         return vec.tolist()
 
-    def _create_export_file(self, file_path: Path, format_type: str = 'json'):
+    def _create_export_file(self, file_path: Path, format_type: str = "json"):
         """Create a sample export file for testing import."""
         data = {
             "metadata": {
@@ -1694,7 +1709,7 @@ class TestCLIImport:
                 "exported_at": datetime.now().isoformat(),
                 "memory_count": 2,
                 "edge_count": 1,
-                "filters": {}
+                "filters": {},
             },
             "memories": [
                 {
@@ -1703,7 +1718,7 @@ class TestCLIImport:
                     "memory_type": "fact",
                     "confidence": 0.90,
                     "created_at": datetime.now().isoformat(),
-                    "updated_at": datetime.now().isoformat()
+                    "updated_at": datetime.now().isoformat(),
                 },
                 {
                     "id": "test-memory-2",
@@ -1711,8 +1726,8 @@ class TestCLIImport:
                     "memory_type": "experience",
                     "confidence": 0.80,
                     "created_at": datetime.now().isoformat(),
-                    "updated_at": datetime.now().isoformat()
-                }
+                    "updated_at": datetime.now().isoformat(),
+                },
             ],
             "edges": [
                 {
@@ -1721,17 +1736,18 @@ class TestCLIImport:
                     "target_id": "test-memory-2",
                     "edge_type": "SUPPORTS",
                     "strength": 0.75,
-                    "created_at": datetime.now().isoformat()
+                    "created_at": datetime.now().isoformat(),
                 }
-            ]
+            ],
         }
 
-        if format_type == 'json':
-            with open(file_path, 'w', encoding='utf-8') as f:
+        if format_type == "json":
+            with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         else:  # yaml
             import yaml
-            with open(file_path, 'w', encoding='utf-8') as f:
+
+            with open(file_path, "w", encoding="utf-8") as f:
                 yaml.dump(data, f, default_flow_style=False)
 
     # ==================== Initialization Tests ====================
@@ -1740,9 +1756,11 @@ class TestCLIImport:
         """Test that import requires database initialization."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1751,11 +1769,9 @@ class TestCLIImport:
             export_file = Path(tmpdir) / "export.json"
             self._create_export_file(export_file)
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file)
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "import", "--input", str(export_file)]
+            )
 
             assert result.exit_code == 1
             assert "not found" in result.output.lower() or "init" in result.output.lower()
@@ -1764,9 +1780,11 @@ class TestCLIImport:
         """Test that import requires --input parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1776,10 +1794,7 @@ class TestCLIImport:
             self._create_test_database(base_path)
 
             # Try import without --input
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import'
-            ])
+            result = runner.invoke(cli, ["--data-dir", str(base_path), "import"])
 
             assert result.exit_code != 0
             # Click will show an error about missing required option
@@ -1788,9 +1803,11 @@ class TestCLIImport:
         """Test that import validates input file exists."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1802,11 +1819,9 @@ class TestCLIImport:
             # Try import with non-existent file
             non_existent_file = Path(tmpdir) / "does_not_exist.json"
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(non_existent_file)
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "import", "--input", str(non_existent_file)]
+            )
 
             assert result.exit_code != 0
             # Click will validate file existence
@@ -1817,9 +1832,11 @@ class TestCLIImport:
         """Test that import auto-detects JSON format from file extension."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1830,13 +1847,11 @@ class TestCLIImport:
 
             # Create export file
             export_file = Path(tmpdir) / "export.json"
-            self._create_export_file(export_file, format_type='json')
+            self._create_export_file(export_file, format_type="json")
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file)
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "import", "--input", str(export_file)]
+            )
 
             assert result.exit_code == 0
             assert "auto-detected" in result.output.lower() or "import" in result.output.lower()
@@ -1845,9 +1860,11 @@ class TestCLIImport:
         """Test that import auto-detects YAML format from file extension."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1858,13 +1875,11 @@ class TestCLIImport:
 
             # Create export file
             export_file = Path(tmpdir) / "export.yaml"
-            self._create_export_file(export_file, format_type='yaml')
+            self._create_export_file(export_file, format_type="yaml")
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file)
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "import", "--input", str(export_file)]
+            )
 
             assert result.exit_code == 0
             assert "auto-detected" in result.output.lower() or "import" in result.output.lower()
@@ -1873,9 +1888,11 @@ class TestCLIImport:
         """Test that import respects explicit --format parameter."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1886,14 +1903,20 @@ class TestCLIImport:
 
             # Create JSON file with .txt extension
             export_file = Path(tmpdir) / "export.txt"
-            self._create_export_file(export_file, format_type='json')
+            self._create_export_file(export_file, format_type="json")
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file),
-                '--format', 'json'
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--data-dir",
+                    str(base_path),
+                    "import",
+                    "--input",
+                    str(export_file),
+                    "--format",
+                    "json",
+                ],
+            )
 
             assert result.exit_code == 0
 
@@ -1903,9 +1926,11 @@ class TestCLIImport:
         """Test successful import from JSON file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1916,13 +1941,11 @@ class TestCLIImport:
 
             # Create export file
             export_file = Path(tmpdir) / "export.json"
-            self._create_export_file(export_file, format_type='json')
+            self._create_export_file(export_file, format_type="json")
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file)
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "import", "--input", str(export_file)]
+            )
 
             assert result.exit_code == 0
             assert "import" in result.output.lower()
@@ -1932,9 +1955,11 @@ class TestCLIImport:
         """Test successful import from YAML file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1945,13 +1970,11 @@ class TestCLIImport:
 
             # Create export file
             export_file = Path(tmpdir) / "export.yaml"
-            self._create_export_file(export_file, format_type='yaml')
+            self._create_export_file(export_file, format_type="yaml")
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file)
-            ])
+            result = runner.invoke(
+                cli, ["--data-dir", str(base_path), "import", "--input", str(export_file)]
+            )
 
             assert result.exit_code == 0
             assert "import" in result.output.lower()
@@ -1962,9 +1985,11 @@ class TestCLIImport:
         """Test import with 'skip' conflict resolution (default)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1975,14 +2000,20 @@ class TestCLIImport:
 
             # Create export file
             export_file = Path(tmpdir) / "export.json"
-            self._create_export_file(export_file, format_type='json')
+            self._create_export_file(export_file, format_type="json")
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file),
-                '--on-conflict', 'skip'
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--data-dir",
+                    str(base_path),
+                    "import",
+                    "--input",
+                    str(export_file),
+                    "--on-conflict",
+                    "skip",
+                ],
+            )
 
             assert result.exit_code == 0
 
@@ -1990,9 +2021,11 @@ class TestCLIImport:
         """Test import with 'overwrite' conflict resolution."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -2003,14 +2036,20 @@ class TestCLIImport:
 
             # Create export file
             export_file = Path(tmpdir) / "export.json"
-            self._create_export_file(export_file, format_type='json')
+            self._create_export_file(export_file, format_type="json")
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file),
-                '--on-conflict', 'overwrite'
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--data-dir",
+                    str(base_path),
+                    "import",
+                    "--input",
+                    str(export_file),
+                    "--on-conflict",
+                    "overwrite",
+                ],
+            )
 
             assert result.exit_code == 0
 
@@ -2018,9 +2057,11 @@ class TestCLIImport:
         """Test import with 'error' conflict resolution."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -2031,14 +2072,20 @@ class TestCLIImport:
 
             # Create export file
             export_file = Path(tmpdir) / "export.json"
-            self._create_export_file(export_file, format_type='json')
+            self._create_export_file(export_file, format_type="json")
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file),
-                '--on-conflict', 'error'
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--data-dir",
+                    str(base_path),
+                    "import",
+                    "--input",
+                    str(export_file),
+                    "--on-conflict",
+                    "error",
+                ],
+            )
 
             # Should succeed or fail depending on whether there are conflicts
             # Exit code 0 means no conflicts or conflicts handled correctly
@@ -2050,9 +2097,11 @@ class TestCLIImport:
         """Test that --dry-run shows preview without importing."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -2063,7 +2112,7 @@ class TestCLIImport:
 
             # Create export file
             export_file = Path(tmpdir) / "export.json"
-            self._create_export_file(export_file, format_type='json')
+            self._create_export_file(export_file, format_type="json")
 
             # Count memories before import
             palace = GraphPalace(db_path)
@@ -2071,12 +2120,10 @@ class TestCLIImport:
             before_count = cursor.fetchone()[0]
             palace.close()
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file),
-                '--dry-run'
-            ])
+            result = runner.invoke(
+                cli,
+                ["--data-dir", str(base_path), "import", "--input", str(export_file), "--dry-run"],
+            )
 
             assert result.exit_code == 0
             assert "dry run" in result.output.lower() or "would import" in result.output.lower()
@@ -2093,9 +2140,11 @@ class TestCLIImport:
         """Test --dry-run with conflict strategy."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -2106,19 +2155,25 @@ class TestCLIImport:
 
             # Create export file
             export_file = Path(tmpdir) / "export.json"
-            self._create_export_file(export_file, format_type='json')
+            self._create_export_file(export_file, format_type="json")
 
-            result = runner.invoke(cli, [
-                '--data-dir', str(base_path),
-                'import',
-                '--input', str(export_file),
-                '--on-conflict', 'overwrite',
-                '--dry-run'
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--data-dir",
+                    str(base_path),
+                    "import",
+                    "--input",
+                    str(export_file),
+                    "--on-conflict",
+                    "overwrite",
+                    "--dry-run",
+                ],
+            )
 
             assert result.exit_code == 0
             assert "dry run" in result.output.lower() or "would import" in result.output.lower()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

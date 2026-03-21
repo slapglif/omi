@@ -9,7 +9,7 @@ This is the CORE of OMI's intelligence - everything depends on it.
 - Graph traversal (BFS)
 """
 
-import aiosqlite
+import aiosqlite  # type: ignore
 import json
 import hashlib
 import uuid
@@ -26,18 +26,19 @@ import struct
 @dataclass
 class Memory:
     """A memory node in the graph palace."""
+
     id: str
     content: str
     embedding: Optional[List[float]] = None
     memory_type: str = "experience"  # fact | experience | belief | decision
     confidence: Optional[float] = None  # 0.0-1.0 for beliefs
-    created_at: datetime = None
+    created_at: Optional[datetime] = None
     last_accessed: Optional[datetime] = None
     access_count: int = 0
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.created_at is None:
             self.created_at = datetime.now()
         if self.last_accessed is None:
@@ -59,21 +60,22 @@ class Memory:
             "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
-            "content_hash": self.content_hash
+            "content_hash": self.content_hash,
         }
 
 
 @dataclass
 class Edge:
     """A relationship edge between memories."""
+
     id: str
     source_id: str
     target_id: str
     edge_type: str  # SUPPORTS | CONTRADICTS | RELATED_TO | DEPENDS_ON | POSTED | DISCUSSED
     strength: Optional[float] = None  # 0.0-1.0
-    created_at: datetime = None
+    created_at: Optional[datetime] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.created_at is None:
             self.created_at = datetime.now()
 
@@ -131,10 +133,7 @@ class AsyncGraphPalace:
     async def _get_connection(self) -> aiosqlite.Connection:
         """Get or create database connection."""
         if self._conn is None:
-            self._conn = await aiosqlite.connect(
-                self.db_path,
-                timeout=30.0
-            )
+            self._conn = await aiosqlite.connect(self.db_path, timeout=30.0)
             await self._init_db()
         return self._conn
 
@@ -201,19 +200,21 @@ class AsyncGraphPalace:
 
     def _embed_to_blob(self, embedding: List[float]) -> bytes:
         """Convert embedding list to binary blob (float32)."""
-        return struct.pack(f'{len(embedding)}f', *embedding)
+        return struct.pack(f"{len(embedding)}f", *embedding)
 
     def _blob_to_embed(self, blob: bytes) -> List[float]:
         """Convert binary blob to embedding list (float32)."""
         if not blob:
             return []
         num_floats = len(blob) // 4
-        return list(struct.unpack(f'{num_floats}f', blob))
+        return list(struct.unpack(f"{num_floats}f", blob))
 
     def _validate_memory_type(self, memory_type: str) -> None:
         """Validate memory type."""
         if memory_type not in self.MEMORY_TYPES:
-            raise ValueError(f"Invalid memory_type: {memory_type}. Must be one of: {self.MEMORY_TYPES}")
+            raise ValueError(
+                f"Invalid memory_type: {memory_type}. Must be one of: {self.MEMORY_TYPES}"
+            )
 
     def _validate_edge_type(self, edge_type: str) -> None:
         """Validate edge type."""
@@ -240,11 +241,13 @@ class AsyncGraphPalace:
         days_ago = (datetime.now() - timestamp).days
         return math.exp(-days_ago / self.RECENCY_HALF_LIFE)
 
-    async def store_memory(self,
-                   content: str,
-                   embedding: List[float] = None,
-                   memory_type: str = "experience",
-                   confidence: Optional[float] = None) -> str:
+    async def store_memory(
+        self,
+        content: str,
+        embedding: Optional[List[float]] = None,
+        memory_type: str = "experience",
+        confidence: Optional[float] = None,
+    ) -> str:
         """
         Store a memory in the palace.
 
@@ -270,27 +273,33 @@ class AsyncGraphPalace:
         embedding_blob = self._embed_to_blob(embedding) if embedding else None
 
         conn = await self._get_connection()
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO memories
             (id, content, embedding, memory_type, confidence, created_at,
              last_accessed, access_count, instance_ids, content_hash)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            memory_id,
-            content,
-            embedding_blob,
-            memory_type,
-            confidence,
-            now,
-            now,
-            0,
-            json.dumps([]),
-            content_hash
-        ))
+        """,
+            (
+                memory_id,
+                content,
+                embedding_blob,
+                memory_type,
+                confidence,
+                now,
+                now,
+                0,
+                json.dumps([]),
+                content_hash,
+            ),
+        )
         # Insert into FTS index
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
-        """, (memory_id, content))
+        """,
+            (memory_id, content),
+        )
         await conn.commit()
 
         # Cache the embedding for fast access
@@ -313,19 +322,25 @@ class AsyncGraphPalace:
         conn = await self._get_connection()
 
         # Update access stats
-        await conn.execute("""
+        await conn.execute(
+            """
             UPDATE memories
             SET access_count = access_count + 1, last_accessed = ?
             WHERE id = ?
-        """, (datetime.now().isoformat(), memory_id))
+        """,
+            (datetime.now().isoformat(), memory_id),
+        )
         await conn.commit()
 
         # Retrieve memory
-        async with conn.execute("""
+        async with conn.execute(
+            """
             SELECT id, content, embedding, memory_type, confidence,
                    created_at, last_accessed, access_count, instance_ids, content_hash
             FROM memories WHERE id = ?
-        """, (memory_id,)) as cursor:
+        """,
+            (memory_id,),
+        ) as cursor:
             row = await cursor.fetchone()
             if not row:
                 return None
@@ -344,7 +359,7 @@ class AsyncGraphPalace:
                 last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                 access_count=row[7],
                 instance_ids=instance_ids,
-                content_hash=row[9]
+                content_hash=row[9],
             )
 
             # Update cache
@@ -353,10 +368,9 @@ class AsyncGraphPalace:
 
             return memory
 
-    async def recall(self,
-               query_embedding: List[float],
-               limit: int = 10,
-               min_relevance: float = 0.7) -> List[Tuple[Memory, float]]:
+    async def recall(
+        self, query_embedding: List[float], limit: int = 10, min_relevance: float = 0.7
+    ) -> List[Tuple[Memory, float]]:
         """
         Semantic search with recency weighting.
 
@@ -418,9 +432,9 @@ class AsyncGraphPalace:
 
         # Compute cosine similarities: (n_memories,)
         # Avoid division by zero
-        similarities = np.divide(dots, norms * query_norm,
-                                out=np.zeros_like(dots),
-                                where=(norms * query_norm) > 0)
+        similarities = np.divide(
+            dots, norms * query_norm, out=np.zeros_like(dots), where=(norms * query_norm) > 0
+        )
 
         # Filter by min_relevance
         valid_indices = np.where(similarities >= min_relevance)[0]
@@ -453,7 +467,7 @@ class AsyncGraphPalace:
                 last_accessed=last_accessed,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
             )
             results.append((memory, final_score))
 
@@ -476,7 +490,8 @@ class AsyncGraphPalace:
 
         conn = await self._get_connection()
         # Use FTS5 MATCH via standalone FTS table
-        async with conn.execute("""
+        async with conn.execute(
+            """
             SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                    m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
             FROM memories_fts fts
@@ -484,7 +499,9 @@ class AsyncGraphPalace:
             WHERE memories_fts MATCH ?
             ORDER BY rank
             LIMIT ?
-        """, (query, limit)) as cursor:
+        """,
+            (query, limit),
+        ) as cursor:
             async for row in cursor:
                 embedding = self._blob_to_embed(row[2]) if row[2] else None
                 memory = Memory(
@@ -497,17 +514,15 @@ class AsyncGraphPalace:
                     last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                     access_count=row[7],
                     instance_ids=json.loads(row[8]) if row[8] else [],
-                    content_hash=row[9]
+                    content_hash=row[9],
                 )
                 memories.append(memory)
 
         return memories
 
-    async def create_edge(self,
-                   source_id: str,
-                   target_id: str,
-                   edge_type: str,
-                   strength: Optional[float] = None) -> str:
+    async def create_edge(
+        self, source_id: str, target_id: str, edge_type: str, strength: Optional[float] = None
+    ) -> str:
         """
         Create a relationship edge between memories.
 
@@ -525,10 +540,13 @@ class AsyncGraphPalace:
         edge_id = str(uuid.uuid4())
 
         conn = await self._get_connection()
-        await conn.execute("""
+        await conn.execute(
+            """
             INSERT INTO edges (id, source_id, target_id, edge_type, strength, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (edge_id, source_id, target_id, edge_type, strength, datetime.now().isoformat()))
+        """,
+            (edge_id, source_id, target_id, edge_type, strength, datetime.now().isoformat()),
+        )
         await conn.commit()
 
         return edge_id
@@ -555,33 +573,43 @@ class AsyncGraphPalace:
 
         conn = await self._get_connection()
         if edge_type:
-            async with conn.execute("""
+            async with conn.execute(
+                """
                 SELECT id, source_id, target_id, edge_type, strength, created_at
                 FROM edges WHERE (source_id = ? OR target_id = ?) AND edge_type = ?
-            """, (memory_id, memory_id, edge_type)) as cursor:
+            """,
+                (memory_id, memory_id, edge_type),
+            ) as cursor:
                 async for row in cursor:
-                    edges.append(Edge(
-                        id=row[0],
-                        source_id=row[1],
-                        target_id=row[2],
-                        edge_type=row[3],
-                        strength=row[4],
-                        created_at=datetime.fromisoformat(row[5]) if row[5] else None
-                    ))
+                    edges.append(
+                        Edge(
+                            id=row[0],
+                            source_id=row[1],
+                            target_id=row[2],
+                            edge_type=row[3],
+                            strength=row[4],
+                            created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                        )
+                    )
         else:
-            async with conn.execute("""
+            async with conn.execute(
+                """
                 SELECT id, source_id, target_id, edge_type, strength, created_at
                 FROM edges WHERE source_id = ? OR target_id = ?
-            """, (memory_id, memory_id)) as cursor:
+            """,
+                (memory_id, memory_id),
+            ) as cursor:
                 async for row in cursor:
-                    edges.append(Edge(
-                        id=row[0],
-                        source_id=row[1],
-                        target_id=row[2],
-                        edge_type=row[3],
-                        strength=row[4],
-                        created_at=datetime.fromisoformat(row[5]) if row[5] else None
-                    ))
+                    edges.append(
+                        Edge(
+                            id=row[0],
+                            source_id=row[1],
+                            target_id=row[2],
+                            edge_type=row[3],
+                            strength=row[4],
+                            created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                        )
+                    )
 
         return edges
 
@@ -600,7 +628,8 @@ class AsyncGraphPalace:
 
         conn = await self._get_connection()
         if edge_type:
-            async with conn.execute("""
+            async with conn.execute(
+                """
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                        m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
                 FROM memories m
@@ -608,44 +637,53 @@ class AsyncGraphPalace:
                 WHERE (e.source_id = ? OR e.target_id = ?)
                 AND m.id != ?
                 AND e.edge_type = ?
-            """, (memory_id, memory_id, memory_id, edge_type)) as cursor:
+            """,
+                (memory_id, memory_id, memory_id, edge_type),
+            ) as cursor:
                 async for row in cursor:
                     embedding = self._blob_to_embed(row[2]) if row[2] else None
-                    memories.append(Memory(
-                        id=row[0],
-                        content=row[1],
-                        embedding=embedding,
-                        memory_type=row[3],
-                        confidence=row[4],
-                        created_at=datetime.fromisoformat(row[5]) if row[5] else None,
-                        last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
-                        access_count=row[7],
-                        instance_ids=json.loads(row[8]) if row[8] else [],
-                        content_hash=row[9]
-                    ))
+                    memories.append(
+                        Memory(
+                            id=row[0],
+                            content=row[1],
+                            embedding=embedding,
+                            memory_type=row[3],
+                            confidence=row[4],
+                            created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                            last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
+                            access_count=row[7],
+                            instance_ids=json.loads(row[8]) if row[8] else [],
+                            content_hash=row[9],
+                        )
+                    )
         else:
-            async with conn.execute("""
+            async with conn.execute(
+                """
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                        m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
                 AND m.id != ?
-            """, (memory_id, memory_id, memory_id)) as cursor:
+            """,
+                (memory_id, memory_id, memory_id),
+            ) as cursor:
                 async for row in cursor:
                     embedding = self._blob_to_embed(row[2]) if row[2] else None
-                    memories.append(Memory(
-                        id=row[0],
-                        content=row[1],
-                        embedding=embedding,
-                        memory_type=row[3],
-                        confidence=row[4],
-                        created_at=datetime.fromisoformat(row[5]) if row[5] else None,
-                        last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
-                        access_count=row[7],
-                        instance_ids=json.loads(row[8]) if row[8] else [],
-                        content_hash=row[9]
-                    ))
+                    memories.append(
+                        Memory(
+                            id=row[0],
+                            content=row[1],
+                            embedding=embedding,
+                            memory_type=row[3],
+                            confidence=row[4],
+                            created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                            last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
+                            access_count=row[7],
+                            instance_ids=json.loads(row[8]) if row[8] else [],
+                            content_hash=row[9],
+                        )
+                    )
 
         return memories
 
@@ -669,10 +707,13 @@ class AsyncGraphPalace:
         conn = await self._get_connection()
 
         # Get memory stats
-        async with conn.execute("""
+        async with conn.execute(
+            """
             SELECT access_count, last_accessed, created_at
             FROM memories WHERE id = ?
-        """, (memory_id,)) as cursor:
+        """,
+            (memory_id,),
+        ) as cursor:
             row = await cursor.fetchone()
             if not row:
                 return 0.0
@@ -681,9 +722,12 @@ class AsyncGraphPalace:
             last_accessed = datetime.fromisoformat(row[1]) if row[1] else datetime.now()
 
         # Count edges (degree centrality)
-        async with conn.execute("""
+        async with conn.execute(
+            """
             SELECT COUNT(*) FROM edges WHERE source_id = ? OR target_id = ?
-        """, (memory_id, memory_id)) as cursor:
+        """,
+            (memory_id, memory_id),
+        ) as cursor:
             edge_count = (await cursor.fetchone())[0]
 
         # Normalize metrics (0-1 scale)
@@ -727,14 +771,17 @@ class AsyncGraphPalace:
                 continue
 
             # Get neighbors
-            async with conn.execute("""
+            async with conn.execute(
+                """
                 SELECT DISTINCT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                        m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
                 AND m.id != ?
-            """, (current_id, current_id, current_id)) as cursor:
+            """,
+                (current_id, current_id, current_id),
+            ) as cursor:
                 async for row in cursor:
                     neighbor_id = row[0]
                     if neighbor_id not in visited:
@@ -751,7 +798,7 @@ class AsyncGraphPalace:
                             last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                             access_count=row[7],
                             instance_ids=json.loads(row[8]) if row[8] else [],
-                            content_hash=row[9]
+                            content_hash=row[9],
                         )
                         result.append(memory)
                         queue.append((neighbor_id, current_depth + 1))
@@ -813,7 +860,7 @@ class AsyncGraphPalace:
                     last_accessed=last_accessed,
                     access_count=access_count,
                     instance_ids=json.loads(row[8]) if row[8] else [],
-                    content_hash=row[9]
+                    content_hash=row[9],
                 )
 
                 memories.append((memory, centrality))
@@ -836,9 +883,12 @@ class AsyncGraphPalace:
         embedding_blob = self._embed_to_blob(embedding) if embedding else None
 
         conn = await self._get_connection()
-        async with conn.execute("""
+        async with conn.execute(
+            """
             UPDATE memories SET embedding = ? WHERE id = ?
-        """, (embedding_blob, memory_id)) as cursor:
+        """,
+            (embedding_blob, memory_id),
+        ) as cursor:
             await conn.commit()
 
             if cursor.rowcount > 0 and embedding:
@@ -861,18 +911,24 @@ class AsyncGraphPalace:
         now = datetime.now().isoformat()
 
         conn = await self._get_connection()
-        async with conn.execute("""
+        async with conn.execute(
+            """
             UPDATE memories
             SET content = ?, content_hash = ?, last_accessed = ?
             WHERE id = ?
-        """, (new_content, new_content_hash, now, memory_id)) as cursor:
+        """,
+            (new_content, new_content_hash, now, memory_id),
+        ) as cursor:
             # Update FTS index
             if cursor.rowcount > 0:
-                await conn.execute("""
+                await conn.execute(
+                    """
                     UPDATE memories_fts
                     SET content = ?
                     WHERE memory_id = ?
-                """, (new_content, memory_id))
+                """,
+                    (new_content, memory_id),
+                )
 
             await conn.commit()
             return cursor.rowcount > 0
@@ -889,11 +945,14 @@ class AsyncGraphPalace:
             True if successful
         """
         conn = await self._get_connection()
-        async with conn.execute("""
+        async with conn.execute(
+            """
             UPDATE memories
             SET confidence = ?
             WHERE id = ? AND memory_type = 'belief'
-        """, (new_confidence, belief_id)) as cursor:
+        """,
+            (new_confidence, belief_id),
+        ) as cursor:
             await conn.commit()
             return cursor.rowcount > 0
 
@@ -910,9 +969,12 @@ class AsyncGraphPalace:
         conn = await self._get_connection()
 
         # Remove from FTS index first
-        await conn.execute("""
+        await conn.execute(
+            """
             DELETE FROM memories_fts WHERE memory_id = ?
-        """, (memory_id,))
+        """,
+            (memory_id,),
+        )
         async with conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,)) as cursor:
             await conn.commit()
 
@@ -955,7 +1017,7 @@ class AsyncGraphPalace:
             "memory_count": memory_count,
             "edge_count": edge_count,
             "type_distribution": type_distribution,
-            "edge_distribution": edge_distribution
+            "edge_distribution": edge_distribution,
         }
 
     async def get_compression_stats(self, threshold: Optional[datetime] = None) -> Dict[str, Any]:
@@ -975,10 +1037,13 @@ class AsyncGraphPalace:
 
         if threshold is not None:
             # Query memories before threshold
-            cursor = await conn.execute("""
+            cursor = await conn.execute(
+                """
                 SELECT content, memory_type FROM memories
                 WHERE created_at < ?
-            """, (threshold.isoformat(),))
+            """,
+                (threshold.isoformat(),),
+            )
         else:
             # Query all memories
             cursor = await conn.execute("""
@@ -1006,7 +1071,7 @@ class AsyncGraphPalace:
             "total_memories": total_memories,
             "total_chars": total_chars,
             "estimated_tokens": estimated_tokens,
-            "memories_by_type": memories_by_type
+            "memories_by_type": memories_by_type,
         }
 
     async def find_contradictions(self, memory_id: str) -> List[Memory]:
@@ -1035,7 +1100,9 @@ class AsyncGraphPalace:
         """
         return await self.get_neighbors(memory_id, edge_type="SUPPORTS")
 
-    async def get_memories_before(self, threshold: datetime, limit: Optional[int] = None) -> List[Memory]:
+    async def get_memories_before(
+        self, threshold: datetime, limit: Optional[int] = None
+    ) -> List[Memory]:
         """
         Query memories older than a threshold datetime.
 
@@ -1052,14 +1119,17 @@ class AsyncGraphPalace:
 
         conn = await self._get_connection()
         if limit is not None:
-            async with conn.execute("""
+            async with conn.execute(
+                """
                 SELECT id, content, embedding, memory_type, confidence,
                        created_at, last_accessed, access_count, instance_ids, content_hash
                 FROM memories
                 WHERE created_at < ?
                 ORDER BY created_at ASC
                 LIMIT ?
-            """, (threshold.isoformat(), limit)) as cursor:
+            """,
+                (threshold.isoformat(), limit),
+            ) as cursor:
                 async for row in cursor:
                     embedding = self._blob_to_embed(row[2]) if row[2] else None
                     memory = Memory(
@@ -1072,17 +1142,20 @@ class AsyncGraphPalace:
                         last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                         access_count=row[7],
                         instance_ids=json.loads(row[8]) if row[8] else [],
-                        content_hash=row[9]
+                        content_hash=row[9],
                     )
                     memories.append(memory)
         else:
-            async with conn.execute("""
+            async with conn.execute(
+                """
                 SELECT id, content, embedding, memory_type, confidence,
                        created_at, last_accessed, access_count, instance_ids, content_hash
                 FROM memories
                 WHERE created_at < ?
                 ORDER BY created_at ASC
-            """, (threshold.isoformat(),)) as cursor:
+            """,
+                (threshold.isoformat(),),
+            ) as cursor:
                 async for row in cursor:
                     embedding = self._blob_to_embed(row[2]) if row[2] else None
                     memory = Memory(
@@ -1095,7 +1168,7 @@ class AsyncGraphPalace:
                         last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                         access_count=row[7],
                         instance_ids=json.loads(row[8]) if row[8] else [],
-                        content_hash=row[9]
+                        content_hash=row[9],
                     )
                     memories.append(memory)
 

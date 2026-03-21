@@ -21,11 +21,17 @@ from .embeddings import OllamaEmbedder, EmbeddingCache
 
 # Security
 from .security import IntegrityChecker, TopologyVerifier, ConsensusManager
-from .events import MemoryStoredEvent, MemoryRecalledEvent, BeliefUpdatedEvent, ContradictionDetectedEvent
+from .events import (
+    MemoryStoredEvent,
+    MemoryRecalledEvent,
+    BeliefUpdatedEvent,
+    ContradictionDetectedEvent,
+)
 from .event_bus import get_event_bus
 
 # Vault
 from .moltvault import MoltVault
+
 # from .moltvault import MoltVault
 
 
@@ -36,18 +42,20 @@ class MemoryTools:
     Recommended: memory_recall, memory_store
     """
 
-    def __init__(self, palace_store: GraphPalace,
-                 embedder: OllamaEmbedder,
-                 cache: EmbeddingCache) -> None:
+    def __init__(
+        self, palace_store: GraphPalace, embedder: OllamaEmbedder, cache: EmbeddingCache
+    ) -> None:
         self.palace: GraphPalace = palace_store
         self.embedder: OllamaEmbedder = embedder
         self.cache: EmbeddingCache = cache
-    
-    def recall(self,
-              query: str,
-              limit: int = 10,
-              min_relevance: float = 0.7,
-              memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
+
+    def recall(
+        self,
+        query: str,
+        limit: int = 10,
+        min_relevance: float = 0.7,
+        memory_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """
         memory_recall: Semantic search with recency weighting
 
@@ -64,23 +72,24 @@ class MemoryTools:
         query_embedding = self.cache.get_or_compute(query)
 
         # Get candidates from palace (returns List[Tuple[Memory, float]])
-        candidate_tuples = self.palace.recall(query_embedding, limit=limit*2, min_relevance=min_relevance)
+        candidate_tuples = self.palace.recall(
+            query_embedding, limit=limit * 2, min_relevance=min_relevance
+        )
 
         # Convert tuples to dicts and filter by type
         candidates: List[Dict[str, Any]] = []
         for memory, relevance in candidate_tuples:
             mem_dict = memory.to_dict()
-            mem_dict['relevance'] = relevance
-            if memory_type is None or mem_dict.get('memory_type') == memory_type:
+            mem_dict["relevance"] = relevance
+            if memory_type is None or mem_dict.get("memory_type") == memory_type:
                 candidates.append(mem_dict)
-
 
         # Apply recency weighting
         half_life = 30.0  # days
 
         weighted: List[Dict[str, Any]] = []
         for mem in candidates:
-            created_at = mem.get('created_at')
+            created_at = mem.get("created_at")
             if isinstance(created_at, str):
                 try:
                     created_at = datetime.fromisoformat(created_at)
@@ -91,29 +100,27 @@ class MemoryTools:
             days_ago = (datetime.now() - created_at).days
             recency = calculate_recency_score(days_ago, half_life)
 
-            final_score = (mem.get('relevance', 0.7) * 0.7) + (recency * 0.3)
-            mem['final_score'] = final_score
+            final_score = (mem.get("relevance", 0.7) * 0.7) + (recency * 0.3)
+            mem["final_score"] = final_score
             weighted.append(mem)
 
         # Sort by final score
-        weighted.sort(key=lambda x: x.get('final_score', 0.0), reverse=True)
+        weighted.sort(key=lambda x: x.get("final_score", 0.0), reverse=True)
         results = weighted[:limit]
 
         # Emit event
-        event = MemoryRecalledEvent(
-            query=query,
-            result_count=len(results),
-            top_results=results
-        )
+        event = MemoryRecalledEvent(query=query, result_count=len(results), top_results=results)
         get_event_bus().publish(event)
 
         return results
-    
-    def store(self,
-             content: str,
-             memory_type: str = 'experience',
-             related_to: Optional[List[str]] = None,
-             confidence: Optional[float] = None) -> str:
+
+    def store(
+        self,
+        content: str,
+        memory_type: str = "experience",
+        related_to: Optional[List[str]] = None,
+        confidence: Optional[float] = None,
+    ) -> str:
         """
         memory_store: Persist memory with embedding
 
@@ -131,22 +138,17 @@ class MemoryTools:
 
         # Store in palace
         memory_id = self.palace.store_memory(
-            content=content,
-            memory_type=memory_type,
-            confidence=confidence
+            content=content, memory_type=memory_type, confidence=confidence
         )
 
         # Create relationships
         if related_to:
             for related_id in related_to:
-                self.palace.create_edge(memory_id, related_id, 'RELATED_TO', 0.5)
+                self.palace.create_edge(memory_id, related_id, "RELATED_TO", 0.5)
 
         # Emit event
         event = MemoryStoredEvent(
-            memory_id=memory_id,
-            content=content,
-            memory_type=memory_type,
-            confidence=confidence
+            memory_id=memory_id, content=content, memory_type=memory_type, confidence=confidence
         )
         get_event_bus().publish(event)
 
@@ -158,31 +160,26 @@ class BeliefTools:
     Belief network operations
     """
 
-    def __init__(self, belief_network: BeliefNetwork,
-                 detector: ContradictionDetector) -> None:
+    def __init__(self, belief_network: BeliefNetwork, detector: ContradictionDetector) -> None:
         self.belief: BeliefNetwork = belief_network
         self.detector: ContradictionDetector = detector
-    
-    def create(self,
-              content: str,
-              initial_confidence: float = 0.5) -> str:
+
+    def create(self, content: str, initial_confidence: float = 0.5) -> str:
         """
         belief_create: Create new belief with confidence
-        
+
         Args:
             content: Belief statement
             initial_confidence: Starting confidence 0.0-1.0
-        
+
         Returns:
             belief_id: UUID for created belief
         """
         return self.belief.create_belief(content, initial_confidence)
-    
-    def update(self,
-             belief_id: str,
-             evidence_memory_id: str,
-             supports: bool,
-             strength: float) -> float:
+
+    def update(
+        self, belief_id: str, evidence_memory_id: str, supports: bool, strength: float
+    ) -> float:
         """
         belief_update: Add evidence, update confidence
 
@@ -199,13 +196,13 @@ class BeliefTools:
         """
         # Get old confidence before update
         current = self.belief.palace.get_belief(belief_id)
-        old_confidence = current.get('confidence', 0.5)
+        old_confidence = current.get("confidence", 0.5)
 
         evidence = Evidence(
             memory_id=evidence_memory_id,
             supports=supports,
             strength=strength,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         new_confidence = self.belief.update_with_evidence(belief_id, evidence)
@@ -215,24 +212,20 @@ class BeliefTools:
             belief_id=belief_id,
             old_confidence=old_confidence,
             new_confidence=new_confidence,
-            evidence_id=evidence_memory_id
+            evidence_id=evidence_memory_id,
         )
         get_event_bus().publish(event)
 
         return new_confidence
-    
-    def retrieve(self,
-               query: str,
-               min_confidence: Optional[float] = None) -> List[Dict[str, Any]]:
+
+    def retrieve(self, query: str, min_confidence: Optional[float] = None) -> List[Dict[str, Any]]:
         """
         belief_retrieve: Get beliefs with confidence weighting
-        
+
         High-confidence beliefs rank exponentially higher
         """
-        return self.belief.retrieve_with_confidence_weighting(
-            query, min_confidence
-        )
-    
+        return self.belief.retrieve_with_confidence_weighting(query, min_confidence)
+
     def check_contradiction(self, memory1_id: str, memory2_id: str) -> bool:
         """
         belief_check_contradiction: Detect conflicting evidence
@@ -243,8 +236,7 @@ class BeliefTools:
         mem2 = self.belief.palace.get_memory(memory2_id)
 
         is_contradiction, pattern = self.detector.detect_contradiction_with_pattern(
-            mem1.get('content', ''),
-            mem2.get('content', '')
+            mem1.get("content", ""), mem2.get("content", "")
         )
 
         # Emit event if contradiction detected
@@ -252,25 +244,25 @@ class BeliefTools:
             event = ContradictionDetectedEvent(
                 memory_id_1=memory1_id,
                 memory_id_2=memory2_id,
-                contradiction_pattern=pattern or "unknown"
+                contradiction_pattern=pattern or "unknown",
             )
             get_event_bus().publish(event)
 
         return is_contradiction
-    
+
     def get_evidence_chain(self, belief_id: str) -> List[Dict[str, Any]]:
         """
         belief_evidence_chain: Show supporting/contradicting evidence
-        
+
         Returns evidence with timestamps for audit
         """
         evidence = self.belief.get_evidence_chain(belief_id)
         return [
             {
-                'memory_id': e.memory_id,
-                'supports': e.supports,
-                'strength': e.strength,
-                'timestamp': e.timestamp.isoformat()
+                "memory_id": e.memory_id,
+                "supports": e.supports,
+                "strength": e.strength,
+                "timestamp": e.timestamp.isoformat(),
             }
             for e in evidence
         ]
@@ -281,12 +273,11 @@ class CheckpointTools:
     Session checkpoint and recovery
     """
 
-    def __init__(self, now_store: NowStorage,
-                 vault: MoltVault) -> None:
+    def __init__(self, now_store: NowStorage, vault: MoltVault) -> None:
         # NOWStore is now an alias for NowStorage
         self.now: NowStorage = now_store
         self.vault: MoltVault = vault
-    
+
     def now_read(self) -> Dict[str, Any]:
         """
         now_read: Load current operational context
@@ -300,21 +291,23 @@ class CheckpointTools:
             try:
                 entry = NOWEntry.from_markdown(content)
                 return {
-                    'current_task': entry.current_task,
-                    'recent_completions': entry.recent_completions,
-                    'pending_decisions': entry.pending_decisions,
-                    'key_files': entry.key_files,
-                    'timestamp': entry.timestamp.isoformat()
+                    "current_task": entry.current_task,
+                    "recent_completions": entry.recent_completions,
+                    "pending_decisions": entry.pending_decisions,
+                    "key_files": entry.key_files,
+                    "timestamp": entry.timestamp.isoformat(),
                 }
             except Exception:
                 pass
         return {}
-    
-    def now_update(self,
-                  current_task: Optional[str] = None,
-                  recent_completions: Optional[List[str]] = None,
-                  pending_decisions: Optional[List[str]] = None,
-                  key_files: Optional[List[str]] = None) -> None:
+
+    def now_update(
+        self,
+        current_task: Optional[str] = None,
+        recent_completions: Optional[List[str]] = None,
+        pending_decisions: Optional[List[str]] = None,
+        key_files: Optional[List[str]] = None,
+    ) -> None:
         """
         now_update: Update operational state
 
@@ -325,37 +318,35 @@ class CheckpointTools:
             current_task=current_task,
             recent_completions=recent_completions,
             pending_decisions=pending_decisions,
-            key_files=key_files
+            key_files=key_files,
         )
-    
-    def create_capsule(self,
-                      intent: str,
-                      partial_plan: str) -> Dict[str, Any]:
+
+    def create_capsule(self, intent: str, partial_plan: str) -> Dict[str, Any]:
         """
         capsule_create: Serialize state for recovery
-        
+
         Args:
             intent: Current task/plan
             partial_plan: Checkpoint of progress
-        
+
         Returns:
             Capsule with checksum and provenance
         """
         import hashlib
-        
+
         capsule = {
-            'version': '1.0',
-            'intent_hash': hashlib.sha256(intent.encode()).hexdigest()[:16],
-            'partial_plan': partial_plan,
-            'timestamp': datetime.now().isoformat()
+            "version": "1.0",
+            "intent_hash": hashlib.sha256(intent.encode()).hexdigest()[:16],
+            "partial_plan": partial_plan,
+            "timestamp": datetime.now().isoformat(),
         }
-        
+
         # Generate checksum
         content = json.dumps(capsule, sort_keys=True)
-        capsule['checksum'] = hashlib.sha256(content.encode()).hexdigest()
-        
+        capsule["checksum"] = hashlib.sha256(content.encode()).hexdigest()
+
         return capsule
-    
+
     def vault_backup(self, full: bool = True) -> str:
         """
         vault_backup: Full backup to MoltVault
@@ -388,55 +379,60 @@ class SecurityTools:
     Security verification (MCP tools)
     """
 
-    def __init__(self, integrity: IntegrityChecker,
-                 topology: TopologyVerifier,
-                 consensus: Optional[ConsensusManager] = None) -> None:
+    def __init__(
+        self,
+        integrity: IntegrityChecker,
+        topology: TopologyVerifier,
+        consensus: Optional[ConsensusManager] = None,
+    ) -> None:
         self.integrity: IntegrityChecker = integrity
         self.topology: TopologyVerifier = topology
         self.consensus: Optional[ConsensusManager] = consensus
-    
-    def integrity_check(self, scope: str = 'all') -> Dict[str, Any]:
+
+    def integrity_check(self, scope: str = "all") -> Dict[str, Any]:
         """
         integrity_check: Verify memory files
 
         Scopes: 'now' | 'daily' | 'graph' | 'all'
         """
         results: Dict[str, Any] = {
-            'now_md': self.integrity.check_now_md(),
-            'memory_md': self.integrity.check_memory_md()
+            "now_md": self.integrity.check_now_md(),
+            "memory_md": self.integrity.check_memory_md(),
         }
-        
-        if scope in ['graph', 'all']:
+
+        if scope in ["graph", "all"]:
             audit = self.topology.full_topology_audit()
-            results['topology'] = {
-                'orphan_nodes': len(audit.orphan_nodes),
-                'sudden_cores': len(audit.sudden_cores),
-                'warnings': audit.orphan_nodes[:5] + [c['id'] for c in audit.sudden_cores[:5]]
+            results["topology"] = {
+                "orphan_nodes": len(audit.orphan_nodes),
+                "sudden_cores": len(audit.sudden_cores),
+                "warnings": audit.orphan_nodes[:5] + [c["id"] for c in audit.sudden_cores[:5]],
             }
-        
-        results['overall_safe'] = all([
-            results['now_md'],
-            results['memory_md'],
-            results.get('topology', {}).get('orphan_nodes', 0) < 5
-        ])
-        
+
+        results["overall_safe"] = all(
+            [
+                results["now_md"],
+                results["memory_md"],
+                results.get("topology", {}).get("orphan_nodes", 0) < 5,
+            ]
+        )
+
         return results
-    
+
     def topology_audit(self) -> Dict[str, Any]:
         """
         topology_audit: Check graph anomalies
-        
+
         Detects: orphan nodes, sudden cores, embedding drift
         """
         audit = self.topology.full_topology_audit()
-        
+
         return {
-            'orphan_nodes_count': len(audit.orphan_nodes),
-            'orphan_nodes_sample': audit.orphan_nodes[:3],
-            'sudden_cores_count': len(audit.sudden_cores),
-            'sudden_cores_sample': audit.sudden_cores[:2],
-            'semantic_anomalies': len(audit.semantic_anomalies),
-            'safe': len(audit.orphan_nodes) < 5 and len(audit.sudden_cores) == 0
+            "orphan_nodes_count": len(audit.orphan_nodes),
+            "orphan_nodes_sample": audit.orphan_nodes[:3],
+            "sudden_cores_count": len(audit.sudden_cores),
+            "sudden_cores_sample": audit.sudden_cores[:2],
+            "semantic_anomalies": len(audit.semantic_anomalies),
+            "safe": len(audit.orphan_nodes) < 5 and len(audit.sudden_cores) == 0,
         }
 
 
@@ -447,23 +443,23 @@ class DailyLogTools:
 
     def __init__(self, daily_store: DailyLogStore) -> None:
         self.daily: DailyLogStore = daily_store
-    
+
     def append(self, content: str) -> str:
         """
         daily_log_append: Add to today's log
-        
+
         Pattern: Append throughout day, continuous capture
         """
         file_path = self.daily.append(content)
         return str(file_path)
-    
+
     def read(self, days_ago: int = 0) -> str:
         """daily_log_read: Read specific day's log"""
         from datetime import datetime, timedelta
-        
+
         target = datetime.now() - timedelta(days=days_ago)
         return self.daily.read_daily(target)
-    
+
     def list_recent(self, days: int = 7) -> List[str]:
         """daily_log_list: Recent log files"""
         return [str(p) for p in self.daily.list_days(days)]
@@ -472,28 +468,26 @@ class DailyLogTools:
 def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Initialize all MCP tools with configuration
-    
+
     Returns:
         Dictionary of tool instances for OpenClaw registration
     """
     from pathlib import Path
-    
-    base_path = Path(config.get('base_path', '~/.openclaw/omi'))
-    db_path = base_path / 'palace.sqlite'
-    
+
+    base_path = Path(config.get("base_path", "~/.openclaw/omi"))
+    db_path = base_path / "palace.sqlite"
+
     # Initialize stores
     now_store = NowStorage(base_path)
     daily_store = DailyLogStore(base_path)
     palace = GraphPalace(db_path)
     vault = MoltVault(base_path=base_path)
-    
+
     # Initialize embedders
-    embedder = OllamaEmbedder(
-        model=config.get('embedding_model', 'nomic-embed-text')
-    )
-    cache_path = base_path / 'embeddings'
+    embedder = OllamaEmbedder(model=config.get("embedding_model", "nomic-embed-text"))
+    cache_path = base_path / "embeddings"
     cache = EmbeddingCache(cache_path, embedder)
-    
+
     # Initialize belief network
     # BeliefNetwork and ContradictionDetector already imported at module level
     belief_net = BeliefNetwork(palace)
@@ -503,21 +497,21 @@ def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
     # IntegrityChecker and TopologyVerifier already imported at module level
     integrity = IntegrityChecker(base_path)
     topology = TopologyVerifier(palace)
-    
+
     # Create tool instances
     return {
-        'memory_recall': MemoryTools(palace, embedder, cache).recall,
-        'memory_store': MemoryTools(palace, embedder, cache).store,
-        'belief_create': BeliefTools(belief_net, detector).create,
-        'belief_update': BeliefTools(belief_net, detector).update,
-        'belief_retrieve': BeliefTools(belief_net, detector).retrieve,
-        'belief_evidence_chain': BeliefTools(belief_net, detector).get_evidence_chain,
-        'now_read': CheckpointTools(now_store, vault).now_read,
-        'now_update': CheckpointTools(now_store, vault).now_update,
-        'vault_backup': CheckpointTools(now_store, vault).vault_backup,
-        'vault_restore': CheckpointTools(now_store, vault).vault_restore,
-        'integrity_check': SecurityTools(integrity, topology).integrity_check,
-        'topology_audit': SecurityTools(integrity, topology).topology_audit,
-        'daily_log_append': DailyLogTools(daily_store).append,
-        'capsule_create': CheckpointTools(now_store, vault).create_capsule
+        "memory_recall": MemoryTools(palace, embedder, cache).recall,
+        "memory_store": MemoryTools(palace, embedder, cache).store,
+        "belief_create": BeliefTools(belief_net, detector).create,
+        "belief_update": BeliefTools(belief_net, detector).update,
+        "belief_retrieve": BeliefTools(belief_net, detector).retrieve,
+        "belief_evidence_chain": BeliefTools(belief_net, detector).get_evidence_chain,
+        "now_read": CheckpointTools(now_store, vault).now_read,
+        "now_update": CheckpointTools(now_store, vault).now_update,
+        "vault_backup": CheckpointTools(now_store, vault).vault_backup,
+        "vault_restore": CheckpointTools(now_store, vault).vault_restore,
+        "integrity_check": SecurityTools(integrity, topology).integrity_check,
+        "topology_audit": SecurityTools(integrity, topology).topology_audit,
+        "daily_log_append": DailyLogTools(daily_store).append,
+        "capsule_create": CheckpointTools(now_store, vault).create_capsule,
     }

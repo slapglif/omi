@@ -41,30 +41,34 @@ except ImportError:
 
 # Plugin entry point group names
 PLUGIN_GROUPS = {
-    'embedding_providers': 'omi.embedding_providers',
-    'storage_backends': 'omi.storage_backends',
-    'event_handlers': 'omi.event_handlers',
+    "embedding_providers": "omi.embedding_providers",
+    "storage_backends": "omi.storage_backends",
+    "event_handlers": "omi.event_handlers",
 }
 
 
 class PluginError(Exception):
     """Base exception for plugin-related errors"""
+
     pass
 
 
 class PluginLoadError(PluginError):
     """Raised when a plugin fails to load"""
+
     pass
 
 
 class PluginValidationError(PluginError):
     """Raised when a plugin fails validation checks"""
+
     pass
 
 
 @dataclass
 class PluginInfo:
     """Metadata for a discovered plugin"""
+
     name: str  # Entry point name
     group: str  # Entry point group (e.g., 'omi.embedding_providers')
     module: str  # Module path (e.g., 'my_plugin.provider')
@@ -116,7 +120,7 @@ def discover_plugins(group: Optional[str] = None) -> Dict[str, List[EntryPoint]]
         try:
             # Python 3.10+ returns EntryPoints object with select() method
             eps = entry_points()
-            if hasattr(eps, 'select'):
+            if hasattr(eps, "select"):
                 group_eps = list(eps.select(group=group_name))
             else:
                 # Fallback for older versions where entry_points() returns dict
@@ -221,20 +225,20 @@ def validate_plugin(
         from omi.embeddings import EmbeddingProvider
         validate_plugin(MyEmbedder, EmbeddingProvider, 'omi.embedding_providers')
     """
-    plugin_name = getattr(plugin, '__name__', str(plugin))
+    plugin_name = getattr(plugin, "__name__", str(plugin))
     group_info = f" in group '{group}'" if group else ""
 
     # Check for interface_version attribute
-    if not hasattr(plugin, 'interface_version'):
+    if not hasattr(plugin, "interface_version"):
         raise PluginValidationError(
             f"Plugin '{plugin_name}'{group_info} is missing required 'interface_version' attribute. "
             f"Add 'interface_version = \"1.0\"' to your plugin class."
         )
 
-    interface_version = getattr(plugin, 'interface_version')
+    interface_version = getattr(plugin, "interface_version")
 
     # Validate interface version (currently only 1.0 is supported)
-    supported_versions = ['1.0']
+    supported_versions = ["1.0"]
     if interface_version not in supported_versions:
         raise PluginValidationError(
             f"Plugin '{plugin_name}'{group_info} has incompatible interface_version '{interface_version}'. "
@@ -252,7 +256,9 @@ def validate_plugin(
                 f"Found: {plugin_class.__bases__}"
             )
 
-    logger.debug(f"Plugin '{plugin_name}'{group_info} passed validation (interface_version={interface_version})")
+    logger.debug(
+        f"Plugin '{plugin_name}'{group_info} passed validation (interface_version={interface_version})"
+    )
 
 
 class PluginRegistry:
@@ -298,8 +304,8 @@ class PluginRegistry:
                     plugin_info = PluginInfo(
                         name=ep.name,
                         group=group,
-                        module=ep.value.split(':')[0] if ':' in ep.value else ep.value,
-                        attr=ep.value.split(':')[1] if ':' in ep.value else '',
+                        module=ep.value.split(":")[0] if ":" in ep.value else ep.value,
+                        attr=ep.value.split(":")[1] if ":" in ep.value else "",
                     )
                     self._plugins[group][ep.name] = plugin_info
 
@@ -331,8 +337,8 @@ class PluginRegistry:
                 plugin_info = PluginInfo(
                     name=ep.name,
                     group=group,
-                    module=ep.value.split(':')[0] if ':' in ep.value else ep.value,
-                    attr=ep.value.split(':')[1] if ':' in ep.value else '',
+                    module=ep.value.split(":")[0] if ":" in ep.value else ep.value,
+                    attr=ep.value.split(":")[1] if ":" in ep.value else "",
                 )
                 self._plugins[group][ep.name] = plugin_info
 
@@ -401,7 +407,7 @@ class PluginRegistry:
             # Update plugin info
             plugin_info.loaded = True
             plugin_info.instance = plugin
-            plugin_info.interface_version = getattr(plugin, 'interface_version', None)
+            plugin_info.interface_version = getattr(plugin, "interface_version", None)
 
             return plugin
         except Exception as e:
@@ -419,10 +425,7 @@ class PluginRegistry:
         if not self._discovered:
             self.discover_all()
 
-        return {
-            group: list(plugins.values())
-            for group, plugins in self._plugins.items()
-        }
+        return {group: list(plugins.values()) for group, plugins in self._plugins.items()}
 
     def is_loaded(self, group: str, name: str) -> bool:
         """

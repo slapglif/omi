@@ -14,6 +14,7 @@ Issue: https://github.com/slapglif/omi/issues/4
 Note: Full SSE streaming tests are limited by TestClient's synchronous nature.
 Production SSE streaming should be tested with a running server.
 """
+
 import pytest
 import json
 from datetime import datetime
@@ -28,7 +29,7 @@ from omi.events import (
     BeliefUpdatedEvent,
     ContradictionDetectedEvent,
     SessionStartedEvent,
-    SessionEndedEvent
+    SessionEndedEvent,
 )
 
 
@@ -124,20 +125,20 @@ class TestEventStreamGenerator:
         Test that event_stream subscribes to EventBus
         """
         bus = get_event_bus()
-        initial_subscribers = len(bus._subscribers.get('*', []))
+        initial_subscribers = len(bus._subscribers.get("*", []))
 
         gen = event_stream()
         await gen.__anext__()  # Get connected message
 
         # Should have added a subscriber
-        current_subscribers = len(bus._subscribers.get('*', []))
+        current_subscribers = len(bus._subscribers.get("*", []))
         assert current_subscribers == initial_subscribers + 1
 
         # Close generator
         await gen.aclose()
 
         # Subscriber should be removed
-        final_subscribers = len(bus._subscribers.get('*', []))
+        final_subscribers = len(bus._subscribers.get("*", []))
         assert final_subscribers == initial_subscribers
 
     async def test_event_stream_with_filter_subscribes_to_specific_type(self):
@@ -170,7 +171,7 @@ class TestEventSerialization:
             content="Test content",
             memory_type="fact",
             confidence=0.95,
-            metadata={"source": "test"}
+            metadata={"source": "test"},
         )
 
         data = event.to_dict()
@@ -194,7 +195,7 @@ class TestEventSerialization:
             top_results=[
                 {"id": "mem1", "score": 0.95},
                 {"id": "mem2", "score": 0.85},
-            ]
+            ],
         )
 
         data = event.to_dict()
@@ -213,7 +214,7 @@ class TestEventSerialization:
             belief_id="belief_123",
             old_confidence=0.5,
             new_confidence=0.75,
-            evidence_id="evidence_456"
+            evidence_id="evidence_456",
         )
 
         data = event.to_dict()
@@ -230,10 +231,7 @@ class TestEventSerialization:
         Assert: to_dict() includes memory IDs and pattern
         """
         event = ContradictionDetectedEvent(
-            memory_id_1="mem1",
-            memory_id_2="mem2",
-            contradiction_pattern="negation",
-            confidence=0.9
+            memory_id_1="mem1", memory_id_2="mem2", contradiction_pattern="negation", confidence=0.9
         )
 
         data = event.to_dict()
@@ -249,10 +247,7 @@ class TestEventSerialization:
         Create SessionStartedEvent
         Assert: to_dict() includes session_id and metadata
         """
-        event = SessionStartedEvent(
-            session_id="session_123",
-            metadata={"user": "test_user"}
-        )
+        event = SessionStartedEvent(session_id="session_123", metadata={"user": "test_user"})
 
         data = event.to_dict()
 
@@ -265,10 +260,7 @@ class TestEventSerialization:
         Create SessionEndedEvent
         Assert: to_dict() includes session_id and duration
         """
-        event = SessionEndedEvent(
-            session_id="session_123",
-            duration_seconds=120.5
-        )
+        event = SessionEndedEvent(session_id="session_123", duration_seconds=120.5)
 
         data = event.to_dict()
 
@@ -284,11 +276,7 @@ class TestSSEFormat:
         """
         Test that SSE messages follow correct format: "data: {json}\n\n"
         """
-        event = MemoryStoredEvent(
-            memory_id="test",
-            content="Test",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="test", content="Test", memory_type="fact")
 
         # Format as SSE
         event_data = event.to_dict()
@@ -321,11 +309,7 @@ class TestEventBusIntegration:
 
         bus.subscribe("memory.stored", callback)
 
-        event = MemoryStoredEvent(
-            memory_id="test",
-            content="Test",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="test", content="Test", memory_type="fact")
         bus.publish(event)
 
         assert len(received_events) == 1
@@ -374,16 +358,8 @@ class TestEventBusIntegration:
 
         bus.subscribe("memory.stored", callback)
 
-        memory_event = MemoryStoredEvent(
-            memory_id="m1",
-            content="Test",
-            memory_type="fact"
-        )
-        belief_event = BeliefUpdatedEvent(
-            belief_id="b1",
-            old_confidence=0.5,
-            new_confidence=0.7
-        )
+        memory_event = MemoryStoredEvent(memory_id="m1", content="Test", memory_type="fact")
+        belief_event = BeliefUpdatedEvent(belief_id="b1", old_confidence=0.5, new_confidence=0.7)
 
         bus.publish(memory_event)
         bus.publish(belief_event)

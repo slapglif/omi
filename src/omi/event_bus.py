@@ -100,7 +100,9 @@ class EventBus:
                 self._subscribers[event_type] = []
 
             self._subscribers[event_type].append(callback)
-            logger.debug(f"Subscribed to {event_type}: {callback.__name__ if hasattr(callback, '__name__') else 'lambda'}")
+            logger.debug(
+                f"Subscribed to {event_type}: {callback.__name__ if hasattr(callback, '__name__') else 'lambda'}"
+            )
 
     def unsubscribe(self, event_type: str, callback: Callable[[Any], None]) -> bool:
         """
@@ -146,7 +148,7 @@ class EventBus:
             )
             bus.publish(event)
         """
-        if not hasattr(event, 'event_type'):
+        if not hasattr(event, "event_type"):
             logger.warning(f"Event missing 'event_type' attribute: {type(event).__name__}")
             return
 
@@ -155,7 +157,7 @@ class EventBus:
         # Get subscribers (make a copy to avoid holding lock during callbacks)
         with self._lock:
             specific_subscribers = self._subscribers.get(event_type, []).copy()
-            wildcard_subscribers = self._subscribers.get('*', []).copy()
+            wildcard_subscribers = self._subscribers.get("*", []).copy()
 
         # Notify specific subscribers
         for callback in specific_subscribers:
@@ -169,9 +171,13 @@ class EventBus:
             try:
                 callback(event)
             except Exception as e:
-                logger.error(f"Error in wildcard subscriber callback for {event_type}: {e}", exc_info=True)
+                logger.error(
+                    f"Error in wildcard subscriber callback for {event_type}: {e}", exc_info=True
+                )
 
-        logger.debug(f"Published {event_type} to {len(specific_subscribers) + len(wildcard_subscribers)} subscribers")
+        logger.debug(
+            f"Published {event_type} to {len(specific_subscribers) + len(wildcard_subscribers)} subscribers"
+        )
 
     def clear(self) -> None:
         """
@@ -270,7 +276,7 @@ class WebhookDispatcher:
             retry_delay: Initial delay between retries (exponential backoff)
         """
         self.webhook_url = webhook_url
-        self.event_types = event_types or ['*']
+        self.event_types = event_types or ["*"]
         self.headers = headers or {}
         self.timeout = timeout
         self.max_retries = max_retries
@@ -282,7 +288,8 @@ class WebhookDispatcher:
 
         # Validate requests library is available
         try:
-            import requests
+            import requests  # type: ignore
+
             self._requests = requests
         except ImportError:
             raise ImportError(
@@ -303,29 +310,23 @@ class WebhookDispatcher:
 
         # Serialize event
         try:
-            if hasattr(event, 'to_dict'):
+            if hasattr(event, "to_dict"):
                 payload = event.to_dict()
             else:
-                payload = {'event_type': event.event_type}
+                payload = {"event_type": event.event_type}
         except Exception as e:
             logger.error(f"Failed to serialize event for webhook: {e}")
             return
 
         # Prepare request
-        headers = {
-            'Content-Type': 'application/json',
-            **self.headers
-        }
+        headers = {"Content-Type": "application/json", **self.headers}
 
         # Retry loop
         last_error = None
         for attempt in range(self.max_retries + 1):
             try:
                 response = self._requests.post(
-                    self.webhook_url,
-                    json=payload,
-                    headers=headers,
-                    timeout=self.timeout
+                    self.webhook_url, json=payload, headers=headers, timeout=self.timeout
                 )
                 response.raise_for_status()
                 logger.debug(
@@ -337,7 +338,7 @@ class WebhookDispatcher:
                 last_error = e
                 if attempt < self.max_retries:
                     # Exponential backoff
-                    delay = self.retry_delay * (2 ** attempt)
+                    delay = self.retry_delay * (2**attempt)
                     logger.warning(
                         f"Webhook delivery failed (attempt {attempt + 1}/{self.max_retries + 1}): {e}. "
                         f"Retrying in {delay}s..."
@@ -409,4 +410,4 @@ class WebhookDispatcher:
         return self._active
 
 
-__all__ = ['EventBus', 'get_event_bus', 'reset_event_bus', 'WebhookDispatcher']
+__all__ = ["EventBus", "get_event_bus", "reset_event_bus", "WebhookDispatcher"]

@@ -36,7 +36,7 @@ from .events import (
     BeliefUpdatedEvent,
     ContradictionDetectedEvent,
     SessionStartedEvent,
-    SessionEndedEvent
+    SessionEndedEvent,
 )
 from .dashboard_api import router as dashboard_router
 from .api import MemoryTools, BeliefTools
@@ -96,70 +96,93 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Ke
 # Pydantic models for request/response
 class StoreMemoryRequest(BaseModel):
     """Request body for storing a memory."""
+
     content: str = Field(..., description="Memory content to store")
-    memory_type: str = Field(default="experience", description="Type: fact|experience|belief|decision")
+    memory_type: str = Field(
+        default="experience", description="Type: fact|experience|belief|decision"
+    )
     related_to: Optional[List[str]] = Field(default=None, description="IDs of related memories")
-    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Confidence score (0.0-1.0)")
+    confidence: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0, description="Confidence score (0.0-1.0)"
+    )
 
 
 class StoreMemoryResponse(BaseModel):
     """Response after storing a memory."""
+
     memory_id: str = Field(..., description="UUID of stored memory")
     message: str = Field(default="Memory stored successfully")
 
 
 class RecallMemoryResponse(BaseModel):
     """Response containing recalled memories."""
+
     memories: List[dict] = Field(..., description="List of recalled memories")
     count: int = Field(..., description="Number of memories returned")
 
 
 class CreateBeliefRequest(BaseModel):
     """Request body for creating a belief."""
+
     content: str = Field(..., description="Belief statement")
-    initial_confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Starting confidence (0.0-1.0)")
+    initial_confidence: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Starting confidence (0.0-1.0)"
+    )
 
 
 class CreateBeliefResponse(BaseModel):
     """Response after creating a belief."""
+
     belief_id: str = Field(..., description="UUID of created belief")
     message: str = Field(default="Belief created successfully")
 
 
 class UpdateBeliefRequest(BaseModel):
     """Request body for updating a belief with evidence."""
+
     evidence_memory_id: str = Field(..., description="ID of evidence memory")
-    supports: bool = Field(..., description="True if evidence supports the belief, False if contradicts")
+    supports: bool = Field(
+        ..., description="True if evidence supports the belief, False if contradicts"
+    )
     strength: float = Field(..., ge=0.0, le=1.0, description="Evidence strength (0.0-1.0)")
 
 
 class UpdateBeliefResponse(BaseModel):
     """Response after updating a belief."""
+
     new_confidence: float = Field(..., description="Updated confidence value")
     message: str = Field(default="Belief updated successfully")
 
 
 class StartSessionRequest(BaseModel):
     """Request body for starting a session."""
-    session_id: Optional[str] = Field(default=None, description="Optional session ID (auto-generated if not provided)")
+
+    session_id: Optional[str] = Field(
+        default=None, description="Optional session ID (auto-generated if not provided)"
+    )
     metadata: Optional[dict] = Field(default=None, description="Optional metadata for the session")
 
 
 class StartSessionResponse(BaseModel):
     """Response after starting a session."""
+
     session_id: str = Field(..., description="Session ID")
     message: str = Field(default="Session started successfully")
 
 
 class EndSessionRequest(BaseModel):
     """Request body for ending a session."""
+
     session_id: str = Field(..., description="Session ID to end")
-    duration_seconds: Optional[float] = Field(default=None, description="Optional session duration in seconds")
+    duration_seconds: Optional[float] = Field(
+        default=None, description="Optional session duration in seconds"
+    )
     metadata: Optional[dict] = Field(default=None, description="Optional metadata for session end")
 
 
 class EndSessionResponse(BaseModel):
     """Response after ending a session."""
+
     session_id: str = Field(..., description="Ended session ID")
     message: str = Field(default="Session ended successfully")
 
@@ -168,27 +191,28 @@ class EndSessionResponse(BaseModel):
 _memory_tools_instance = None
 _belief_tools_instance = None
 
+
 def get_memory_tools() -> MemoryTools:
     """Initialize and return MemoryTools instance (lazy initialization)."""
     global _memory_tools_instance
 
     if _memory_tools_instance is None:
-        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path = Path.home() / ".openclaw" / "omi"
         base_path.mkdir(parents=True, exist_ok=True)
 
-        db_path = base_path / 'palace.sqlite'
+        db_path = base_path / "palace.sqlite"
 
         # Initialize components
         palace = GraphPalace(db_path)
         # Try nomic-embed-text, fall back to available model
         try:
-            embedder = OllamaEmbedder(model='nomic-embed-text')
+            embedder = OllamaEmbedder(model="nomic-embed-text")
             # Test if model is available
             embedder.embed("test")
         except Exception:
             # Use available embedding model as fallback
-            embedder = OllamaEmbedder(model='nomic-embed-text-v2-moe')
-        cache_path = base_path / 'embeddings'
+            embedder = OllamaEmbedder(model="nomic-embed-text-v2-moe")
+        cache_path = base_path / "embeddings"
         cache = EmbeddingCache(cache_path, embedder)
 
         _memory_tools_instance = MemoryTools(palace, embedder, cache)
@@ -201,10 +225,10 @@ def get_belief_tools() -> BeliefTools:
     global _belief_tools_instance
 
     if _belief_tools_instance is None:
-        base_path = Path.home() / '.openclaw' / 'omi'
+        base_path = Path.home() / ".openclaw" / "omi"
         base_path.mkdir(parents=True, exist_ok=True)
 
-        db_path = base_path / 'palace.sqlite'
+        db_path = base_path / "palace.sqlite"
 
         # Initialize components
         palace = GraphPalace(db_path)
@@ -242,27 +266,24 @@ environment variable to enable authentication.
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_tags=[
-        {
-            "name": "General",
-            "description": "Root and health check endpoints"
-        },
+        {"name": "General", "description": "Root and health check endpoints"},
         {
             "name": "Memory Operations",
-            "description": "Store and recall memories with semantic search and recency weighting"
+            "description": "Store and recall memories with semantic search and recency weighting",
         },
         {
             "name": "Belief Management",
-            "description": "Create and update beliefs with evidence-based confidence tracking"
+            "description": "Create and update beliefs with evidence-based confidence tracking",
         },
         {
             "name": "Session Lifecycle",
-            "description": "Manage session start and end with event tracking"
+            "description": "Manage session start and end with event tracking",
         },
         {
             "name": "Events",
-            "description": "Server-Sent Events (SSE) for real-time operation streaming"
-        }
-    ]
+            "description": "Server-Sent Events (SSE) for real-time operation streaming",
+        },
+    ],
 )
 
 # Mount dashboard router
@@ -272,11 +293,7 @@ app.include_router(dashboard_router)
 dashboard_dist = Path(__file__).parent / "dashboard" / "dist"
 if dashboard_dist.exists():
     # Mount static files at /dashboard
-    app.mount(
-        "/dashboard",
-        StaticFiles(directory=str(dashboard_dist), html=True),
-        name="dashboard"
-    )
+    app.mount("/dashboard", StaticFiles(directory=str(dashboard_dist), html=True), name="dashboard")
     logger.info(f"Dashboard static files mounted from {dashboard_dist}")
 else:
     logger.warning(f"Dashboard dist directory not found at {dashboard_dist}")
@@ -322,22 +339,24 @@ async def root() -> Dict[str, Any]:
             "/api/v1/dashboard/beliefs": "Retrieve belief network data",
             "/api/v1/dashboard/stats": "Get database storage statistics",
             "/api/v1/dashboard/search": "Semantic search for memories",
-            "/health": "Health check endpoint"
-        }
+            "/health": "Health check endpoint",
+        },
     }
 
 
 @app.get("/health", tags=["General"], summary="Health check endpoint")
 async def health() -> Dict[str, Any]:
     """Health check endpoint with version and detailed status."""
-    return {
-        "status": "healthy",
-        "service": "omi-event-api",
-        "version": "1.0.0"
-    }
+    return {"status": "healthy", "service": "omi-event-api", "version": "1.0.0"}
 
 
-@app.post("/api/v1/store", response_model=StoreMemoryResponse, status_code=status.HTTP_201_CREATED, tags=["Memory Operations"], summary="Store a new memory")
+@app.post(
+    "/api/v1/store",
+    response_model=StoreMemoryResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Memory Operations"],
+    summary="Store a new memory",
+)
 async def store_memory(request: StoreMemoryRequest, api_key: str = Depends(verify_api_key)):
     """Store a new memory with semantic embedding."""
     try:
@@ -346,63 +365,79 @@ async def store_memory(request: StoreMemoryRequest, api_key: str = Depends(verif
             content=request.content,
             memory_type=request.memory_type,
             related_to=request.related_to,
-            confidence=request.confidence
+            confidence=request.confidence,
         )
         return StoreMemoryResponse(memory_id=memory_id)
     except Exception as e:
         logger.error(f"Error storing memory: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to store memory: {str(e)}"
+            detail=f"Failed to store memory: {str(e)}",
         )
 
 
-@app.get("/api/v1/recall", response_model=RecallMemoryResponse, tags=["Memory Operations"], summary="Recall memories by semantic search")
+@app.get(
+    "/api/v1/recall",
+    response_model=RecallMemoryResponse,
+    tags=["Memory Operations"],
+    summary="Recall memories by semantic search",
+)
 async def recall_memory(
     query: str = Query(..., description="Natural language search query"),
     limit: int = Query(10, ge=1, le=100, description="Maximum number of results"),
     min_relevance: float = Query(0.7, ge=0.0, le=1.0, description="Minimum relevance threshold"),
-    memory_type: Optional[str] = Query(None, description="Filter by type: fact|experience|belief|decision"),
-    api_key: str = Depends(verify_api_key)
+    memory_type: Optional[str] = Query(
+        None, description="Filter by type: fact|experience|belief|decision"
+    ),
+    api_key: str = Depends(verify_api_key),
 ):
     """Recall memories using semantic search with recency weighting."""
     try:
         tools = get_memory_tools()
         memories = tools.recall(
-            query=query,
-            limit=limit,
-            min_relevance=min_relevance,
-            memory_type=memory_type
+            query=query, limit=limit, min_relevance=min_relevance, memory_type=memory_type
         )
         return RecallMemoryResponse(memories=memories, count=len(memories))
     except Exception as e:
         logger.error(f"Error recalling memories: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to recall memories: {str(e)}"
+            detail=f"Failed to recall memories: {str(e)}",
         )
 
 
-@app.post("/api/v1/beliefs", response_model=CreateBeliefResponse, status_code=status.HTTP_201_CREATED, tags=["Belief Management"], summary="Create a new belief")
+@app.post(
+    "/api/v1/beliefs",
+    response_model=CreateBeliefResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Belief Management"],
+    summary="Create a new belief",
+)
 async def create_belief(request: CreateBeliefRequest, api_key: str = Depends(verify_api_key)):
     """Create a new belief with initial confidence."""
     try:
         tools = get_belief_tools()
         belief_id = tools.create(
-            content=request.content,
-            initial_confidence=request.initial_confidence
+            content=request.content, initial_confidence=request.initial_confidence
         )
         return CreateBeliefResponse(belief_id=belief_id)
     except Exception as e:
         logger.error(f"Error creating belief: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create belief: {str(e)}"
+            detail=f"Failed to create belief: {str(e)}",
         )
 
 
-@app.put("/api/v1/beliefs/{id}", response_model=UpdateBeliefResponse, tags=["Belief Management"], summary="Update belief with evidence")
-async def update_belief(id: str, request: UpdateBeliefRequest, api_key: str = Depends(verify_api_key)):
+@app.put(
+    "/api/v1/beliefs/{id}",
+    response_model=UpdateBeliefResponse,
+    tags=["Belief Management"],
+    summary="Update belief with evidence",
+)
+async def update_belief(
+    id: str, request: UpdateBeliefRequest, api_key: str = Depends(verify_api_key)
+):
     """Update a belief with new evidence using EMA confidence updates."""
     try:
         tools = get_belief_tools()
@@ -410,45 +445,55 @@ async def update_belief(id: str, request: UpdateBeliefRequest, api_key: str = De
             belief_id=id,
             evidence_memory_id=request.evidence_memory_id,
             supports=request.supports,
-            strength=request.strength
+            strength=request.strength,
         )
         return UpdateBeliefResponse(new_confidence=new_confidence)
     except Exception as e:
         logger.error(f"Error updating belief: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update belief: {str(e)}"
+            detail=f"Failed to update belief: {str(e)}",
         )
 
 
-@app.post("/api/v1/sessions/start", response_model=StartSessionResponse, status_code=status.HTTP_200_OK, tags=["Session Lifecycle"], summary="Start a new session")
+@app.post(
+    "/api/v1/sessions/start",
+    response_model=StartSessionResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Session Lifecycle"],
+    summary="Start a new session",
+)
 async def start_session(request: StartSessionRequest, api_key: str = Depends(verify_api_key)):
     """Start a new session."""
     try:
         import uuid
+
         session_id = request.session_id or str(uuid.uuid4())
-        event = SessionStartedEvent(
-            session_id=session_id,
-            metadata=request.metadata
-        )
+        event = SessionStartedEvent(session_id=session_id, metadata=request.metadata)
         get_event_bus().publish(event)
         return StartSessionResponse(session_id=session_id)
     except Exception as e:
         logger.error(f"Error starting session: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start session: {str(e)}"
+            detail=f"Failed to start session: {str(e)}",
         )
 
 
-@app.post("/api/v1/sessions/end", response_model=EndSessionResponse, status_code=status.HTTP_200_OK, tags=["Session Lifecycle"], summary="End a session")
+@app.post(
+    "/api/v1/sessions/end",
+    response_model=EndSessionResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Session Lifecycle"],
+    summary="End a session",
+)
 async def end_session(request: EndSessionRequest, api_key: str = Depends(verify_api_key)):
     """End an existing session."""
     try:
         event = SessionEndedEvent(
             session_id=request.session_id,
             duration_seconds=request.duration_seconds,
-            metadata=request.metadata
+            metadata=request.metadata,
         )
         get_event_bus().publish(event)
         return EndSessionResponse(session_id=request.session_id)
@@ -456,7 +501,7 @@ async def end_session(request: EndSessionRequest, api_key: str = Depends(verify_
         logger.error(f"Error ending session: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to end session: {str(e)}"
+            detail=f"Failed to end session: {str(e)}",
         )
 
 
@@ -483,7 +528,7 @@ async def event_stream(event_type_filter: Optional[str] = None) -> AsyncGenerato
 
     # Subscribe to EventBus
     bus = get_event_bus()
-    subscription_type = event_type_filter if event_type_filter else '*'
+    subscription_type = event_type_filter if event_type_filter else "*"
     bus.subscribe(subscription_type, event_callback)
 
     try:
@@ -497,13 +542,13 @@ async def event_stream(event_type_filter: Optional[str] = None) -> AsyncGenerato
                 event = await asyncio.wait_for(event_queue.get(), timeout=30.0)
 
                 # Serialize event to dict
-                if hasattr(event, 'to_dict'):
+                if hasattr(event, "to_dict"):
                     event_data = event.to_dict()
                 else:
                     # Fallback for events without to_dict method
                     event_data = {
-                        'event_type': getattr(event, 'event_type', 'unknown'),
-                        'timestamp': getattr(event, 'timestamp', None)
+                        "event_type": getattr(event, "event_type", "unknown"),
+                        "timestamp": getattr(event, "timestamp", None),
                     }
 
                 # Format as SSE (Server-Sent Events)
@@ -528,7 +573,7 @@ async def event_stream(event_type_filter: Optional[str] = None) -> AsyncGenerato
 async def events_sse(
     event_type: Optional[str] = Query(
         None,
-        description="Filter by event type (e.g., 'memory.stored', 'belief.updated'). Omit for all events."
+        description="Filter by event type (e.g., 'memory.stored', 'belief.updated'). Omit for all events.",
     )
 ) -> StreamingResponse:
     """
@@ -558,8 +603,8 @@ async def events_sse(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable buffering in nginx
-        }
+            "X-Accel-Buffering": "no",  # Disable buffering in nginx
+        },
     )
 
 
@@ -579,4 +624,4 @@ async def shutdown_event() -> None:
     logger.info("OMI REST API shutting down")
 
 
-__all__ = ['app']
+__all__ = ["app"]

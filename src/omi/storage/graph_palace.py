@@ -27,6 +27,7 @@ import struct
 @dataclass
 class Memory:
     """A memory node in the graph palace."""
+
     id: str
     content: str
     embedding: Optional[List[float]] = None
@@ -60,13 +61,14 @@ class Memory:
             "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
-            "content_hash": self.content_hash
+            "content_hash": self.content_hash,
         }
 
 
 @dataclass
 class Edge:
     """A relationship edge between memories."""
+
     id: str
     source_id: str
     target_id: str
@@ -82,10 +84,10 @@ class Edge:
 class GraphPalace:
     """
     Tier 3: Graph Palace - Semantic memories, relationships, beliefs
-    
+
     Pattern: Structured, queryable, centrality-weighted
     Lifetime: Indefinite (with decay)
-    
+
     Features:
     - In-memory embeddings with SQLite fallback
     - Semantic search with cosine similarity
@@ -98,20 +100,22 @@ class GraphPalace:
 
     # Embedding dimension for bge-m3
     EMBEDDING_DIM = 1024
-    
+
     # Valid memory types
     MEMORY_TYPES = {"fact", "experience", "belief", "decision"}
-    
+
     # Valid edge types
     EDGE_TYPES = {"SUPPORTS", "CONTRADICTS", "RELATED_TO", "DEPENDS_ON", "POSTED", "DISCUSSED"}
-    
+
     # Default half-life for recency decay (30 days)
     RECENCY_HALF_LIFE = 30.0
-    
+
     # Target: <500ms for 1000 memories
     QUERY_TIMEOUT_MS = 500
 
-    def __init__(self, db_path: Path, enable_wal: bool = True, embedding_dim: int = None):
+    def __init__(
+        self, db_path: Path, enable_wal: bool = True, embedding_dim: Optional[int] = None
+    ):
         """
         Initialize Graph Palace.
 
@@ -129,10 +133,7 @@ class GraphPalace:
         # check_same_thread=False allows multi-threaded access (safe with WAL mode)
         # isolation_level=None enables autocommit mode for better concurrency
         self._conn = sqlite3.connect(
-            self.db_path,
-            check_same_thread=False,
-            isolation_level=None,
-            timeout=30.0
+            self.db_path, check_same_thread=False, isolation_level=None, timeout=30.0
         )
         # Thread lock for serializing database operations
         self._db_lock = threading.Lock()
@@ -203,20 +204,22 @@ class GraphPalace:
 
     def _embed_to_blob(self, embedding: List[float]) -> bytes:
         """Convert embedding list to binary blob (float32)."""
-        return struct.pack(f'{len(embedding)}f', *embedding)
-    
+        return struct.pack(f"{len(embedding)}f", *embedding)
+
     def _blob_to_embed(self, blob: bytes) -> List[float]:
         """Convert binary blob to embedding list (float32)."""
         if not blob:
             return []
         num_floats = len(blob) // 4
-        return list(struct.unpack(f'{num_floats}f', blob))
+        return list(struct.unpack(f"{num_floats}f", blob))
 
     def _validate_memory_type(self, memory_type: str) -> None:
         """Validate memory type."""
         if memory_type not in self.MEMORY_TYPES:
-            raise ValueError(f"Invalid memory_type: {memory_type}. Must be one of: {self.MEMORY_TYPES}")
-    
+            raise ValueError(
+                f"Invalid memory_type: {memory_type}. Must be one of: {self.MEMORY_TYPES}"
+            )
+
     def _validate_edge_type(self, edge_type: str) -> None:
         """Validate edge type."""
         if edge_type not in self.EDGE_TYPES:
@@ -242,11 +245,13 @@ class GraphPalace:
         days_ago = (datetime.now() - timestamp).days
         return math.exp(-days_ago / self.RECENCY_HALF_LIFE)
 
-    def store_memory(self,
-                   content: str,
-                   embedding: Optional[List[float]] = None,
-                   memory_type: str = "experience",
-                   confidence: Optional[float] = None) -> str:
+    def store_memory(
+        self,
+        content: str,
+        embedding: Optional[List[float]] = None,
+        memory_type: str = "experience",
+        confidence: Optional[float] = None,
+    ) -> str:
         """
         Store a memory in the palace.
 
@@ -273,27 +278,33 @@ class GraphPalace:
 
         # Use lock for thread-safe database access
         with self._db_lock:
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 INSERT INTO memories
                 (id, content, embedding, memory_type, confidence, created_at,
                  last_accessed, access_count, instance_ids, content_hash)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                memory_id,
-                content,
-                embedding_blob,
-                memory_type,
-                confidence,
-                now,
-                now,
-                0,
-                json.dumps([]),
-                content_hash
-            ))
+            """,
+                (
+                    memory_id,
+                    content,
+                    embedding_blob,
+                    memory_type,
+                    confidence,
+                    now,
+                    now,
+                    0,
+                    json.dumps([]),
+                    content_hash,
+                ),
+            )
             # Insert into FTS index
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
-            """, (memory_id, content))
+            """,
+                (memory_id, content),
+            )
             self._conn.commit()
 
         # Cache the embedding for fast access
@@ -314,19 +325,25 @@ class GraphPalace:
             Memory object or None if not found
         """
         # Update access stats
-        self._conn.execute("""
+        self._conn.execute(
+            """
             UPDATE memories
             SET access_count = access_count + 1, last_accessed = ?
             WHERE id = ?
-        """, (datetime.now().isoformat(), memory_id))
+        """,
+            (datetime.now().isoformat(), memory_id),
+        )
         self._conn.commit()
 
         # Retrieve memory
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             SELECT id, content, embedding, memory_type, confidence,
                    created_at, last_accessed, access_count, instance_ids, content_hash
             FROM memories WHERE id = ?
-        """, (memory_id,))
+        """,
+            (memory_id,),
+        )
 
         row = cursor.fetchone()
         if not row:
@@ -346,7 +363,7 @@ class GraphPalace:
             last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
             access_count=row[7],
             instance_ids=instance_ids,
-            content_hash=row[9]
+            content_hash=row[9],
         )
 
         # Update cache
@@ -366,15 +383,15 @@ class GraphPalace:
             Dictionary with belief data or None if not found or not a belief
         """
         memory = self.get_memory(belief_id)
-        if memory and memory.memory_type == 'belief':
+        if memory and memory.memory_type == "belief":
             return {
-                'id': memory.id,
-                'content': memory.content,
-                'confidence': memory.confidence,
-                'memory_type': memory.memory_type,
-                'created_at': memory.created_at.isoformat() if memory.created_at else None,
-                'last_accessed': memory.last_accessed.isoformat() if memory.last_accessed else None,
-                'access_count': memory.access_count
+                "id": memory.id,
+                "content": memory.content,
+                "confidence": memory.confidence,
+                "memory_type": memory.memory_type,
+                "created_at": memory.created_at.isoformat() if memory.created_at else None,
+                "last_accessed": memory.last_accessed.isoformat() if memory.last_accessed else None,
+                "access_count": memory.access_count,
             }
         return None
 
@@ -391,17 +408,19 @@ class GraphPalace:
             raise ValueError(f"Confidence must be between 0.0 and 1.0, got {new_confidence}")
 
         # Update the confidence field
-        self._conn.execute("""
+        self._conn.execute(
+            """
             UPDATE memories
             SET confidence = ?
             WHERE id = ? AND memory_type = 'belief'
-        """, (new_confidence, belief_id))
+        """,
+            (new_confidence, belief_id),
+        )
         self._conn.commit()
 
-    def recall(self,
-               query_embedding: List[float],
-               limit: int = 10,
-               min_relevance: float = 0.7) -> List[Tuple[Memory, float]]:
+    def recall(
+        self, query_embedding: List[float], limit: int = 10, min_relevance: float = 0.7
+    ) -> List[Tuple[Memory, float]]:
         """
         Semantic search with recency weighting.
 
@@ -463,9 +482,12 @@ class GraphPalace:
 
         # Compute cosine similarities: (n_memories,)
         # Avoid division by zero
-        similarities = np.divide(dots, norms * query_norm,  # type: ignore[attr-defined]
-                                out=np.zeros_like(dots),  # type: ignore[attr-defined]
-                                where=(norms * query_norm) > 0)
+        similarities = np.divide(
+            dots,
+            norms * query_norm,  # type: ignore[attr-defined]
+            out=np.zeros_like(dots),  # type: ignore[attr-defined]
+            where=(norms * query_norm) > 0,
+        )
 
         # Filter by min_relevance
         valid_indices = np.where(similarities >= min_relevance)[0]  # type: ignore[attr-defined]
@@ -498,7 +520,7 @@ class GraphPalace:
                 last_accessed=last_accessed,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
             )
             results.append((memory, final_score))
 
@@ -520,7 +542,8 @@ class GraphPalace:
         memories = []
 
         # Use FTS5 MATCH via standalone FTS table
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                    m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
             FROM memories_fts fts
@@ -528,7 +551,9 @@ class GraphPalace:
             WHERE memories_fts MATCH ?
             ORDER BY rank
             LIMIT ?
-        """, (query, limit))
+        """,
+            (query, limit),
+        )
 
         for row in cursor:
             embedding = self._blob_to_embed(row[2]) if row[2] else None
@@ -542,17 +567,15 @@ class GraphPalace:
                 last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
             )
             memories.append(memory)
 
         return memories
 
-    def create_edge(self,
-                   source_id: str,
-                   target_id: str,
-                   edge_type: str,
-                   strength: Optional[float] = None) -> str:
+    def create_edge(
+        self, source_id: str, target_id: str, edge_type: str, strength: Optional[float] = None
+    ) -> str:
         """
         Create a relationship edge between memories.
 
@@ -569,10 +592,13 @@ class GraphPalace:
 
         edge_id = str(uuid.uuid4())
 
-        self._conn.execute("""
+        self._conn.execute(
+            """
             INSERT INTO edges (id, source_id, target_id, edge_type, strength, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (edge_id, source_id, target_id, edge_type, strength, datetime.now().isoformat()))
+        """,
+            (edge_id, source_id, target_id, edge_type, strength, datetime.now().isoformat()),
+        )
         self._conn.commit()
 
         return edge_id
@@ -597,25 +623,33 @@ class GraphPalace:
         edges = []
 
         if edge_type:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT id, source_id, target_id, edge_type, strength, created_at
                 FROM edges WHERE (source_id = ? OR target_id = ?) AND edge_type = ?
-            """, (memory_id, memory_id, edge_type))
+            """,
+                (memory_id, memory_id, edge_type),
+            )
         else:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT id, source_id, target_id, edge_type, strength, created_at
                 FROM edges WHERE source_id = ? OR target_id = ?
-            """, (memory_id, memory_id))
+            """,
+                (memory_id, memory_id),
+            )
 
         for row in cursor:
-            edges.append(Edge(
-                id=row[0],
-                source_id=row[1],
-                target_id=row[2],
-                edge_type=row[3],
-                strength=row[4],
-                created_at=datetime.fromisoformat(row[5]) if row[5] else None
-            ))
+            edges.append(
+                Edge(
+                    id=row[0],
+                    source_id=row[1],
+                    target_id=row[2],
+                    edge_type=row[3],
+                    strength=row[4],
+                    created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                )
+            )
 
         return edges
 
@@ -633,7 +667,8 @@ class GraphPalace:
         memories = []
 
         if edge_type:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                        m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
                 FROM memories m
@@ -641,31 +676,38 @@ class GraphPalace:
                 WHERE (e.source_id = ? OR e.target_id = ?)
                 AND m.id != ?
                 AND e.edge_type = ?
-            """, (memory_id, memory_id, memory_id, edge_type))
+            """,
+                (memory_id, memory_id, memory_id, edge_type),
+            )
         else:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                        m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
                 AND m.id != ?
-            """, (memory_id, memory_id, memory_id))
+            """,
+                (memory_id, memory_id, memory_id),
+            )
 
         for row in cursor:
             embedding = self._blob_to_embed(row[2]) if row[2] else None
-            memories.append(Memory(
-                id=row[0],
-                content=row[1],
-                embedding=embedding,
-                memory_type=row[3],
-                confidence=row[4],
-                created_at=datetime.fromisoformat(row[5]) if row[5] else None,
-                last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
-                access_count=row[7],
-                instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
-            ))
+            memories.append(
+                Memory(
+                    id=row[0],
+                    content=row[1],
+                    embedding=embedding,
+                    memory_type=row[3],
+                    confidence=row[4],
+                    created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                    last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
+                    access_count=row[7],
+                    instance_ids=json.loads(row[8]) if row[8] else [],
+                    content_hash=row[9],
+                )
+            )
 
         return memories
 
@@ -687,10 +729,13 @@ class GraphPalace:
             Centrality score (0.0-1.0)
         """
         # Get memory stats
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             SELECT access_count, last_accessed, created_at
             FROM memories WHERE id = ?
-        """, (memory_id,))
+        """,
+            (memory_id,),
+        )
         row = cursor.fetchone()
         if not row:
             return 0.0
@@ -699,9 +744,12 @@ class GraphPalace:
         last_accessed = datetime.fromisoformat(row[1]) if row[1] else datetime.now()
 
         # Count edges (degree centrality)
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             SELECT COUNT(*) FROM edges WHERE source_id = ? OR target_id = ?
-        """, (memory_id, memory_id))
+        """,
+            (memory_id, memory_id),
+        )
         edge_count = cursor.fetchone()[0]
 
         # Normalize metrics (0-1 scale)
@@ -743,14 +791,17 @@ class GraphPalace:
                 continue
 
             # Get neighbors
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT DISTINCT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                        m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
                 AND m.id != ?
-            """, (current_id, current_id, current_id))
+            """,
+                (current_id, current_id, current_id),
+            )
 
             for row in cursor:
                 neighbor_id = row[0]
@@ -768,7 +819,7 @@ class GraphPalace:
                         last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                         access_count=row[7],
                         instance_ids=json.loads(row[8]) if row[8] else [],
-                        content_hash=row[9]
+                        content_hash=row[9],
                     )
                     result.append(memory)
                     queue.append((neighbor_id, current_depth + 1))
@@ -830,7 +881,7 @@ class GraphPalace:
                 last_accessed=last_accessed,
                 access_count=access_count,
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
             )
 
             memories.append((memory, centrality))
@@ -852,9 +903,12 @@ class GraphPalace:
         """
         embedding_blob = self._embed_to_blob(embedding) if embedding else None
 
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             UPDATE memories SET embedding = ? WHERE id = ?
-        """, (embedding_blob, memory_id))
+        """,
+            (embedding_blob, memory_id),
+        )
         self._conn.commit()
 
         if cursor.rowcount > 0 and embedding:
@@ -876,19 +930,25 @@ class GraphPalace:
         new_content_hash = hashlib.sha256(new_content.encode()).hexdigest()
         now = datetime.now().isoformat()
 
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             UPDATE memories
             SET content = ?, content_hash = ?, last_accessed = ?
             WHERE id = ?
-        """, (new_content, new_content_hash, now, memory_id))
+        """,
+            (new_content, new_content_hash, now, memory_id),
+        )
 
         # Update FTS index
         if cursor.rowcount > 0:
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 UPDATE memories_fts
                 SET content = ?
                 WHERE memory_id = ?
-            """, (new_content, memory_id))
+            """,
+                (new_content, memory_id),
+            )
 
         self._conn.commit()
         return cursor.rowcount > 0
@@ -904,9 +964,12 @@ class GraphPalace:
             True if deleted, False if not found
         """
         # Remove from FTS index first
-        self._conn.execute("""
+        self._conn.execute(
+            """
             DELETE FROM memories_fts WHERE memory_id = ?
-        """, (memory_id,))
+        """,
+            (memory_id,),
+        )
         cursor = self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         self._conn.commit()
 
@@ -943,7 +1006,7 @@ class GraphPalace:
             "memory_count": memory_count,
             "edge_count": edge_count,
             "type_distribution": type_distribution,
-            "edge_distribution": edge_distribution
+            "edge_distribution": edge_distribution,
         }
 
     def get_compression_stats(self, threshold: Optional[datetime] = None) -> Dict[str, Any]:
@@ -961,10 +1024,13 @@ class GraphPalace:
         """
         if threshold is not None:
             # Query memories before threshold
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT content, memory_type FROM memories
                 WHERE created_at < ?
-            """, (threshold.isoformat(),))
+            """,
+                (threshold.isoformat(),),
+            )
         else:
             # Query all memories
             cursor = self._conn.execute("""
@@ -991,16 +1057,16 @@ class GraphPalace:
             "total_memories": total_memories,
             "total_chars": total_chars,
             "estimated_tokens": estimated_tokens,
-            "memories_by_type": memories_by_type
+            "memories_by_type": memories_by_type,
         }
 
     def find_contradictions(self, memory_id: str) -> List[Memory]:
         """
         Find memories that contradict a given memory.
-        
+
         Args:
             memory_id: Memory to check
-            
+
         Returns:
             List of contradicting memories
         """
@@ -1037,22 +1103,28 @@ class GraphPalace:
 
         with sqlite3.connect(self.db_path) as conn:
             if limit is not None:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT id, content, embedding, memory_type, confidence,
                            created_at, last_accessed, access_count, instance_ids, content_hash
                     FROM memories
                     WHERE created_at < ?
                     ORDER BY created_at ASC
                     LIMIT ?
-                """, (threshold.isoformat(), limit))
+                """,
+                    (threshold.isoformat(), limit),
+                )
             else:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT id, content, embedding, memory_type, confidence,
                            created_at, last_accessed, access_count, instance_ids, content_hash
                     FROM memories
                     WHERE created_at < ?
                     ORDER BY created_at ASC
-                """, (threshold.isoformat(),))
+                """,
+                    (threshold.isoformat(),),
+                )
 
             for row in cursor:
                 embedding = self._blob_to_embed(row[2]) if row[2] else None
@@ -1066,7 +1138,7 @@ class GraphPalace:
                     last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                     access_count=row[7],
                     instance_ids=json.loads(row[8]) if row[8] else [],
-                    content_hash=row[9]
+                    content_hash=row[9],
                 )
                 memories.append(memory)
 
@@ -1079,7 +1151,7 @@ class GraphPalace:
 
     def close(self) -> None:
         """Close connection and cleanup."""
-        if hasattr(self, '_conn') and self._conn:
+        if hasattr(self, "_conn") and self._conn:
             self._conn.close()
         self._embedding_cache.clear()
 

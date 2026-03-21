@@ -10,6 +10,7 @@ Covers:
 
 Issue: https://github.com/slapglif/omi/issues/4
 """
+
 import pytest
 import os
 from unittest.mock import patch, MagicMock
@@ -50,7 +51,7 @@ def mock_memory_tools():
             "memory_type": "fact",
             "relevance": 0.95,
             "created_at": "2024-01-01T00:00:00",
-            "final_score": 0.85
+            "final_score": 0.85,
         },
         {
             "id": "mem_2",
@@ -58,8 +59,8 @@ def mock_memory_tools():
             "memory_type": "experience",
             "relevance": 0.85,
             "created_at": "2024-01-02T00:00:00",
-            "final_score": 0.75
-        }
+            "final_score": 0.75,
+        },
     ]
 
     return mock_tools
@@ -92,13 +93,9 @@ class TestAuthentication:
             del os.environ["OMI_API_KEY"]
 
         try:
-            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
                 response = client.post(
-                    "/api/v1/store",
-                    json={
-                        "content": "Test memory",
-                        "memory_type": "fact"
-                    }
+                    "/api/v1/store", json={"content": "Test memory", "memory_type": "fact"}
                 )
 
                 assert response.status_code == 201
@@ -120,11 +117,7 @@ class TestAuthentication:
 
         try:
             response = client.post(
-                "/api/v1/store",
-                json={
-                    "content": "Test memory",
-                    "memory_type": "fact"
-                }
+                "/api/v1/store", json={"content": "Test memory", "memory_type": "fact"}
             )
 
             assert response.status_code == 401
@@ -148,14 +141,11 @@ class TestAuthentication:
         os.environ["OMI_API_KEY"] = "test-secret-key"
 
         try:
-            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
                 response = client.post(
                     "/api/v1/store",
-                    json={
-                        "content": "Authenticated memory",
-                        "memory_type": "fact"
-                    },
-                    headers={"X-API-Key": "test-secret-key"}
+                    json={"content": "Authenticated memory", "memory_type": "fact"},
+                    headers={"X-API-Key": "test-secret-key"},
                 )
 
                 assert response.status_code == 201
@@ -181,11 +171,8 @@ class TestAuthentication:
         try:
             response = client.post(
                 "/api/v1/store",
-                json={
-                    "content": "Test memory",
-                    "memory_type": "fact"
-                },
-                headers={"X-API-Key": "wrong-key"}
+                json={"content": "Test memory", "memory_type": "fact"},
+                headers={"X-API-Key": "wrong-key"},
             )
 
             assert response.status_code == 401
@@ -232,10 +219,9 @@ class TestAuthentication:
         os.environ["OMI_API_KEY"] = "test-secret-key"
 
         try:
-            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
                 response = client.get(
-                    "/api/v1/recall?query=test",
-                    headers={"X-API-Key": "test-secret-key"}
+                    "/api/v1/recall?query=test", headers={"X-API-Key": "test-secret-key"}
                 )
 
                 assert response.status_code == 200
@@ -287,11 +273,8 @@ class TestAuthentication:
         try:
             response = client.post(
                 "/api/v1/store",
-                json={
-                    "content": "Test memory",
-                    "memory_type": "fact"
-                },
-                headers={"X-API-Key": "test-secret-key"}  # Different case
+                json={"content": "Test memory", "memory_type": "fact"},
+                headers={"X-API-Key": "test-secret-key"},  # Different case
             )
 
             assert response.status_code == 401
@@ -313,13 +296,9 @@ class TestMemoryEndpoints:
         POST /api/v1/store with valid data
         Assert: Returns 201 with memory_id
         """
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             response = client.post(
-                "/api/v1/store",
-                json={
-                    "content": "Test memory content",
-                    "memory_type": "fact"
-                }
+                "/api/v1/store", json={"content": "Test memory content", "memory_type": "fact"}
             )
 
             assert response.status_code == 201
@@ -330,10 +309,7 @@ class TestMemoryEndpoints:
 
             # Verify MemoryTools.store was called with correct arguments
             mock_memory_tools.store.assert_called_once_with(
-                content="Test memory content",
-                memory_type="fact",
-                related_to=None,
-                confidence=None
+                content="Test memory content", memory_type="fact", related_to=None, confidence=None
             )
 
     def test_store_memory_with_all_fields(self, client, mock_memory_tools, disable_auth):
@@ -341,15 +317,15 @@ class TestMemoryEndpoints:
         POST /api/v1/store with all optional fields
         Assert: Returns 201 and passes all fields to MemoryTools
         """
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             response = client.post(
                 "/api/v1/store",
                 json={
                     "content": "Complete test memory",
                     "memory_type": "experience",
                     "related_to": ["mem_1", "mem_2"],
-                    "confidence": 0.85
-                }
+                    "confidence": 0.85,
+                },
             )
 
             assert response.status_code == 201
@@ -361,7 +337,7 @@ class TestMemoryEndpoints:
                 content="Complete test memory",
                 memory_type="experience",
                 related_to=["mem_1", "mem_2"],
-                confidence=0.85
+                confidence=0.85,
             )
 
     def test_store_memory_missing_content(self, client, disable_auth):
@@ -369,12 +345,7 @@ class TestMemoryEndpoints:
         POST /api/v1/store without required 'content' field
         Assert: Returns 422 validation error
         """
-        response = client.post(
-            "/api/v1/store",
-            json={
-                "memory_type": "fact"
-            }
-        )
+        response = client.post("/api/v1/store", json={"memory_type": "fact"})
 
         assert response.status_code == 422
         data = response.json()
@@ -386,11 +357,7 @@ class TestMemoryEndpoints:
         Assert: Returns 422 validation error
         """
         response = client.post(
-            "/api/v1/store",
-            json={
-                "content": "Test memory",
-                "confidence": 1.5  # Invalid: > 1.0
-            }
+            "/api/v1/store", json={"content": "Test memory", "confidence": 1.5}  # Invalid: > 1.0
         )
 
         assert response.status_code == 422
@@ -400,13 +367,8 @@ class TestMemoryEndpoints:
         POST /api/v1/store without memory_type
         Assert: Uses default type 'experience'
         """
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
-            response = client.post(
-                "/api/v1/store",
-                json={
-                    "content": "Memory without type"
-                }
-            )
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
+            response = client.post("/api/v1/store", json={"content": "Memory without type"})
 
             assert response.status_code == 201
             mock_memory_tools.store.assert_called_once()
@@ -421,13 +383,8 @@ class TestMemoryEndpoints:
         # Mock store to raise an exception
         mock_memory_tools.store.side_effect = Exception("Database connection failed")
 
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
-            response = client.post(
-                "/api/v1/store",
-                json={
-                    "content": "Test memory"
-                }
-            )
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
+            response = client.post("/api/v1/store", json={"content": "Test memory"})
 
             assert response.status_code == 500
             data = response.json()
@@ -439,13 +396,8 @@ class TestMemoryEndpoints:
         GET /api/v1/recall with query parameter
         Assert: Returns 200 with list of memories
         """
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
-            response = client.get(
-                "/api/v1/recall",
-                params={
-                    "query": "test query"
-                }
-            )
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
+            response = client.get("/api/v1/recall", params={"query": "test query"})
 
             assert response.status_code == 200
             data = response.json()
@@ -463,10 +415,7 @@ class TestMemoryEndpoints:
 
             # Verify MemoryTools.recall was called with correct defaults
             mock_memory_tools.recall.assert_called_once_with(
-                query="test query",
-                limit=10,
-                min_relevance=0.7,
-                memory_type=None
+                query="test query", limit=10, min_relevance=0.7, memory_type=None
             )
 
     def test_recall_memory_with_all_params(self, client, mock_memory_tools, disable_auth):
@@ -474,15 +423,15 @@ class TestMemoryEndpoints:
         GET /api/v1/recall with all query parameters
         Assert: Returns 200 and passes all params to MemoryTools
         """
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             response = client.get(
                 "/api/v1/recall",
                 params={
                     "query": "specific query",
                     "limit": 5,
                     "min_relevance": 0.8,
-                    "memory_type": "fact"
-                }
+                    "memory_type": "fact",
+                },
             )
 
             assert response.status_code == 200
@@ -491,10 +440,7 @@ class TestMemoryEndpoints:
 
             # Verify all parameters were passed
             mock_memory_tools.recall.assert_called_once_with(
-                query="specific query",
-                limit=5,
-                min_relevance=0.8,
-                memory_type="fact"
+                query="specific query", limit=5, min_relevance=0.8, memory_type="fact"
             )
 
     def test_recall_memory_missing_query(self, client, disable_auth):
@@ -514,11 +460,7 @@ class TestMemoryEndpoints:
         Assert: Returns 422 validation error
         """
         response = client.get(
-            "/api/v1/recall",
-            params={
-                "query": "test",
-                "limit": 150  # Invalid: > 100
-            }
+            "/api/v1/recall", params={"query": "test", "limit": 150}  # Invalid: > 100
         )
 
         assert response.status_code == 422
@@ -529,11 +471,7 @@ class TestMemoryEndpoints:
         Assert: Returns 422 validation error
         """
         response = client.get(
-            "/api/v1/recall",
-            params={
-                "query": "test",
-                "min_relevance": -0.5  # Invalid: < 0.0
-            }
+            "/api/v1/recall", params={"query": "test", "min_relevance": -0.5}  # Invalid: < 0.0
         )
 
         assert response.status_code == 422
@@ -546,13 +484,8 @@ class TestMemoryEndpoints:
         # Mock recall to return empty list
         mock_memory_tools.recall.return_value = []
 
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
-            response = client.get(
-                "/api/v1/recall",
-                params={
-                    "query": "no matches"
-                }
-            )
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
+            response = client.get("/api/v1/recall", params={"query": "no matches"})
 
             assert response.status_code == 200
             data = response.json()
@@ -567,13 +500,8 @@ class TestMemoryEndpoints:
         # Mock recall to raise an exception
         mock_memory_tools.recall.side_effect = Exception("Search index unavailable")
 
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
-            response = client.get(
-                "/api/v1/recall",
-                params={
-                    "query": "test query"
-                }
-            )
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
+            response = client.get("/api/v1/recall", params={"query": "test query"})
 
             assert response.status_code == 500
             data = response.json()
@@ -587,14 +515,10 @@ class TestMemoryEndpoints:
         """
         valid_types = ["fact", "experience", "belief", "decision"]
 
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             for mem_type in valid_types:
                 response = client.post(
-                    "/api/v1/store",
-                    json={
-                        "content": f"Test {mem_type}",
-                        "memory_type": mem_type
-                    }
+                    "/api/v1/store", json={"content": f"Test {mem_type}", "memory_type": mem_type}
                 )
 
                 assert response.status_code == 201, f"Failed for type: {mem_type}"
@@ -604,13 +528,9 @@ class TestMemoryEndpoints:
         GET /api/v1/recall with memory_type filter
         Assert: Filter is passed to MemoryTools
         """
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             response = client.get(
-                "/api/v1/recall",
-                params={
-                    "query": "test",
-                    "memory_type": "experience"
-                }
+                "/api/v1/recall", params={"query": "test", "memory_type": "experience"}
             )
 
             assert response.status_code == 200
@@ -628,13 +548,8 @@ class TestMemoryEndpoints:
         """
         # This test verifies the integration works end-to-end
         # The actual event publishing happens in MemoryTools.store
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
-            response = client.post(
-                "/api/v1/store",
-                json={
-                    "content": "Event test memory"
-                }
-            )
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
+            response = client.post("/api/v1/store", json={"content": "Event test memory"})
 
             assert response.status_code == 201
             # Event publishing is tested in the MemoryTools tests
@@ -650,13 +565,8 @@ class TestMemoryEndpoints:
         """
         # This test verifies the integration works end-to-end
         # The actual event publishing happens in MemoryTools.recall
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
-            response = client.get(
-                "/api/v1/recall",
-                params={
-                    "query": "event test"
-                }
-            )
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
+            response = client.get("/api/v1/recall", params={"query": "event test"})
 
             assert response.status_code == 200
             # Event publishing is tested in the MemoryTools tests
@@ -671,10 +581,7 @@ class TestCORS:
         GET / with Origin header
         Assert: CORS headers are present in response
         """
-        response = client.get(
-            "/",
-            headers={"Origin": "http://localhost:3000"}
-        )
+        response = client.get("/", headers={"Origin": "http://localhost:3000"})
 
         assert response.status_code == 200
         # FastAPI's CORSMiddleware adds these headers
@@ -686,14 +593,11 @@ class TestCORS:
         POST /api/v1/store with Origin header
         Assert: CORS headers are present in response
         """
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             response = client.post(
                 "/api/v1/store",
-                json={
-                    "content": "Test memory",
-                    "memory_type": "fact"
-                },
-                headers={"Origin": "http://localhost:3000"}
+                json={"content": "Test memory", "memory_type": "fact"},
+                headers={"Origin": "http://localhost:3000"},
             )
 
             assert response.status_code == 201
@@ -710,8 +614,8 @@ class TestCORS:
             headers={
                 "Origin": "http://localhost:3000",
                 "Access-Control-Request-Method": "POST",
-                "Access-Control-Request-Headers": "content-type"
-            }
+                "Access-Control-Request-Headers": "content-type",
+            },
         )
 
         assert response.status_code == 200
@@ -724,10 +628,7 @@ class TestCORS:
         GET /health with Origin header
         Assert: access-control-allow-credentials is 'true'
         """
-        response = client.get(
-            "/health",
-            headers={"Origin": "http://example.com"}
-        )
+        response = client.get("/health", headers={"Origin": "http://example.com"})
 
         assert response.status_code == 200
         credentials_header = response.headers.get("access-control-allow-credentials", "").lower()
@@ -738,17 +639,10 @@ class TestCORS:
         GET / with different Origin values
         Assert: CORS headers respond appropriately for each origin
         """
-        origins = [
-            "http://localhost:3000",
-            "http://localhost:8080",
-            "https://example.com"
-        ]
+        origins = ["http://localhost:3000", "http://localhost:8080", "https://example.com"]
 
         for origin in origins:
-            response = client.get(
-                "/",
-                headers={"Origin": origin}
-            )
+            response = client.get("/", headers={"Origin": origin})
 
             assert response.status_code == 200
             assert "access-control-allow-origin" in response.headers
@@ -762,10 +656,7 @@ class TestCORS:
         GET /api/v1/recall without required query parameter, with Origin header
         Assert: CORS headers are present even on error responses
         """
-        response = client.get(
-            "/api/v1/recall",
-            headers={"Origin": "http://localhost:3000"}
-        )
+        response = client.get("/api/v1/recall", headers={"Origin": "http://localhost:3000"})
 
         assert response.status_code == 422
         # CORS headers should be present even on errors
@@ -781,17 +672,11 @@ class TestCORS:
         os.environ["OMI_API_KEY"] = "test-secret-key"
 
         try:
-            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
                 response = client.post(
                     "/api/v1/store",
-                    json={
-                        "content": "Authenticated memory",
-                        "memory_type": "fact"
-                    },
-                    headers={
-                        "X-API-Key": "test-secret-key",
-                        "Origin": "http://localhost:3000"
-                    }
+                    json={"content": "Authenticated memory", "memory_type": "fact"},
+                    headers={"X-API-Key": "test-secret-key", "Origin": "http://localhost:3000"},
                 )
 
                 assert response.status_code == 201
@@ -834,19 +719,19 @@ class TestIntegration:
                 "memory_type": "fact",
                 "relevance": 0.95,
                 "created_at": "2024-01-01T00:00:00",
-                "final_score": 0.90
+                "final_score": 0.90,
             }
         ]
 
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             # Step 1: Store a memory
             store_response = client.post(
                 "/api/v1/store",
                 json={
                     "content": "Integration test memory",
                     "memory_type": "fact",
-                    "confidence": 0.95
-                }
+                    "confidence": 0.95,
+                },
             )
 
             # Verify store succeeded
@@ -860,17 +745,13 @@ class TestIntegration:
                 content="Integration test memory",
                 memory_type="fact",
                 related_to=None,
-                confidence=0.95
+                confidence=0.95,
             )
 
             # Step 2: Recall the memory
             recall_response = client.get(
                 "/api/v1/recall",
-                params={
-                    "query": "integration test",
-                    "limit": 10,
-                    "min_relevance": 0.7
-                }
+                params={"query": "integration test", "limit": 10, "min_relevance": 0.7},
             )
 
             # Verify recall succeeded
@@ -888,10 +769,7 @@ class TestIntegration:
 
             # Verify MemoryTools.recall was called correctly
             mock_memory_tools.recall.assert_called_once_with(
-                query="integration test",
-                limit=10,
-                min_relevance=0.7,
-                memory_type=None
+                query="integration test", limit=10, min_relevance=0.7, memory_type=None
             )
 
     def test_full_workflow_with_authentication(self, client, mock_memory_tools):
@@ -914,19 +792,16 @@ class TestIntegration:
                     "memory_type": "experience",
                     "relevance": 0.88,
                     "created_at": "2024-01-01T00:00:00",
-                    "final_score": 0.82
+                    "final_score": 0.82,
                 }
             ]
 
-            with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+            with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
                 # Step 1: Store with authentication
                 store_response = client.post(
                     "/api/v1/store",
-                    json={
-                        "content": "Authenticated memory",
-                        "memory_type": "experience"
-                    },
-                    headers={"X-API-Key": "integration-test-key"}
+                    json={"content": "Authenticated memory", "memory_type": "experience"},
+                    headers={"X-API-Key": "integration-test-key"},
                 )
 
                 assert store_response.status_code == 201
@@ -936,7 +811,7 @@ class TestIntegration:
                 recall_response = client.get(
                     "/api/v1/recall",
                     params={"query": "authenticated"},
-                    headers={"X-API-Key": "integration-test-key"}
+                    headers={"X-API-Key": "integration-test-key"},
                 )
 
                 assert recall_response.status_code == 200
@@ -945,10 +820,7 @@ class TestIntegration:
                 assert recall_data["memories"][0]["id"] == stored_memory_id
 
                 # Step 3: Verify unauthenticated request fails
-                unauth_response = client.get(
-                    "/api/v1/recall",
-                    params={"query": "authenticated"}
-                )
+                unauth_response = client.get("/api/v1/recall", params={"query": "authenticated"})
 
                 assert unauth_response.status_code == 401
         finally:
@@ -972,7 +844,7 @@ class TestIntegration:
                 "memory_type": "fact",
                 "relevance": 0.95,
                 "created_at": "2024-01-01T00:00:00",
-                "final_score": 0.90
+                "final_score": 0.90,
             },
             {
                 "id": "mem_2",
@@ -980,16 +852,16 @@ class TestIntegration:
                 "memory_type": "fact",
                 "relevance": 0.85,
                 "created_at": "2024-01-01T01:00:00",
-                "final_score": 0.80
-            }
+                "final_score": 0.80,
+            },
         ]
 
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             # Store multiple memories
             memories = [
                 {"content": "First fact", "memory_type": "fact"},
                 {"content": "Second fact", "memory_type": "fact"},
-                {"content": "An experience", "memory_type": "experience"}
+                {"content": "An experience", "memory_type": "experience"},
             ]
 
             stored_ids = []
@@ -1004,12 +876,7 @@ class TestIntegration:
 
             # Recall with type filter
             recall_response = client.get(
-                "/api/v1/recall",
-                params={
-                    "query": "fact",
-                    "memory_type": "fact",
-                    "limit": 5
-                }
+                "/api/v1/recall", params={"query": "fact", "memory_type": "fact", "limit": 5}
             )
 
             assert recall_response.status_code == 200
@@ -1033,21 +900,18 @@ class TestIntegration:
                 "memory_type": "fact",
                 "relevance": 0.92,
                 "created_at": "2024-01-01T00:00:00",
-                "final_score": 0.88
+                "final_score": 0.88,
             }
         ]
 
         origin = "http://localhost:3000"
 
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             # Store with Origin header
             store_response = client.post(
                 "/api/v1/store",
-                json={
-                    "content": "CORS test memory",
-                    "memory_type": "fact"
-                },
-                headers={"Origin": origin}
+                json={"content": "CORS test memory", "memory_type": "fact"},
+                headers={"Origin": origin},
             )
 
             assert store_response.status_code == 201
@@ -1056,9 +920,7 @@ class TestIntegration:
 
             # Recall with Origin header
             recall_response = client.get(
-                "/api/v1/recall",
-                params={"query": "cors test"},
-                headers={"Origin": origin}
+                "/api/v1/recall", params={"query": "cors test"}, headers={"Origin": origin}
             )
 
             assert recall_response.status_code == 200
@@ -1078,7 +940,7 @@ class TestIntegration:
         # Configure mock to fail first, then succeed
         mock_memory_tools.store.side_effect = [
             Exception("Temporary database error"),
-            "mem_retry_success"
+            "mem_retry_success",
         ]
         mock_memory_tools.recall.return_value = [
             {
@@ -1087,18 +949,14 @@ class TestIntegration:
                 "memory_type": "fact",
                 "relevance": 0.90,
                 "created_at": "2024-01-01T00:00:00",
-                "final_score": 0.85
+                "final_score": 0.85,
             }
         ]
 
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             # First attempt fails
             first_response = client.post(
-                "/api/v1/store",
-                json={
-                    "content": "Retry test memory",
-                    "memory_type": "fact"
-                }
+                "/api/v1/store", json={"content": "Retry test memory", "memory_type": "fact"}
             )
 
             assert first_response.status_code == 500
@@ -1106,21 +964,14 @@ class TestIntegration:
 
             # Retry succeeds
             retry_response = client.post(
-                "/api/v1/store",
-                json={
-                    "content": "Retry successful",
-                    "memory_type": "fact"
-                }
+                "/api/v1/store", json={"content": "Retry successful", "memory_type": "fact"}
             )
 
             assert retry_response.status_code == 201
             assert retry_response.json()["memory_id"] == "mem_retry_success"
 
             # Verify can recall the successfully stored memory
-            recall_response = client.get(
-                "/api/v1/recall",
-                params={"query": "retry"}
-            )
+            recall_response = client.get("/api/v1/recall", params={"query": "retry"})
 
             assert recall_response.status_code == 200
             recall_data = recall_response.json()
@@ -1132,7 +983,7 @@ class TestIntegration:
         Full workflow: Check health -> Store -> Recall -> Check health again
         Assert: Health endpoint works alongside memory operations
         """
-        with patch('omi.rest_api.get_memory_tools', return_value=mock_memory_tools):
+        with patch("omi.rest_api.get_memory_tools", return_value=mock_memory_tools):
             # Configure mock
             mock_memory_tools.store.return_value = "mem_health_test"
             mock_memory_tools.recall.return_value = []
@@ -1143,17 +994,11 @@ class TestIntegration:
             assert health_response.json()["status"] == "healthy"
 
             # Step 2: Store a memory
-            store_response = client.post(
-                "/api/v1/store",
-                json={"content": "Health test memory"}
-            )
+            store_response = client.post("/api/v1/store", json={"content": "Health test memory"})
             assert store_response.status_code == 201
 
             # Step 3: Recall memories
-            recall_response = client.get(
-                "/api/v1/recall",
-                params={"query": "health"}
-            )
+            recall_response = client.get("/api/v1/recall", params={"query": "health"})
             assert recall_response.status_code == 200
 
             # Step 4: Check health after operations

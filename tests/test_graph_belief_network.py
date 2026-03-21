@@ -81,7 +81,7 @@ class TestBeliefNetwork:
             memory_id=str(uuid.uuid4()),
             supports=True,
             strength=0.8,
-            timestamp=datetime.utcnow().isoformat()
+            timestamp=datetime.utcnow().isoformat(),
         )
 
         new_confidence = bn.update_confidence(belief_id, evidence)
@@ -103,7 +103,7 @@ class TestBeliefNetwork:
             memory_id=str(uuid.uuid4()),
             supports=False,
             strength=0.6,
-            timestamp=datetime.utcnow().isoformat()
+            timestamp=datetime.utcnow().isoformat(),
         )
 
         new_confidence = bn.update_confidence(belief_id, evidence)
@@ -125,7 +125,7 @@ class TestBeliefNetwork:
             memory_id=str(uuid.uuid4()),
             supports=True,
             strength=1.0,
-            timestamp=datetime.utcnow().isoformat()
+            timestamp=datetime.utcnow().isoformat(),
         )
 
         new_confidence = bn.update_confidence(belief_id, evidence)
@@ -221,7 +221,10 @@ class TestBeliefNetwork:
         assert len(contradictions) > 0
         # Should find that belief_a and belief_b contradict each other
         contradiction_pairs = [(c[0], c[1]) for c in contradictions]
-        assert (belief_a, belief_b) in contradiction_pairs or (belief_b, belief_a) in contradiction_pairs
+        assert (belief_a, belief_b) in contradiction_pairs or (
+            belief_b,
+            belief_a,
+        ) in contradiction_pairs
 
     def test_ema_update_supporting(self, tmp_path):
         """Test EMA update formula for supporting evidence"""
@@ -268,11 +271,7 @@ class TestBeliefNetwork:
         bn.create_belief(belief_id, "Test")
 
         # Evidence without timestamp (should use current time)
-        evidence = Evidence(
-            memory_id=str(uuid.uuid4()),
-            supports=True,
-            strength=0.7
-        )
+        evidence = Evidence(memory_id=str(uuid.uuid4()), supports=True, strength=0.7)
 
         new_confidence = bn.update_confidence(belief_id, evidence)
 

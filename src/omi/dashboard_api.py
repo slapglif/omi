@@ -26,9 +26,7 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI router with dashboard prefix
 router = APIRouter(
-    prefix="/api/v1/dashboard",
-    tags=["dashboard"],
-    responses={404: {"description": "Not found"}}
+    prefix="/api/v1/dashboard", tags=["dashboard"], responses={404: {"description": "Not found"}}
 )
 
 
@@ -58,7 +56,7 @@ def get_palace_instance() -> GraphPalace:
     if not db_path.exists():
         raise HTTPException(
             status_code=503,
-            detail=f"Database not found at {db_path}. Run 'omi init' to initialize."
+            detail=f"Database not found at {db_path}. Run 'omi init' to initialize.",
         )
 
     try:
@@ -66,10 +64,7 @@ def get_palace_instance() -> GraphPalace:
         return palace
     except Exception as e:
         logger.error(f"Failed to initialize GraphPalace: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Failed to connect to database: {str(e)}"
-        )
+        raise HTTPException(status_code=503, detail=f"Failed to connect to database: {str(e)}")
 
 
 # Global cache for embedder to avoid reinitializing
@@ -116,7 +111,7 @@ def get_embedder_and_cache() -> Tuple[OllamaEmbedder, EmbeddingCache]:
         logger.error(f"Failed to initialize embedder: {e}", exc_info=True)
         raise HTTPException(
             status_code=503,
-            detail=f"Failed to initialize embedder: {str(e)}. Make sure Ollama is running."
+            detail=f"Failed to initialize embedder: {str(e)}. Make sure Ollama is running.",
         )
 
 
@@ -128,19 +123,23 @@ async def dashboard_health() -> Dict[str, str]:
     Returns:
         Health status and service name
     """
-    return {
-        "status": "healthy",
-        "service": "omi-dashboard-api"
-    }
+    return {"status": "healthy", "service": "omi-dashboard-api"}
 
 
 @router.get("/memories")
 async def get_memories(
-    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of memories to return"),
+    limit: int = Query(
+        default=100, ge=1, le=1000, description="Maximum number of memories to return"
+    ),
     offset: int = Query(default=0, ge=0, description="Number of memories to skip"),
-    memory_type: Optional[str] = Query(default=None, description="Filter by memory type (fact, experience, belief, decision)"),
-    order_by: str = Query(default="created_at", description="Field to order by (created_at, access_count, last_accessed)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    memory_type: Optional[str] = Query(
+        default=None, description="Filter by memory type (fact, experience, belief, decision)"
+    ),
+    order_by: str = Query(
+        default="created_at",
+        description="Field to order by (created_at, access_count, last_accessed)",
+    ),
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
 ) -> Dict[str, Any]:
     """
     Retrieve memories with optional filters.
@@ -168,7 +167,7 @@ async def get_memories(
         if memory_type not in valid_types:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid memory_type: {memory_type}. Must be one of: {valid_types}"
+                detail=f"Invalid memory_type: {memory_type}. Must be one of: {valid_types}",
             )
 
     # Validate order_by
@@ -176,15 +175,14 @@ async def get_memories(
     if order_by not in valid_order_fields:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
+            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}",
         )
 
     # Validate order_dir
     order_dir_upper = order_dir.upper()
     if order_dir_upper not in {"ASC", "DESC"}:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
+            status_code=400, detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
         )
 
     try:
@@ -233,35 +231,32 @@ async def get_memories(
                 "last_accessed": row[6],
                 "access_count": row[7],
                 "instance_ids": row[8] if row[8] else "[]",
-                "content_hash": row[9]
+                "content_hash": row[9],
             }
             memories.append(memory)
 
-        return {
-            "memories": memories,
-            "total_count": total_count,
-            "limit": limit,
-            "offset": offset
-        }
+        return {"memories": memories, "total_count": total_count, "limit": limit, "offset": offset}
 
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error(f"Failed to retrieve memories: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve memories: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve memories: {str(e)}")
 
 
 @router.get("/edges")
 async def get_edges(
     limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of edges to return"),
     offset: int = Query(default=0, ge=0, description="Number of edges to skip"),
-    edge_type: Optional[str] = Query(default=None, description="Filter by edge type (SUPPORTS, CONTRADICTS, RELATED_TO, DEPENDS_ON, POSTED, DISCUSSED)"),
-    order_by: str = Query(default="created_at", description="Field to order by (created_at, strength)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    edge_type: Optional[str] = Query(
+        default=None,
+        description="Filter by edge type (SUPPORTS, CONTRADICTS, RELATED_TO, DEPENDS_ON, POSTED, DISCUSSED)",
+    ),
+    order_by: str = Query(
+        default="created_at", description="Field to order by (created_at, strength)"
+    ),
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
 ) -> Dict[str, Any]:
     """
     Retrieve relationship edges with optional filters.
@@ -289,7 +284,7 @@ async def get_edges(
         if edge_type not in valid_types:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid edge_type: {edge_type}. Must be one of: {valid_types}"
+                detail=f"Invalid edge_type: {edge_type}. Must be one of: {valid_types}",
             )
 
     # Validate order_by
@@ -297,15 +292,14 @@ async def get_edges(
     if order_by not in valid_order_fields:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
+            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}",
         )
 
     # Validate order_dir
     order_dir_upper = order_dir.upper()
     if order_dir_upper not in {"ASC", "DESC"}:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
+            status_code=400, detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
         )
 
     try:
@@ -349,34 +343,31 @@ async def get_edges(
                 "target_id": row[2],
                 "edge_type": row[3],
                 "strength": row[4],
-                "created_at": row[5]
+                "created_at": row[5],
             }
             edges.append(edge)
 
-        return {
-            "edges": edges,
-            "total_count": total_count,
-            "limit": limit,
-            "offset": offset
-        }
+        return {"edges": edges, "total_count": total_count, "limit": limit, "offset": offset}
 
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error(f"Failed to retrieve edges: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve edges: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve edges: {str(e)}")
 
 
 @router.get("/beliefs")
 async def get_beliefs(
-    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of beliefs to return"),
+    limit: int = Query(
+        default=100, ge=1, le=1000, description="Maximum number of beliefs to return"
+    ),
     offset: int = Query(default=0, ge=0, description="Number of beliefs to skip"),
-    order_by: str = Query(default="last_updated", description="Field to order by (confidence, created_at, last_updated, evidence_count)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    order_by: str = Query(
+        default="last_updated",
+        description="Field to order by (confidence, created_at, last_updated, evidence_count)",
+    ),
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
 ) -> Dict[str, Any]:
     """
     Retrieve beliefs from the belief network.
@@ -402,15 +393,14 @@ async def get_beliefs(
     if order_by not in valid_order_fields:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
+            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}",
         )
 
     # Validate order_dir
     order_dir_upper = order_dir.upper()
     if order_dir_upper not in {"ASC", "DESC"}:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
+            status_code=400, detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
         )
 
     try:
@@ -447,31 +437,25 @@ async def get_beliefs(
                 "confidence": row[2],
                 "created_at": row[3],
                 "last_updated": row[4],
-                "evidence_count": row[5]
+                "evidence_count": row[5],
             }
             beliefs.append(belief)
 
-        return {
-            "beliefs": beliefs,
-            "total_count": total_count,
-            "limit": limit,
-            "offset": offset
-        }
+        return {"beliefs": beliefs, "total_count": total_count, "limit": limit, "offset": offset}
 
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error(f"Failed to retrieve beliefs: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve beliefs: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve beliefs: {str(e)}")
 
 
 @router.get("/graph")
 async def get_graph(
-    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of memories and edges to return")
+    limit: int = Query(
+        default=100, ge=1, le=1000, description="Maximum number of memories and edges to return"
+    )
 ) -> Dict[str, Any]:
     """
     Retrieve complete graph data (memories + edges) in one call.
@@ -540,7 +524,7 @@ async def get_graph(
                 "last_accessed": row[5],
                 "access_count": row[6],
                 "instance_ids": row[7] if row[7] else "[]",
-                "content_hash": row[8]
+                "content_hash": row[8],
             }
             memories.append(memory)
 
@@ -553,7 +537,7 @@ async def get_graph(
                 "target_id": row[2],
                 "edge_type": row[3],
                 "strength": row[4],
-                "created_at": row[5]
+                "created_at": row[5],
             }
             edges.append(edge)
 
@@ -562,7 +546,7 @@ async def get_graph(
             "edges": edges,
             "memory_count": total_memory_count,
             "edge_count": total_edge_count,
-            "limit": limit
+            "limit": limit,
         }
 
     except HTTPException:
@@ -570,10 +554,7 @@ async def get_graph(
         raise
     except Exception as e:
         logger.error(f"Failed to retrieve graph data: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve graph data: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve graph data: {str(e)}")
 
 
 @router.get("/stats")
@@ -622,7 +603,7 @@ async def get_stats() -> Dict[str, Any]:
             "memory_count": memory_count,
             "edge_count": edge_count,
             "type_distribution": type_distribution,
-            "edge_distribution": edge_distribution
+            "edge_distribution": edge_distribution,
         }
 
     except HTTPException:
@@ -630,17 +611,16 @@ async def get_stats() -> Dict[str, Any]:
         raise
     except Exception as e:
         logger.error(f"Failed to retrieve stats: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve database stats: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve database stats: {str(e)}")
 
 
 @router.get("/search")
 async def search_memories(
     q: str = Query(..., description="Search query text", min_length=1),
     limit: int = Query(default=10, ge=1, le=100, description="Maximum number of results to return"),
-    min_relevance: float = Query(default=0.5, ge=0.0, le=1.0, description="Minimum relevance threshold")
+    min_relevance: float = Query(
+        default=0.5, ge=0.0, le=1.0, description="Minimum relevance threshold"
+    ),
 ) -> Dict[str, Any]:
     """
     Semantic search for memories using embeddings.
@@ -675,9 +655,7 @@ async def search_memories(
 
         # Perform semantic recall
         results_tuples: List[Tuple[Memory, float]] = palace.recall(
-            query_embedding=query_embedding,
-            limit=limit,
-            min_relevance=min_relevance
+            query_embedding=query_embedding, limit=limit, min_relevance=min_relevance
         )
 
         # Convert results to dict format
@@ -693,26 +671,18 @@ async def search_memories(
                 "access_count": memory.access_count,
                 "instance_ids": memory.instance_ids,
                 "content_hash": memory.content_hash,
-                "relevance_score": relevance_score
+                "relevance_score": relevance_score,
             }
             results.append(memory_dict)
 
-        return {
-            "results": results,
-            "query": q,
-            "limit": limit,
-            "count": len(results)
-        }
+        return {"results": results, "query": q, "limit": limit, "count": len(results)}
 
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error(f"Search failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Search failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
-__all__ = ['router', 'get_palace_instance']
+__all__ = ["router", "get_palace_instance"]

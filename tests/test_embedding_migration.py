@@ -19,6 +19,7 @@ from typing import List
 import numpy as np
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from omi.embeddings import EmbeddingCache, OllamaEmbedder
@@ -35,8 +36,8 @@ class MockEmbedder:
         embedding = []
         for i in range(0, min(128, len(text_hash) * 4), 4):
             # Unpack 4 bytes as float
-            byte_chunk = text_hash[i//4:i//4+1] * 4  # Repeat byte to make 4 bytes
-            val = int.from_bytes(byte_chunk, byteorder='little', signed=False) / (2**32)
+            byte_chunk = text_hash[i // 4 : i // 4 + 1] * 4  # Repeat byte to make 4 bytes
+            val = int.from_bytes(byte_chunk, byteorder="little", signed=False) / (2**32)
             embedding.append(val)
 
         # Pad to 32 dimensions
@@ -59,6 +60,7 @@ class TestEmbeddingMigration(unittest.TestCase):
     def tearDown(self):
         """Clean up test directory."""
         import shutil
+
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
@@ -72,8 +74,7 @@ class TestEmbeddingMigration(unittest.TestCase):
         """Retrieve embedding from SQLite database."""
         with sqlite3.connect(cache.db_path) as conn:
             cursor = conn.execute(
-                "SELECT embedding FROM embedding_cache WHERE content_hash = ?",
-                (content_hash,)
+                "SELECT embedding FROM embedding_cache WHERE content_hash = ?", (content_hash,)
             )
             row = cursor.fetchone()
             if row:
@@ -102,8 +103,7 @@ class TestEmbeddingMigration(unittest.TestCase):
 
         # Verify values match (within floating point precision)
         for i, (expected, actual) in enumerate(zip(test_embedding, migrated_embedding)):
-            self.assertAlmostEqual(expected, actual, places=5,
-                                 msg=f"Mismatch at index {i}")
+            self.assertAlmostEqual(expected, actual, places=5, msg=f"Mismatch at index {i}")
 
     def test_migrate_multiple_npy_files(self):
         """Test migration of multiple .npy files."""
@@ -126,8 +126,9 @@ class TestEmbeddingMigration(unittest.TestCase):
         # Verify all embeddings are in SQLite
         for content_hash, expected_embedding in test_data.items():
             migrated_embedding = self._get_embedding_from_db(cache, content_hash)
-            self.assertIsNotNone(migrated_embedding,
-                               f"Embedding for {content_hash} not found in database")
+            self.assertIsNotNone(
+                migrated_embedding, f"Embedding for {content_hash} not found in database"
+            )
             self.assertEqual(len(migrated_embedding), len(expected_embedding))
 
             for expected, actual in zip(expected_embedding, migrated_embedding):
@@ -150,8 +151,7 @@ class TestEmbeddingMigration(unittest.TestCase):
         # Verify only one entry in database
         with sqlite3.connect(cache2.db_path) as conn:
             cursor = conn.execute(
-                "SELECT COUNT(*) FROM embedding_cache WHERE content_hash = ?",
-                (content_hash,)
+                "SELECT COUNT(*) FROM embedding_cache WHERE content_hash = ?", (content_hash,)
             )
             count = cursor.fetchone()[0]
             self.assertEqual(count, 1, "Migration should be idempotent")
@@ -230,7 +230,7 @@ class TestEmbeddingMigration(unittest.TestCase):
 
         # Create a corrupt .npy file
         corrupt_path = self.cache_dir / "corrupt_file.npy"
-        with open(corrupt_path, 'wb') as f:
+        with open(corrupt_path, "wb") as f:
             f.write(b"This is not a valid .npy file")
 
         # Initialize cache (should migrate valid file, skip corrupt)
@@ -247,9 +247,9 @@ class TestEmbeddingMigration(unittest.TestCase):
     def test_migration_preserves_embedding_dimensions(self):
         """Test that migration preserves different embedding dimensions."""
         test_cases = [
-            ("dim_768", [0.1] * 768),   # Common for nomic-embed-text
-            ("dim_1024", [0.2] * 1024), # Common for bge-m3
-            ("dim_32", [0.3] * 32),     # Small test dimension
+            ("dim_768", [0.1] * 768),  # Common for nomic-embed-text
+            ("dim_1024", [0.2] * 1024),  # Common for bge-m3
+            ("dim_32", [0.3] * 32),  # Small test dimension
         ]
 
         for content_hash, embedding in test_cases:
@@ -261,8 +261,9 @@ class TestEmbeddingMigration(unittest.TestCase):
         # Verify all dimensions preserved
         for content_hash, expected_embedding in test_cases:
             migrated = self._get_embedding_from_db(cache, content_hash)
-            self.assertEqual(len(migrated), len(expected_embedding),
-                           f"Dimension mismatch for {content_hash}")
+            self.assertEqual(
+                len(migrated), len(expected_embedding), f"Dimension mismatch for {content_hash}"
+            )
 
     def test_database_schema_created_correctly(self):
         """Test that the SQLite schema is created correctly."""
@@ -279,13 +280,13 @@ class TestEmbeddingMigration(unittest.TestCase):
             cursor = conn.execute("PRAGMA table_info(embedding_cache)")
             columns = {row[1]: row[2] for row in cursor.fetchall()}
 
-            self.assertIn('content_hash', columns)
-            self.assertIn('embedding', columns)
-            self.assertIn('created_at', columns)
+            self.assertIn("content_hash", columns)
+            self.assertIn("embedding", columns)
+            self.assertIn("created_at", columns)
 
             # Verify types
-            self.assertEqual(columns['content_hash'], 'TEXT')
-            self.assertEqual(columns['embedding'], 'BLOB')
+            self.assertEqual(columns["content_hash"], "TEXT")
+            self.assertEqual(columns["embedding"], "BLOB")
 
             # Check index exists
             cursor = conn.execute(
@@ -300,7 +301,7 @@ class TestEmbeddingMigration(unittest.TestCase):
         with sqlite3.connect(cache.db_path) as conn:
             cursor = conn.execute("PRAGMA journal_mode")
             mode = cursor.fetchone()[0]
-            self.assertEqual(mode.lower(), 'wal')
+            self.assertEqual(mode.lower(), "wal")
 
     def test_wal_mode_disabled(self):
         """Test that WAL mode can be disabled."""
@@ -309,7 +310,7 @@ class TestEmbeddingMigration(unittest.TestCase):
         with sqlite3.connect(cache.db_path) as conn:
             cursor = conn.execute("PRAGMA journal_mode")
             mode = cursor.fetchone()[0]
-            self.assertNotEqual(mode.lower(), 'wal')
+            self.assertNotEqual(mode.lower(), "wal")
 
     def test_empty_embedding_handling(self):
         """Test that empty embeddings are handled correctly."""
@@ -331,5 +332,5 @@ class TestEmbeddingMigration(unittest.TestCase):
             self.assertEqual(len(migrated), 0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

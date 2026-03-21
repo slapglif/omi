@@ -24,6 +24,7 @@ class TestCLIInit:
 
             # Import cli module
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli, get_base_path
 
@@ -41,6 +42,7 @@ class TestCLIInit:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -60,6 +62,7 @@ class TestCLIInit:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -79,6 +82,7 @@ class TestCLIInit:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -98,6 +102,7 @@ class TestCLISession:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -113,6 +118,7 @@ class TestCLISession:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -132,6 +138,7 @@ class TestCLIStore:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -148,6 +155,7 @@ class TestCLIStore:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -157,14 +165,11 @@ class TestCLIStore:
                 runner.invoke(cli, ["init"])
 
             # Mock GraphPalace to avoid database errors
-            with patch.object(GraphPalace, 'store_memory', return_value="test-id-123"):
+            with patch.object(GraphPalace, "store_memory", return_value="test-id-123"):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                    result = runner.invoke(cli, [
-                        "store",
-                        "Test memory",
-                        "--type", "belief",
-                        "--confidence", "0.85"
-                    ])
+                    result = runner.invoke(
+                        cli, ["store", "Test memory", "--type", "belief", "--confidence", "0.85"]
+                    )
 
             assert result.exit_code == 0
 
@@ -177,6 +182,7 @@ class TestCLIBelief:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -193,6 +199,7 @@ class TestCLIBelief:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -207,6 +214,7 @@ class TestCLIBelief:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -222,6 +230,7 @@ class TestCLIBelief:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -234,20 +243,24 @@ class TestCLIBelief:
 
             # Mock GraphPalace methods
             mock_belief = {
-                'id': 'test-belief-id',
-                'content': 'Test belief content',
-                'confidence': 0.75
+                "id": "test-belief-id",
+                "content": "Test belief content",
+                "confidence": 0.75,
             }
 
             mock_evidence = MagicMock()
-            mock_evidence.memory_id = 'evidence-1'
+            mock_evidence.memory_id = "evidence-1"
             mock_evidence.supports = True
             mock_evidence.strength = 0.8
             mock_evidence.timestamp = datetime.now()
 
-            with patch.object(GraphPalace, 'get_belief', return_value=mock_belief):
-                with patch.object(BeliefNetwork, 'get_evidence_chain', return_value=[mock_evidence]):
-                    with patch.object(GraphPalace, 'get_memory', return_value={'content': 'Evidence content'}):
+            with patch.object(GraphPalace, "get_belief", return_value=mock_belief):
+                with patch.object(
+                    BeliefNetwork, "get_evidence_chain", return_value=[mock_evidence]
+                ):
+                    with patch.object(
+                        GraphPalace, "get_memory", return_value={"content": "Evidence content"}
+                    ):
                         with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                             result = runner.invoke(cli, ["belief", "evidence", "test-belief-id"])
 
@@ -263,6 +276,7 @@ class TestCLIBelief:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -276,28 +290,32 @@ class TestCLIBelief:
 
             # Mock GraphPalace methods
             mock_belief = {
-                'id': 'test-belief-id',
-                'content': 'Test belief content',
-                'confidence': 0.75
+                "id": "test-belief-id",
+                "content": "Test belief content",
+                "confidence": 0.75,
             }
 
             mock_evidence = MagicMock()
-            mock_evidence.memory_id = 'evidence-1'
+            mock_evidence.memory_id = "evidence-1"
             mock_evidence.supports = True
             mock_evidence.strength = 0.8
             mock_evidence.timestamp = datetime.now()
 
-            with patch.object(GraphPalace, 'get_belief', return_value=mock_belief):
-                with patch.object(BeliefNetwork, 'get_evidence_chain', return_value=[mock_evidence]):
+            with patch.object(GraphPalace, "get_belief", return_value=mock_belief):
+                with patch.object(
+                    BeliefNetwork, "get_evidence_chain", return_value=[mock_evidence]
+                ):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                        result = runner.invoke(cli, ["belief", "evidence", "test-belief-id", "--json"])
+                        result = runner.invoke(
+                            cli, ["belief", "evidence", "test-belief-id", "--json"]
+                        )
 
             assert result.exit_code == 0
             output = json.loads(result.output)
             assert isinstance(output, list)
             assert len(output) == 1
-            assert output[0]['memory_id'] == 'evidence-1'
-            assert output[0]['supports'] is True
+            assert output[0]["memory_id"] == "evidence-1"
+            assert output[0]["supports"] is True
 
     def test_belief_evidence_handles_missing_belief(self):
         """Test that belief evidence handles missing belief gracefully."""
@@ -306,6 +324,7 @@ class TestCLIBelief:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -315,7 +334,7 @@ class TestCLIBelief:
                 runner.invoke(cli, ["init"])
 
             # Mock GraphPalace to return None for missing belief
-            with patch.object(GraphPalace, 'get_belief', return_value=None):
+            with patch.object(GraphPalace, "get_belief", return_value=None):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["belief", "evidence", "nonexistent-belief"])
 
@@ -328,11 +347,14 @@ class TestCLIBelief:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(Path(tmpdir) / "not_initialized")}):
-                result = runner.invoke(cli, ["belief", "update", "test-belief-id", "--evidence", "test-evidence-id"])
+                result = runner.invoke(
+                    cli, ["belief", "update", "test-belief-id", "--evidence", "test-evidence-id"]
+                )
 
             assert result.exit_code == 1
             assert "not initialized" in result.output.lower()
@@ -344,6 +366,7 @@ class TestCLIBelief:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -364,6 +387,7 @@ class TestCLIBelief:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -373,22 +397,36 @@ class TestCLIBelief:
 
             # Test strength > 1.0
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "belief", "update", "test-belief-id",
-                    "--evidence", "test-evidence-id",
-                    "--strength", "1.5"
-                ])
+                result = runner.invoke(
+                    cli,
+                    [
+                        "belief",
+                        "update",
+                        "test-belief-id",
+                        "--evidence",
+                        "test-evidence-id",
+                        "--strength",
+                        "1.5",
+                    ],
+                )
 
             assert result.exit_code == 1
             assert "0.0 and 1.0" in result.output
 
             # Test strength < 0.0
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "belief", "update", "test-belief-id",
-                    "--evidence", "test-evidence-id",
-                    "--strength", "-0.5"
-                ])
+                result = runner.invoke(
+                    cli,
+                    [
+                        "belief",
+                        "update",
+                        "test-belief-id",
+                        "--evidence",
+                        "test-evidence-id",
+                        "--strength",
+                        "-0.5",
+                    ],
+                )
 
             assert result.exit_code == 1
             assert "0.0 and 1.0" in result.output
@@ -400,6 +438,7 @@ class TestCLIBelief:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -411,22 +450,29 @@ class TestCLIBelief:
 
             # Mock GraphPalace methods
             mock_belief = {
-                'id': 'test-belief-id',
-                'content': 'Test belief content',
-                'confidence': 0.5
+                "id": "test-belief-id",
+                "content": "Test belief content",
+                "confidence": 0.5,
             }
-            mock_memory = {'id': 'test-evidence-id', 'content': 'Test evidence'}
+            mock_memory = {"id": "test-evidence-id", "content": "Test evidence"}
 
-            with patch.object(GraphPalace, 'get_belief', return_value=mock_belief):
-                with patch.object(GraphPalace, 'get_memory', return_value=mock_memory):
-                    with patch.object(BeliefNetwork, 'update_with_evidence', return_value=0.6):
+            with patch.object(GraphPalace, "get_belief", return_value=mock_belief):
+                with patch.object(GraphPalace, "get_memory", return_value=mock_memory):
+                    with patch.object(BeliefNetwork, "update_with_evidence", return_value=0.6):
                         with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                            result = runner.invoke(cli, [
-                                "belief", "update", "test-belief-id",
-                                "--evidence", "test-evidence-id",
-                                "--supports",
-                                "--strength", "0.8"
-                            ])
+                            result = runner.invoke(
+                                cli,
+                                [
+                                    "belief",
+                                    "update",
+                                    "test-belief-id",
+                                    "--evidence",
+                                    "test-evidence-id",
+                                    "--supports",
+                                    "--strength",
+                                    "0.8",
+                                ],
+                            )
 
             assert result.exit_code == 0
             assert "SUPPORTING" in result.output
@@ -439,6 +485,7 @@ class TestCLIBelief:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -450,22 +497,29 @@ class TestCLIBelief:
 
             # Mock GraphPalace methods
             mock_belief = {
-                'id': 'test-belief-id',
-                'content': 'Test belief content',
-                'confidence': 0.6
+                "id": "test-belief-id",
+                "content": "Test belief content",
+                "confidence": 0.6,
             }
-            mock_memory = {'id': 'test-evidence-id', 'content': 'Test evidence'}
+            mock_memory = {"id": "test-evidence-id", "content": "Test evidence"}
 
-            with patch.object(GraphPalace, 'get_belief', return_value=mock_belief):
-                with patch.object(GraphPalace, 'get_memory', return_value=mock_memory):
-                    with patch.object(BeliefNetwork, 'update_with_evidence', return_value=0.4):
+            with patch.object(GraphPalace, "get_belief", return_value=mock_belief):
+                with patch.object(GraphPalace, "get_memory", return_value=mock_memory):
+                    with patch.object(BeliefNetwork, "update_with_evidence", return_value=0.4):
                         with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                            result = runner.invoke(cli, [
-                                "belief", "update", "test-belief-id",
-                                "--evidence", "test-evidence-id",
-                                "--contradicts",
-                                "--strength", "0.6"
-                            ])
+                            result = runner.invoke(
+                                cli,
+                                [
+                                    "belief",
+                                    "update",
+                                    "test-belief-id",
+                                    "--evidence",
+                                    "test-evidence-id",
+                                    "--contradicts",
+                                    "--strength",
+                                    "0.6",
+                                ],
+                            )
 
             assert result.exit_code == 0
             assert "CONTRADICTING" in result.output
@@ -478,6 +532,7 @@ class TestCLIBelief:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -487,12 +542,18 @@ class TestCLIBelief:
                 runner.invoke(cli, ["init"])
 
             # Mock GraphPalace to return None for missing belief
-            with patch.object(GraphPalace, 'get_belief', return_value=None):
+            with patch.object(GraphPalace, "get_belief", return_value=None):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                    result = runner.invoke(cli, [
-                        "belief", "update", "nonexistent-belief",
-                        "--evidence", "test-evidence-id"
-                    ])
+                    result = runner.invoke(
+                        cli,
+                        [
+                            "belief",
+                            "update",
+                            "nonexistent-belief",
+                            "--evidence",
+                            "test-evidence-id",
+                        ],
+                    )
 
             assert result.exit_code == 1
             assert "not found" in result.output.lower()
@@ -504,6 +565,7 @@ class TestCLIBelief:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -514,18 +576,24 @@ class TestCLIBelief:
 
             # Mock GraphPalace methods
             mock_belief = {
-                'id': 'test-belief-id',
-                'content': 'Test belief content',
-                'confidence': 0.5
+                "id": "test-belief-id",
+                "content": "Test belief content",
+                "confidence": 0.5,
             }
 
-            with patch.object(GraphPalace, 'get_belief', return_value=mock_belief):
-                with patch.object(GraphPalace, 'get_memory', return_value=None):
+            with patch.object(GraphPalace, "get_belief", return_value=mock_belief):
+                with patch.object(GraphPalace, "get_memory", return_value=None):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                        result = runner.invoke(cli, [
-                            "belief", "update", "test-belief-id",
-                            "--evidence", "nonexistent-evidence"
-                        ])
+                        result = runner.invoke(
+                            cli,
+                            [
+                                "belief",
+                                "update",
+                                "test-belief-id",
+                                "--evidence",
+                                "nonexistent-evidence",
+                            ],
+                        )
 
             assert result.exit_code == 1
             assert "not found" in result.output.lower()
@@ -540,6 +608,7 @@ class TestCLIRecall:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -556,6 +625,7 @@ class TestCLIRecall:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -572,7 +642,7 @@ class TestCLIRecall:
             mock_mem.confidence = None
             mock_mem.created_at = None
             mock_results = [mock_mem]
-            with patch.object(GraphPalace, 'full_text_search', return_value=mock_results):
+            with patch.object(GraphPalace, "full_text_search", return_value=mock_results):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["recall", "test", "--json-output"])
 
@@ -586,6 +656,7 @@ class TestCLIRecall:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -619,29 +690,34 @@ class TestCLIRecall:
             all_results = [mock_fact, mock_experience, mock_belief]
 
             # Test filtering by fact
-            with patch.object(GraphPalace, 'full_text_search', return_value=all_results):
+            with patch.object(GraphPalace, "full_text_search", return_value=all_results):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                    result = runner.invoke(cli, ["recall", "test", "--type", "fact", "--json-output"])
+                    result = runner.invoke(
+                        cli, ["recall", "test", "--type", "fact", "--json-output"]
+                    )
 
             assert result.exit_code == 0
             import json
+
             output = json.loads(result.output)
             assert len(output) == 1
-            assert output[0]['memory_type'] == "fact"
-            assert output[0]['content'] == "Test fact"
+            assert output[0]["memory_type"] == "fact"
+            assert output[0]["content"] == "Test fact"
 
             # Test filtering by experience
-            with patch.object(GraphPalace, 'full_text_search', return_value=all_results):
+            with patch.object(GraphPalace, "full_text_search", return_value=all_results):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                    result = runner.invoke(cli, ["recall", "test", "--type", "experience", "--json-output"])
+                    result = runner.invoke(
+                        cli, ["recall", "test", "--type", "experience", "--json-output"]
+                    )
 
             assert result.exit_code == 0
             output = json.loads(result.output)
             assert len(output) == 1
-            assert output[0]['memory_type'] == "experience"
+            assert output[0]["memory_type"] == "experience"
 
             # Test no filter returns all
-            with patch.object(GraphPalace, 'full_text_search', return_value=all_results):
+            with patch.object(GraphPalace, "full_text_search", return_value=all_results):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["recall", "test", "--json-output"])
 
@@ -650,9 +726,11 @@ class TestCLIRecall:
             assert len(output) == 3
 
             # Test filtering with no matches returns empty
-            with patch.object(GraphPalace, 'full_text_search', return_value=[mock_fact]):
+            with patch.object(GraphPalace, "full_text_search", return_value=[mock_fact]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                    result = runner.invoke(cli, ["recall", "test", "--type", "decision", "--json-output"])
+                    result = runner.invoke(
+                        cli, ["recall", "test", "--type", "decision", "--json-output"]
+                    )
 
             assert result.exit_code == 0
             output = json.loads(result.output)
@@ -669,6 +747,7 @@ class TestCLIProgressIndicators:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -677,7 +756,9 @@ class TestCLIProgressIndicators:
 
             assert result.exit_code == 0
             # Verify progress messages appear in output
-            assert "Initializing database" in result.output or "Initialized database" in result.output
+            assert (
+                "Initializing database" in result.output or "Initialized database" in result.output
+            )
 
     def test_recall_shows_progress_bar(self):
         """Test that recall command shows progress during search."""
@@ -686,6 +767,7 @@ class TestCLIProgressIndicators:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -695,7 +777,7 @@ class TestCLIProgressIndicators:
                 runner.invoke(cli, ["init"])
 
             # Mock GraphPalace to avoid actual search
-            with patch.object(GraphPalace, 'full_text_search', return_value=[]):
+            with patch.object(GraphPalace, "full_text_search", return_value=[]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["recall", "test query"])
 
@@ -710,6 +792,7 @@ class TestCLIProgressIndicators:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.security import PoisonDetector
@@ -720,11 +803,11 @@ class TestCLIProgressIndicators:
 
             # Mock PoisonDetector to avoid actual audit
             mock_results = {
-                'file_integrity': {'status': 'clean', 'issues': []},
-                'topology': {'status': 'clean', 'issues': []},
-                'git_history': {'status': 'clean', 'issues': []},
+                "file_integrity": {"status": "clean", "issues": []},
+                "topology": {"status": "clean", "issues": []},
+                "git_history": {"status": "clean", "issues": []},
             }
-            with patch.object(PoisonDetector, 'full_security_audit', return_value=mock_results):
+            with patch.object(PoisonDetector, "full_security_audit", return_value=mock_results):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["audit"])
 
@@ -741,6 +824,7 @@ class TestCLIProgressIndicators:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -764,6 +848,7 @@ class TestCLIProgressIndicators:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -784,6 +869,7 @@ class TestCLIDelete:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -800,6 +886,7 @@ class TestCLIDelete:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -809,7 +896,7 @@ class TestCLIDelete:
                 runner.invoke(cli, ["init"])
 
             # Mock GraphPalace.get_memory to return None (memory not found)
-            with patch.object(GraphPalace, 'get_memory', return_value=None):
+            with patch.object(GraphPalace, "get_memory", return_value=None):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["delete", "nonexistent-id", "--force"])
 
@@ -823,6 +910,7 @@ class TestCLIDelete:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -838,7 +926,7 @@ class TestCLIDelete:
             mock_mem.memory_type = "fact"
 
             # Mock GraphPalace methods
-            with patch.object(GraphPalace, 'get_memory', return_value=mock_mem):
+            with patch.object(GraphPalace, "get_memory", return_value=mock_mem):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     # Simulate user saying 'no' to confirmation
                     result = runner.invoke(cli, ["delete", "test-id-123"], input="n\n")
@@ -853,6 +941,7 @@ class TestCLIDelete:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -868,8 +957,8 @@ class TestCLIDelete:
             mock_mem.memory_type = "fact"
 
             # Mock GraphPalace methods
-            with patch.object(GraphPalace, 'get_memory', return_value=mock_mem):
-                with patch.object(GraphPalace, 'delete_memory', return_value=True):
+            with patch.object(GraphPalace, "get_memory", return_value=mock_mem):
+                with patch.object(GraphPalace, "delete_memory", return_value=True):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                         # Simulate user saying 'yes' to confirmation
                         result = runner.invoke(cli, ["delete", "test-id-123"], input="y\n")
@@ -884,6 +973,7 @@ class TestCLIDelete:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -899,8 +989,8 @@ class TestCLIDelete:
             mock_mem.memory_type = "fact"
 
             # Mock GraphPalace methods
-            with patch.object(GraphPalace, 'get_memory', return_value=mock_mem):
-                with patch.object(GraphPalace, 'delete_memory', return_value=True):
+            with patch.object(GraphPalace, "get_memory", return_value=mock_mem):
+                with patch.object(GraphPalace, "delete_memory", return_value=True):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                         result = runner.invoke(cli, ["delete", "test-id-123", "--force"])
 
@@ -916,6 +1006,7 @@ class TestCLIDelete:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -931,8 +1022,8 @@ class TestCLIDelete:
             mock_mem.memory_type = "experience"
 
             # Mock GraphPalace methods
-            with patch.object(GraphPalace, 'get_memory', return_value=mock_mem):
-                with patch.object(GraphPalace, 'delete_memory', return_value=True):
+            with patch.object(GraphPalace, "get_memory", return_value=mock_mem):
+                with patch.object(GraphPalace, "delete_memory", return_value=True):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                         result = runner.invoke(cli, ["delete", "test-id-123"], input="y\n")
 
@@ -953,6 +1044,7 @@ class TestCLIStatus:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -969,6 +1061,7 @@ class TestCLIStatus:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -991,6 +1084,7 @@ class TestCLIAudit:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1010,6 +1104,7 @@ class TestCLIConfig:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1025,6 +1120,7 @@ class TestCLIConfig:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1041,6 +1137,7 @@ class TestCLIConfig:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -1067,6 +1164,7 @@ class TestCLIGlobal:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -1079,6 +1177,7 @@ class TestCLIGlobal:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -1099,6 +1198,7 @@ class TestCLIGlobal:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -1117,6 +1217,7 @@ class TestCommandHelp:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -1130,6 +1231,7 @@ class TestCommandHelp:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -1146,6 +1248,7 @@ def test_config():
         base_path = Path(tmpdir) / "omi"
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -1177,6 +1280,7 @@ def test_sync():
         base_path = Path(tmpdir) / "omi"
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -1193,11 +1297,12 @@ def test_sync():
             # Configure cloud storage using backup config structure
             config_path = base_path / "config.yaml"
             import yaml
+
             config_data = yaml.safe_load(config_path.read_text())
-            config_data['backup'] = {
-                'backend': 's3',
-                'bucket': 'test-bucket',
-                'region': 'us-east-1'
+            config_data["backup"] = {
+                "backend": "s3",
+                "bucket": "test-bucket",
+                "region": "us-east-1",
             }
             config_path.write_text(yaml.dump(config_data))
 
