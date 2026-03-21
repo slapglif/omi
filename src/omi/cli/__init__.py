@@ -26,6 +26,7 @@ from .sync import sync_group
 from .plugins import plugins_group
 from .serve import serve_group
 from .index import index_group
+from .policy import policy_group
 
 # CLI version - matches project version
 __version__ = "0.2.0"
@@ -118,6 +119,9 @@ cli.add_command(plugins_group, name='plugins')
 
 # Register index commands
 cli.add_command(index_group, name='index')
+
+# Register policy command group (policy show, dry-run, execute)
+cli.add_command(policy_group, name='policy')
 
 
 @cli.command()
