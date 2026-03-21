@@ -10,6 +10,16 @@ from typing import Optional, Dict, List, Union
 from dataclasses import dataclass
 from enum import Enum
 
+try:
+    import requests  # noqa: F401
+except ImportError:
+    requests = None  # type: ignore[assignment]
+
+try:
+    import ollama  # noqa: F401
+except ImportError:
+    ollama = None  # type: ignore[assignment]
+
 
 def load_compression_config(base_path: Union[str, Path]) -> Dict:
     """Load compression configuration from config.yaml.

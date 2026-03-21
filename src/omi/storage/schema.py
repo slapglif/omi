@@ -222,6 +222,15 @@ def init_database(conn: sqlite3.Connection, enable_wal: bool = True) -> None:
             FOREIGN KEY (instance_id_target) REFERENCES instance_registry(instance_id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS consensus_votes (
+            id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+            memory_id TEXT NOT NULL,
+            instance_id TEXT NOT NULL,
+            vote INTEGER NOT NULL CHECK(vote IN (-1, 0, 1)),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+        );
+
         -- Indexes for sync operations
         CREATE INDEX IF NOT EXISTS idx_instance_registry_status ON instance_registry(status);
         CREATE INDEX IF NOT EXISTS idx_instance_registry_last_seen ON instance_registry(last_seen);

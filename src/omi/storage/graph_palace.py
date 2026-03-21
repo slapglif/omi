@@ -1106,6 +1106,10 @@ class GraphPalace:
         if not query_embedding:
             return []
 
+        # If query is a string (no embedder), can't do vector search
+        if isinstance(query_embedding, str):
+            return []
+
         # Convert query to numpy array
         query_vec = np.array(query_embedding, dtype=np.float32)  # type: ignore[attr-defined]
         query_norm = np.linalg.norm(query_vec)

@@ -9,6 +9,8 @@ Other persistence components (NowStorage, GraphPalace, MoltVault) are in storage
 """
 
 import json
+import tarfile
+import hashlib
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
@@ -207,27 +209,65 @@ class NOWStore:
 # VaultBackup is now MoltVault in moltvault.py
 # But keep VaultBackup class for backward compatibility
 class VaultBackup:
-    """Backward compatibility wrapper for local vault backups.
+    """Local filesystem vault backup.
 
-    This class provides the old VaultBackup API while delegating to MoltVault.
-    For new code, use MoltVault directly.
+    Stores archives in <base_path>/vault/ without requiring cloud credentials.
     """
+
     def __init__(self, base_path: Path):
-        from .moltvault import MoltVault
         self.base_path = Path(base_path)
-        self.vault = MoltVault(str(self.base_path))
+        self.vault_dir = self.base_path / "vault"
+        self.vault_dir.mkdir(parents=True, exist_ok=True)
 
-    def backup(self, db_path: Path) -> Path:
-        """Create a backup archive"""
-        archive_path = self.vault.backup()
-        return Path(archive_path)
+    def backup(self, content: str) -> str:
+        """Create a local tar.gz backup archive and return the backup_id."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_id = f"omi_backup_{timestamp}"
 
-    def restore(self, archive_path: Path) -> Dict[str, Any]:
-        """Restore from backup archive"""
-        snapshot = self.vault.restore(str(archive_path))
-        return {"restored_at": snapshot.restored_at, "files": snapshot.files}
+        archive_path = self.vault_dir / f"{backup_id}.tar.gz"
+        with tarfile.open(archive_path, "w:gz") as tar:
+            for file_path in self.base_path.iterdir():
+                if file_path.is_file():
+                    try:
+                        tar.add(file_path, arcname=file_path.name)
+                    except (OSError, tarfile.TarError):
+                        pass
 
-    def list_backups(self) -> List[Path]:
-        """List available backup archives"""
-        snapshots = self.vault.list_backups()
-        return [Path(s.path) for s in snapshots]
+        checksum = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+        meta = {
+            "backup_id": backup_id,
+            "created_at": datetime.now().isoformat(),
+            "content": content,
+            "checksum": checksum,
+        }
+        (self.vault_dir / f"{backup_id}.json").write_text(json.dumps(meta, indent=2))
+
+        return backup_id
+
+    def restore(self, backup_id: str) -> str:
+        """Restore files from a backup archive and return the stored content string."""
+        archive_path = self.vault_dir / f"{backup_id}.tar.gz"
+        meta_path = self.vault_dir / f"{backup_id}.json"
+
+        if not archive_path.exists():
+            raise FileNotFoundError(f"Backup not found: {backup_id}")
+
+        with tarfile.open(archive_path, "r:gz") as tar:
+            tar.extractall(self.base_path)
+
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text())
+            return meta.get("content", "")
+        return ""
+
+    def list_backups(self) -> List[Dict[str, Any]]:
+        """List available backups sorted newest first."""
+        backups = []
+        for meta_file in self.vault_dir.glob("*.json"):
+            try:
+                meta = json.loads(meta_file.read_text())
+                backups.append(meta)
+            except (json.JSONDecodeError, OSError):
+                pass
+        backups.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        return backups

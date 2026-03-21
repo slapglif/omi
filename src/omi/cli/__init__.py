@@ -32,6 +32,7 @@ from .snapshot import snapshot_group
 from .user import user_group
 from .namespace import namespace_group
 from .subscribe import subscribe_group
+from .belief import belief_group
 
 # CLI version - matches project version
 __version__ = "0.2.0"
@@ -142,6 +143,9 @@ cli.add_command(namespace_group, name='namespace')
 
 # Register subscribe command
 cli.add_command(subscribe_group.commands['subscribe'])
+
+# Register belief command group
+cli.add_command(belief_group, name='belief')
 
 
 @cli.command()
