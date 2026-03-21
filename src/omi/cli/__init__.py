@@ -25,6 +25,7 @@ from .events import events_group
 from .sync import sync_group
 from .plugins import plugins_group
 from .serve import serve_group
+from .index import index_group
 
 # CLI version - matches project version
 __version__ = "0.2.0"
@@ -114,6 +115,9 @@ cli.add_command(sync_group, name='sync')
 
 # Register plugins command group (plugins list)
 cli.add_command(plugins_group, name='plugins')
+
+# Register index commands
+cli.add_command(index_group, name='index')
 
 
 @cli.command()

@@ -21,6 +21,7 @@ from typing import List, Optional, Dict
 from .models import Memory
 from .schema import init_database
 from .embeddings import embed_to_blob, blob_to_embed
+from .ann_index import ANNIndex
 
 
 class MemoryCRUD:
@@ -78,6 +79,10 @@ class MemoryCRUD:
 
         # In-memory embedding cache for fast access
         self._embedding_cache: Dict[str, List[float]] = {}
+
+        # Initialize ANN index for fast vector search
+        # Pass original db_path string (ANNIndex handles Path conversion internally)
+        self._ann_index = ANNIndex(db_path, dim=None, enable_persistence=(db_path != ':memory:'))
 
     def _validate_memory_type(self, memory_type: str) -> None:
         """Validate memory type."""
@@ -141,6 +146,10 @@ class MemoryCRUD:
         # Cache the embedding for fast access
         if embedding:
             self._embedding_cache[memory_id] = embedding
+
+            # Add to ANN index for fast vector search
+            self._ann_index.add(memory_id, embedding)
+            self._ann_index.save()
 
         return memory_id
 

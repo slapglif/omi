@@ -5,6 +5,7 @@ The seeking is the continuity. The palace remembers what the river forgets.
 import os
 import sys
 import json
+import struct
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Any, Dict, cast, List
@@ -15,6 +16,7 @@ from omi import NOWStore, DailyLogStore, GraphPalace
 from omi.security import PoisonDetector
 from omi.belief import BeliefNetwork, ContradictionDetector, Evidence
 from omi.summarizer import load_compression_config, MemorySummarizer
+from omi.storage.ann_index import ANNIndex
 from .event_bus import get_event_bus
 from .events import SessionStartedEvent, SessionEndedEvent
 
@@ -2634,7 +2636,6 @@ def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, streng
     except Exception as e:
         click.echo(click.style(f"Error: {str(e)}", fg="red"))
         sys.exit(1)
-
 
 
 @cli.group()
