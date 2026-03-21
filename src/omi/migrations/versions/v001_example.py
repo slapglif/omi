@@ -43,19 +43,19 @@ class Migration(MigrationBase):
         Args:
             conn: SQLite database connection
         """
-        conn.execute('''
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS example_tags (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        ''')
+        """)
 
         # Create index for performance
-        conn.execute('''
+        conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_example_tags_name
             ON example_tags(name)
-        ''')
+        """)
 
     def down(self, conn: sqlite3.Connection) -> None:
         """
@@ -67,10 +67,10 @@ class Migration(MigrationBase):
             conn: SQLite database connection
         """
         # Drop index first
-        conn.execute('DROP INDEX IF EXISTS idx_example_tags_name')
+        conn.execute("DROP INDEX IF EXISTS idx_example_tags_name")
 
         # Then drop table
-        conn.execute('DROP TABLE IF EXISTS example_tags')
+        conn.execute("DROP TABLE IF EXISTS example_tags")
 
     def validate(self) -> None:
         """

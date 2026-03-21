@@ -16,33 +16,33 @@ class TestMemorySummarizerInit:
 
     def test_openai_provider_requires_api_key(self):
         """Test OpenAI provider raises error without API key"""
-        with patch.dict('os.environ', {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(ValueError, match="OPENAI_API_KEY"):
                 MemorySummarizer(provider="openai")
 
     def test_anthropic_provider_requires_api_key(self):
         """Test Anthropic provider raises error without API key"""
-        with patch.dict('os.environ', {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
                 MemorySummarizer(provider="anthropic")
 
     def test_ollama_provider_no_api_key_required(self):
         """Test Ollama provider works without API key"""
-        with patch.dict('os.environ', {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True):
             summarizer = MemorySummarizer(provider="ollama")
             assert summarizer.provider == LLMProvider.OLLAMA
             assert summarizer.api_key == ""
 
     def test_openai_with_env_var_api_key(self):
         """Test OpenAI initialization with API key from environment"""
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test-key-123'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key-123"}):
             summarizer = MemorySummarizer(provider="openai")
             assert summarizer.api_key == "test-key-123"
             assert summarizer.provider == LLMProvider.OPENAI
 
     def test_anthropic_with_env_var_api_key(self):
         """Test Anthropic initialization with API key from environment"""
-        with patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'test-key-456'}):
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key-456"}):
             summarizer = MemorySummarizer(provider="anthropic")
             assert summarizer.api_key == "test-key-456"
             assert summarizer.provider == LLMProvider.ANTHROPIC
@@ -55,12 +55,12 @@ class TestMemorySummarizerInit:
     def test_default_model_selection(self):
         """Test default model is selected for each provider"""
         # OpenAI
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="openai")
             assert summarizer.model == "gpt-4o-mini"
 
         # Anthropic
-        with patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="anthropic")
             assert summarizer.model == "claude-3-haiku-20240307"
 
@@ -70,23 +70,20 @@ class TestMemorySummarizerInit:
 
     def test_custom_model_override(self):
         """Test custom model can be specified"""
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="openai", model="gpt-4o")
             assert summarizer.model == "gpt-4o"
 
     def test_default_base_url_selection(self):
         """Test default base URL is selected for each provider"""
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="openai")
             assert summarizer.base_url == "https://api.openai.com/v1"
 
     def test_custom_base_url_override(self):
         """Test custom base URL can be specified"""
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
-            summarizer = MemorySummarizer(
-                provider="openai",
-                base_url="https://custom.api.com"
-            )
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
+            summarizer = MemorySummarizer(provider="openai", base_url="https://custom.api.com")
             assert summarizer.base_url == "https://custom.api.com"
 
     def test_temperature_and_max_tokens_defaults(self):
@@ -97,11 +94,7 @@ class TestMemorySummarizerInit:
 
     def test_custom_temperature_and_max_tokens(self):
         """Test custom temperature and max_tokens can be set"""
-        summarizer = MemorySummarizer(
-            provider="ollama",
-            temperature=0.7,
-            max_tokens=500
-        )
+        summarizer = MemorySummarizer(provider="ollama", temperature=0.7, max_tokens=500)
         assert summarizer.temperature == 0.7
         assert summarizer.max_tokens == 500
 
@@ -109,22 +102,20 @@ class TestMemorySummarizerInit:
 class TestMemorySummarization:
     """Test summarization methods"""
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_openai_summarization(self, mock_post):
         """Test OpenAI summarization with mocked response"""
         # Mock successful API response
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "choices": [{
-                "message": {
-                    "content": "Summarized memory content with key facts preserved"
-                }
-            }]
+            "choices": [
+                {"message": {"content": "Summarized memory content with key facts preserved"}}
+            ]
         }
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test-key'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
             summarizer = MemorySummarizer(provider="openai")
             summary = summarizer.summarize_memory(
                 "This is a long detailed memory about a meeting where we discussed project timelines and deliverables."
@@ -137,20 +128,18 @@ class TestMemorySummarization:
         call_args = mock_post.call_args
         assert "chat/completions" in call_args[0][0]
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_anthropic_summarization(self, mock_post):
         """Test Anthropic summarization with mocked response"""
         # Mock successful API response
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "content": [{
-                "text": "Concise summary preserving facts"
-            }]
+            "content": [{"text": "Concise summary preserving facts"}]
         }
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
-        with patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'test-key'}):
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
             summarizer = MemorySummarizer(provider="anthropic")
             summary = summarizer.summarize_memory("Original detailed memory content")
 
@@ -161,14 +150,12 @@ class TestMemorySummarization:
         call_args = mock_post.call_args
         assert "messages" in call_args[0][0]
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_ollama_summarization(self, mock_post):
         """Test Ollama summarization with mocked response"""
         # Mock successful API response
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "response": "Local Ollama summary"
-        }
+        mock_response.json.return_value = {"response": "Local Ollama summary"}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
@@ -182,7 +169,7 @@ class TestMemorySummarization:
         call_args = mock_post.call_args
         assert "api/generate" in call_args[0][0]
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_summarization_with_metadata(self, mock_post):
         """Test summarization includes metadata in prompt"""
         mock_response = MagicMock()
@@ -192,18 +179,18 @@ class TestMemorySummarization:
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="openai")
             metadata = {"confidence": 0.95, "relationships": ["user_123"]}
             summary = summarizer.summarize_memory("Content", metadata=metadata)
 
         # Verify metadata was included in the API call
         call_args = mock_post.call_args
-        request_data = call_args[1]['json']
-        prompt = request_data['messages'][1]['content']
+        request_data = call_args[1]["json"]
+        prompt = request_data["messages"][1]["content"]
         assert "METADATA" in prompt
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_openai_api_error_handling(self, mock_post):
         """Test error handling for OpenAI API failures"""
         # Mock HTTP error
@@ -211,24 +198,24 @@ class TestMemorySummarization:
         mock_response.raise_for_status.side_effect = Exception("API Error")
         mock_post.return_value = mock_response
 
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="openai")
             with pytest.raises(Exception, match="API Error"):
                 summarizer.summarize_memory("Content")
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_anthropic_api_error_handling(self, mock_post):
         """Test error handling for Anthropic API failures"""
         mock_response = MagicMock()
         mock_response.raise_for_status.side_effect = Exception("Anthropic Error")
         mock_post.return_value = mock_response
 
-        with patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="anthropic")
             with pytest.raises(Exception, match="Anthropic Error"):
                 summarizer.summarize_memory("Content")
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_ollama_api_error_handling(self, mock_post):
         """Test error handling for Ollama API failures"""
         mock_response = MagicMock()
@@ -243,24 +230,18 @@ class TestMemorySummarization:
 class TestBatchProcessing:
     """Test batch summarization methods"""
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_batch_summarize_multiple_memories(self, mock_post):
         """Test batch_summarize processes multiple memories"""
         # Mock API responses
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Summary"}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "Summary"}}]}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="openai")
-            memories = [
-                "Memory 1 content",
-                "Memory 2 content",
-                "Memory 3 content"
-            ]
+            memories = ["Memory 1 content", "Memory 2 content", "Memory 3 content"]
             summaries = summarizer.batch_summarize(memories)
 
         assert len(summaries) == 3
@@ -268,17 +249,15 @@ class TestBatchProcessing:
         # Should be called 3 times (one per memory)
         assert mock_post.call_count == 3
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_batch_summarize_with_metadata_list(self, mock_post):
         """Test batch_summarize with metadata for each memory"""
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Summary"}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "Summary"}}]}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="openai")
             memories = ["Memory 1", "Memory 2"]
             metadata_list = [{"id": "1"}, {"id": "2"}]
@@ -288,7 +267,7 @@ class TestBatchProcessing:
 
     def test_batch_summarize_metadata_length_validation(self):
         """Test batch_summarize validates metadata_list length matches"""
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="openai")
             memories = ["Memory 1", "Memory 2", "Memory 3"]
             metadata_list = [{"id": "1"}, {"id": "2"}]  # Wrong length!
@@ -296,17 +275,15 @@ class TestBatchProcessing:
             with pytest.raises(ValueError, match="metadata_list length"):
                 summarizer.batch_summarize(memories, metadata_list=metadata_list)
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_batch_summarize_with_custom_batch_size(self, mock_post):
         """Test batch_summarize respects custom batch_size parameter"""
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Summary"}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "Summary"}}]}
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="openai")
             memories = ["M1", "M2", "M3", "M4", "M5"]
             summaries = summarizer.batch_summarize(memories, batch_size=2)
@@ -315,7 +292,7 @@ class TestBatchProcessing:
         # Batch size affects processing but all should be summarized
         assert mock_post.call_count == 5
 
-    @patch('requests.Session.post')
+    @patch("requests.Session.post")
     def test_batch_summarize_preserves_order(self, mock_post):
         """Test batch_summarize returns summaries in same order as inputs"""
         # Mock responses with different content
@@ -332,7 +309,7 @@ class TestBatchProcessing:
 
         mock_post.side_effect = mock_response_func
 
-        with patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test"}):
             summarizer = MemorySummarizer(provider="openai")
             memories = ["First", "Second", "Third"]
             summaries = summarizer.batch_summarize(memories)
@@ -366,7 +343,7 @@ class TestHelperMethods:
         summarizer = MemorySummarizer(provider="ollama")
 
         original = "a" * 1000  # 250 tokens
-        summary = "a" * 400    # 100 tokens
+        summary = "a" * 400  # 100 tokens
 
         savings = summarizer.estimate_savings(original, summary)
 
@@ -380,7 +357,7 @@ class TestHelperMethods:
         summarizer = MemorySummarizer(provider="ollama")
 
         original = "x" * 200  # 50 tokens
-        summary = "x" * 100   # 25 tokens
+        summary = "x" * 100  # 25 tokens
 
         savings = summarizer.estimate_savings(original, summary)
 

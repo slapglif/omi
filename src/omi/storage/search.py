@@ -20,6 +20,7 @@ import numpy as np
 from .models import Memory
 from .schema import init_database
 from .embeddings import blob_to_embed
+from .ann_index import ANNIndex
 
 
 class MemorySearch:
@@ -39,7 +40,9 @@ class MemorySearch:
     # Target: <500ms for 1000 memories
     QUERY_TIMEOUT_MS = 500
 
-    def __init__(self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None):
+    def __init__(
+        self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None
+    ):
         """
         Initialize Memory Search operations.
 
@@ -48,7 +51,7 @@ class MemorySearch:
             enable_wal: Enable WAL mode for concurrent writes (default: True)
             conn: Optional shared connection (for :memory: databases in facade pattern)
         """
-        self.db_path = Path(db_path) if db_path != ':memory:' else db_path
+        self.db_path = Path(db_path) if db_path != ":memory:" else db_path
         self._owns_connection = conn is None
 
         if conn is not None:
@@ -57,17 +60,14 @@ class MemorySearch:
             self._db_lock = threading.Lock()
         else:
             # Create parent directory if needed (skip for :memory:)
-            if self.db_path != ':memory:':
+            if self.db_path != ":memory:":
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Create persistent connection
             # check_same_thread=False allows multi-threaded access (safe with WAL mode)
             # isolation_level=None enables autocommit mode for better concurrency
             self._conn = sqlite3.connect(
-                self.db_path,
-                check_same_thread=False,
-                isolation_level=None,
-                timeout=30.0
+                self.db_path, check_same_thread=False, isolation_level=None, timeout=30.0
             )
 
             # Thread lock for serializing database operations
@@ -75,6 +75,10 @@ class MemorySearch:
 
             # Initialize database schema
             init_database(self._conn, enable_wal)
+
+        # Initialize ANN index for fast vector search
+        # Pass original db_path string (ANNIndex handles Path conversion internally)
+        self._ann_index = ANNIndex(db_path, dim=None, enable_persistence=(db_path != ':memory:'))
 
     def _calculate_recency_score(self, timestamp: datetime) -> float:
         """
@@ -86,22 +90,22 @@ class MemorySearch:
         days_ago = (datetime.now() - timestamp).days
         return math.exp(-days_ago / self.RECENCY_HALF_LIFE)
 
-    def recall(self,
-               query_embedding: List[float],
-               limit: int = 10,
-               min_relevance: float = 0.7) -> List[Tuple[Memory, float]]:
+    def recall(
+        self, query_embedding: List[float], limit: int = 10, min_relevance: float = 0.7
+    ) -> List[Tuple[Memory, float]]:
         """
         Semantic search with recency weighting.
 
         Algorithm:
-        1. Calculate cosine similarity between query and all memories (vectorized)
-        2. Apply recency decay: score = relevance * exp(-days/30)
-        3. Sort by final score and return top results
+        1. Try ANN index search first (fast approximate nearest neighbor)
+        2. If ANN index unavailable/empty, fall back to brute-force cosine similarity
+        3. Apply recency decay: score = relevance * exp(-days/30)
+        4. Sort by final score and return top results
 
-        Target: <500ms for 1000 memories
+        Target: <50ms for 100k memories (with ANN), <500ms for 1000 memories (brute-force)
 
         Args:
-            query_embedding: Query vector (1024-dim)
+            query_embedding: Query vector (768 or 1024-dim)
             limit: Max results to return
             min_relevance: Minimum similarity threshold
 
@@ -118,6 +122,113 @@ class MemorySearch:
         if query_norm == 0:
             return []
 
+        # Try ANN index search first (fast path)
+        ann_results = []
+        if self._ann_index and self._ann_index.get_size() > 0:
+            try:
+                # Fetch more candidates to account for min_relevance filtering
+                # Request 3x limit to ensure we have enough after filtering
+                k = min(limit * 3, self._ann_index.get_size())
+                ann_results = self._ann_index.search(query_embedding, k=k)
+            except (ValueError, Exception):
+                # Dimension mismatch or other error - fall back to brute-force
+                ann_results = []
+
+        # Fast path: Use ANN results if available
+        if ann_results:
+            return self._recall_from_ann(ann_results, limit, min_relevance)
+
+        # Slow path: Fall back to brute-force cosine similarity
+        return self._recall_bruteforce(query_vec, query_norm, limit, min_relevance)
+
+    def _recall_from_ann(self,
+                         ann_results: List[Tuple[str, float]],
+                         limit: int,
+                         min_relevance: float) -> List[Tuple[Memory, float]]:
+        """
+        Build recall results from ANN index search results.
+
+        Args:
+            ann_results: List of (memory_id, similarity) from ANN index
+            limit: Max results to return
+            min_relevance: Minimum similarity threshold
+
+        Returns:
+            List of (Memory, final_score) tuples with recency weighting
+        """
+        # Filter by min_relevance
+        filtered_results = [(mid, sim) for mid, sim in ann_results if sim >= min_relevance]
+
+        if not filtered_results:
+            return []
+
+        # Fetch memory data for ANN results
+        memory_ids = [mid for mid, _ in filtered_results]
+        similarity_map = {mid: sim for mid, sim in filtered_results}
+
+        # Build placeholders for SQL IN clause
+        placeholders = ','.join('?' * len(memory_ids))
+
+        cursor = self._conn.execute(f"""
+            SELECT id, content, embedding, memory_type, confidence,
+                   created_at, last_accessed, access_count, instance_ids, content_hash
+            FROM memories
+            WHERE id IN ({placeholders})
+        """, memory_ids)
+
+        # Build results with recency scoring
+        results = []
+        now = datetime.now()
+
+        for row in cursor:
+            memory_id = row[0]
+            relevance = similarity_map[memory_id]
+
+            # Calculate recency score
+            last_accessed = datetime.fromisoformat(row[6]) if row[6] else now
+            recency = self._calculate_recency_score(last_accessed)
+
+            # Weight: 70% relevance, 30% recency
+            final_score = min((relevance * 0.7) + (recency * 0.3), 1.0)
+
+            # Reconstruct embedding from blob
+            embedding = blob_to_embed(row[2]) if row[2] else None
+
+            memory = Memory(
+                id=memory_id,
+                content=row[1],
+                embedding=embedding,
+                memory_type=row[3],
+                confidence=row[4],
+                created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                last_accessed=last_accessed,
+                access_count=row[7],
+                instance_ids=json.loads(row[8]) if row[8] else [],
+                content_hash=row[9]
+            )
+            results.append((memory, final_score))
+
+        # Sort by final score (descending) and return top results
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:limit]
+
+    def _recall_bruteforce(self,
+                           query_vec: np.ndarray,
+                           query_norm: float,
+                           limit: int,
+                           min_relevance: float) -> List[Tuple[Memory, float]]:
+        """
+        Brute-force cosine similarity search (fallback when ANN index unavailable).
+
+        Args:
+            query_vec: Query embedding as numpy array
+            query_norm: Pre-computed norm of query vector
+            limit: Max results to return
+            min_relevance: Minimum similarity threshold
+
+        Returns:
+            List of (Memory, final_score) tuples with recency weighting
+        """
         # Fetch all memories with embeddings
         memory_data = []
         embeddings = []
@@ -130,7 +241,7 @@ class MemorySearch:
 
         for row in cursor:
             embedding = blob_to_embed(row[2])
-            if not embedding or len(embedding) != len(query_embedding):
+            if not embedding or len(embedding) != len(query_vec):
                 continue
 
             memory_data.append(row)
@@ -151,9 +262,9 @@ class MemorySearch:
 
         # Compute cosine similarities: (n_memories,)
         # Avoid division by zero
-        similarities = np.divide(dots, norms * query_norm,
-                                out=np.zeros_like(dots),
-                                where=(norms * query_norm) > 0)
+        similarities = np.divide(
+            dots, norms * query_norm, out=np.zeros_like(dots), where=(norms * query_norm) > 0
+        )
 
         # Filter by min_relevance
         valid_indices = np.where(similarities >= min_relevance)[0]
@@ -186,7 +297,7 @@ class MemorySearch:
                 last_accessed=last_accessed,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
             )
             results.append((memory, final_score))
 
@@ -208,7 +319,8 @@ class MemorySearch:
         memories = []
 
         # Use FTS5 MATCH via standalone FTS table
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                    m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
             FROM memories_fts fts
@@ -216,7 +328,9 @@ class MemorySearch:
             WHERE memories_fts MATCH ?
             ORDER BY rank
             LIMIT ?
-        """, (query, limit))
+        """,
+            (query, limit),
+        )
 
         for row in cursor:
             embedding = blob_to_embed(row[2]) if row[2] else None
@@ -230,7 +344,7 @@ class MemorySearch:
                 last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
             )
             memories.append(memory)
 
@@ -238,7 +352,7 @@ class MemorySearch:
 
     def close(self) -> None:
         """Close connection and cleanup."""
-        if self._owns_connection and hasattr(self, '_conn') and self._conn:
+        if self._owns_connection and hasattr(self, "_conn") and self._conn:
             self._conn.close()
 
     def __enter__(self):

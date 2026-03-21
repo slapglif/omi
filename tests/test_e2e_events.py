@@ -8,6 +8,7 @@ Tests the complete event flow:
 Verifies that all event fields are correctly populated and persisted
 through the entire pipeline.
 """
+
 import pytest
 from datetime import datetime
 from unittest.mock import MagicMock
@@ -17,11 +18,7 @@ class TestE2EEventFlow:
     """Test end-to-end event flow: operation → EventBus → history."""
 
     def test_memory_store_event_flow(
-        self,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache,
-        clean_event_bus
+        self, temp_omi_setup, mock_embedder, mock_embedding_cache, clean_event_bus
     ):
         """
         End-to-end verification:
@@ -51,15 +48,15 @@ class TestE2EEventFlow:
             """Callback to capture event and store in history."""
             captured_events.append(event)
             # Store event in history
-            if hasattr(event, 'to_dict'):
+            if hasattr(event, "to_dict"):
                 event_history.store_event(
                     event_type=event.event_type,
                     payload=event.to_dict(),
-                    metadata={"source": "test"}
+                    metadata={"source": "test"},
                 )
 
         # Subscribe to EventBus to capture MemoryStoredEvent
-        clean_event_bus.subscribe('memory.stored', capture_and_store_event)
+        clean_event_bus.subscribe("memory.stored", capture_and_store_event)
 
         # Step 1: Store a memory via MemoryTools
         test_content = "Learned that Python list comprehensions are faster than loops"
@@ -67,9 +64,7 @@ class TestE2EEventFlow:
         test_confidence = 0.85
 
         memory_id = memory_tools.store(
-            content=test_content,
-            memory_type=test_type,
-            confidence=test_confidence
+            content=test_content, memory_type=test_type, confidence=test_confidence
         )
 
         # Step 2: Verify MemoryStoredEvent was published to EventBus
@@ -85,10 +80,7 @@ class TestE2EEventFlow:
         assert isinstance(event.timestamp, datetime)
 
         # Step 3: Verify event was recorded in EventHistory
-        stored_events = event_history.query_events(
-            event_type="memory.stored",
-            limit=10
-        )
+        stored_events = event_history.query_events(event_type="memory.stored", limit=10)
 
         assert len(stored_events) == 1, "Should have 1 event in history"
         stored_event = stored_events[0]
@@ -108,11 +100,7 @@ class TestE2EEventFlow:
         assert isinstance(stored_event.timestamp, datetime)
 
     def test_multiple_memory_operations_event_flow(
-        self,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache,
-        clean_event_bus
+        self, temp_omi_setup, mock_embedder, mock_embedding_cache, clean_event_bus
     ):
         """
         Test multiple memory operations generate correct event sequence.
@@ -134,23 +122,17 @@ class TestE2EEventFlow:
 
         def capture_and_store_event(event):
             captured_events.append(event)
-            if hasattr(event, 'to_dict'):
-                event_history.store_event(
-                    event_type=event.event_type,
-                    payload=event.to_dict()
-                )
+            if hasattr(event, "to_dict"):
+                event_history.store_event(event_type=event.event_type, payload=event.to_dict())
 
         # Subscribe to all memory events
-        clean_event_bus.subscribe('memory.stored', capture_and_store_event)
-        clean_event_bus.subscribe('memory.recalled', capture_and_store_event)
+        clean_event_bus.subscribe("memory.stored", capture_and_store_event)
+        clean_event_bus.subscribe("memory.recalled", capture_and_store_event)
 
         # Store multiple memories
         memory_ids = []
         for i in range(3):
-            mid = memory_tools.store(
-                content=f"Test memory {i}",
-                memory_type="fact"
-            )
+            mid = memory_tools.store(content=f"Test memory {i}", memory_type="fact")
             memory_ids.append(mid)
 
         # Recall memories
@@ -167,14 +149,8 @@ class TestE2EEventFlow:
         assert len(recalled_events) == 1
 
         # Verify EventHistory has all events
-        history_stored = event_history.query_events(
-            event_type="memory.stored",
-            limit=10
-        )
-        history_recalled = event_history.query_events(
-            event_type="memory.recalled",
-            limit=10
-        )
+        history_stored = event_history.query_events(event_type="memory.stored", limit=10)
+        history_recalled = event_history.query_events(event_type="memory.recalled", limit=10)
 
         assert len(history_stored) == 3
         assert len(history_recalled) == 1
@@ -185,11 +161,7 @@ class TestE2EEventFlow:
             assert mid in stored_ids
 
     def test_event_timestamp_consistency(
-        self,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache,
-        clean_event_bus
+        self, temp_omi_setup, mock_embedder, mock_embedding_cache, clean_event_bus
     ):
         """
         Verify timestamps are consistent across EventBus and EventHistory.
@@ -211,20 +183,14 @@ class TestE2EEventFlow:
 
         def capture_timestamp(event):
             bus_timestamps.append(event.timestamp)
-            if hasattr(event, 'to_dict'):
-                event_history.store_event(
-                    event_type=event.event_type,
-                    payload=event.to_dict()
-                )
+            if hasattr(event, "to_dict"):
+                event_history.store_event(event_type=event.event_type, payload=event.to_dict())
 
-        clean_event_bus.subscribe('memory.stored', capture_timestamp)
+        clean_event_bus.subscribe("memory.stored", capture_timestamp)
 
         # Store memory
         before_time = datetime.now()
-        memory_tools.store(
-            content="Test timestamp consistency",
-            memory_type="fact"
-        )
+        memory_tools.store(content="Test timestamp consistency", memory_type="fact")
         after_time = datetime.now()
 
         # Verify EventBus timestamp
@@ -233,10 +199,7 @@ class TestE2EEventFlow:
         assert before_time <= bus_timestamp <= after_time
 
         # Verify EventHistory timestamp
-        history_events = event_history.query_events(
-            event_type="memory.stored",
-            limit=1
-        )
+        history_events = event_history.query_events(event_type="memory.stored", limit=1)
 
         assert len(history_events) == 1
         history_event = history_events[0]
@@ -253,11 +216,7 @@ class TestE2EEventFlow:
         assert time_delta < 1.0, "Timestamps should be very close"
 
     def test_event_query_filters(
-        self,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache,
-        clean_event_bus
+        self, temp_omi_setup, mock_embedder, mock_embedding_cache, clean_event_bus
     ):
         """
         Test EventHistory query filters work correctly.
@@ -276,14 +235,11 @@ class TestE2EEventFlow:
         event_history = EventHistory(event_history_db)
 
         def store_event(event):
-            if hasattr(event, 'to_dict'):
-                event_history.store_event(
-                    event_type=event.event_type,
-                    payload=event.to_dict()
-                )
+            if hasattr(event, "to_dict"):
+                event_history.store_event(event_type=event.event_type, payload=event.to_dict())
 
-        clean_event_bus.subscribe('memory.stored', store_event)
-        clean_event_bus.subscribe('memory.recalled', store_event)
+        clean_event_bus.subscribe("memory.stored", store_event)
+        clean_event_bus.subscribe("memory.recalled", store_event)
 
         # Record time before operations
         start_time = datetime.now()
@@ -306,8 +262,7 @@ class TestE2EEventFlow:
 
         # Test filter by time range
         all_events = event_history.query_events(
-            since=start_time - timedelta(seconds=1),
-            until=end_time + timedelta(seconds=1)
+            since=start_time - timedelta(seconds=1), until=end_time + timedelta(seconds=1)
         )
         assert len(all_events) == 3
 
@@ -320,11 +275,7 @@ class TestE2EEventFlow:
         assert len(all_events) == 3
 
     def test_event_metadata_preservation(
-        self,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache,
-        clean_event_bus
+        self, temp_omi_setup, mock_embedder, mock_embedding_cache, clean_event_bus
     ):
         """
         Verify event metadata is preserved through the entire flow.
@@ -343,24 +294,21 @@ class TestE2EEventFlow:
 
         # Capture event with metadata
         def store_with_metadata(event):
-            if hasattr(event, 'to_dict'):
+            if hasattr(event, "to_dict"):
                 event_history.store_event(
                     event_type=event.event_type,
                     payload=event.to_dict(),
                     metadata={
                         "test_metadata": "value",
                         "nested": {"key": "nested_value"},
-                        "list": [1, 2, 3]
-                    }
+                        "list": [1, 2, 3],
+                    },
                 )
 
-        clean_event_bus.subscribe('memory.stored', store_with_metadata)
+        clean_event_bus.subscribe("memory.stored", store_with_metadata)
 
         # Store memory
-        memory_tools.store(
-            content="Test metadata preservation",
-            memory_type="fact"
-        )
+        memory_tools.store(content="Test metadata preservation", memory_type="fact")
 
         # Query from history
         events = event_history.query_events(event_type="memory.stored")
@@ -375,11 +323,7 @@ class TestE2EEventFlow:
         assert event.metadata["list"] == [1, 2, 3]
 
     def test_wildcard_subscription_captures_all_events(
-        self,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache,
-        clean_event_bus
+        self, temp_omi_setup, mock_embedder, mock_embedding_cache, clean_event_bus
     ):
         """
         Test wildcard subscription captures all event types.
@@ -401,14 +345,11 @@ class TestE2EEventFlow:
 
         def capture_all(event):
             all_events.append(event)
-            if hasattr(event, 'to_dict'):
-                event_history.store_event(
-                    event_type=event.event_type,
-                    payload=event.to_dict()
-                )
+            if hasattr(event, "to_dict"):
+                event_history.store_event(event_type=event.event_type, payload=event.to_dict())
 
         # Subscribe with wildcard
-        clean_event_bus.subscribe('*', capture_all)
+        clean_event_bus.subscribe("*", capture_all)
 
         # Perform operations
         memory_tools.store(content="Test wildcard", memory_type="fact")

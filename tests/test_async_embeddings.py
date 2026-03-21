@@ -50,7 +50,9 @@ class TestAsyncNIMConnection:
             embedding = await embedder.embed("hello world")
 
             assert isinstance(embedding, list), "Embedding should be a list"
-            assert len(embedding) == REQUIRED_DIM, f"Expected {REQUIRED_DIM} dimensions, got {len(embedding)}"
+            assert (
+                len(embedding) == REQUIRED_DIM
+            ), f"Expected {REQUIRED_DIM} dimensions, got {len(embedding)}"
             assert all(isinstance(x, float) for x in embedding), "All elements should be floats"
             assert not all(x == 0 for x in embedding), "Embedding should not be all zeros"
 
@@ -135,6 +137,7 @@ class TestAsyncNIMFallback:
 
             # Simulate NIM connection failure
             import httpx
+
             mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
             mock_client.aclose = AsyncMock()
 
@@ -143,7 +146,9 @@ class TestAsyncNIMFallback:
                 mock_init_fallback.return_value = None
 
                 try:
-                    async with AsyncNIMEmbedder(api_key="dummy_key", fallback_to_ollama=True) as embedder:
+                    async with AsyncNIMEmbedder(
+                        api_key="dummy_key", fallback_to_ollama=True
+                    ) as embedder:
                         pass
                     mock_init_fallback.assert_called_once()
                 except Exception:
@@ -209,7 +214,9 @@ class TestAsyncNIMErrorHandling:
         import httpx
 
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            async with AsyncNIMEmbedder(api_key="invalid_key_12345", fallback_to_ollama=False) as embedder:
+            async with AsyncNIMEmbedder(
+                api_key="invalid_key_12345", fallback_to_ollama=False
+            ) as embedder:
                 await embedder.embed("test")
 
         assert exc_info.value.response.status_code in [401, 403], "Should get auth error"
@@ -237,6 +244,7 @@ class TestAsyncNIMErrorHandling:
             # Mock timeout
             async def mock_timeout(*args, **kwargs):
                 import httpx
+
                 raise httpx.TimeoutException("Request timed out")
 
             embedder._embed_nim = mock_timeout
@@ -260,6 +268,7 @@ class TestAsyncNIMErrorHandling:
 
             # Simulate connection error
             import httpx
+
             mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Cannot connect to server"))
             mock_client.aclose = AsyncMock()
 

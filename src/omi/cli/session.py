@@ -1,15 +1,18 @@
 """Session management commands for OMI CLI."""
+
 import os
 import sys
 import json
+import sqlite3
 from pathlib import Path
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
 import click
 
 # OMI imports
 from omi import NOWStore, DailyLogStore, GraphPalace
 from omi.security import PoisonDetector
+from omi.summarizer import load_compression_config, MemorySummarizer
 from ..event_bus import get_event_bus
 from ..events import SessionStartedEvent, SessionEndedEvent
 
@@ -41,10 +44,12 @@ def init(ctx) -> None:
     - SQLite database for Graph Palace
     - NOW.md template
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
-    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get("data_dir"))
+    verbosity = ctx.obj.get("verbosity", VERBOSITY_NORMAL)
 
-    echo_normal(click.style("Initializing OMI Memory Infrastructure...", fg="cyan", bold=True), verbosity)
+    echo_normal(
+        click.style("Initializing OMI Memory Infrastructure...", fg="cyan", bold=True), verbosity
+    )
 
     # 1. Create directory structure
     base_path.mkdir(parents=True, exist_ok=True)
@@ -88,6 +93,14 @@ events:
     #     events: ["memory.stored", "session.started", "session.ended"]
     #     # headers:
     #     #   Authorization: Bearer ${WEBHOOK_TOKEN}
+
+compression:
+  enabled: true
+  provider: ollama  # or openai
+  model: llama3.2:3b  # Model to use for compression
+  # api_key: ${OPENAI_API_KEY}  # Set via environment variable for OpenAI
+  max_summary_tokens: 150  # Maximum tokens in compressed summary
+  # summarization_prompt: "Summarize concisely:"  # Optional custom prompt
 """
     config_path = base_path / "config.yaml"
     if not config_path.exists():
@@ -106,6 +119,7 @@ events:
         except Exception as e:
             # Fallback: create minimal schema if storage deps not available
             import sqlite3
+
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             cursor.execute("""
@@ -183,11 +197,13 @@ def session_start(ctx, show_now: bool) -> None:
     - Runs semantic recall of relevant memories
     - Prints session summary
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
-    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get("data_dir"))
+    verbosity = ctx.obj.get("verbosity", VERBOSITY_NORMAL)
 
     if not base_path.exists():
-        echo_quiet(click.style(f"Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        echo_quiet(
+            click.style(f"Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity
+        )
         sys.exit(1)
 
     echo_normal(click.style("Starting OMI session...", fg="cyan", bold=True), verbosity)
@@ -200,20 +216,22 @@ def session_start(ctx, show_now: bool) -> None:
     if not content or content == now_storage._default_content():
         echo_normal(click.style(" ⚠ NOW.md not found, creating default", fg="yellow"), verbosity)
         now_storage.update(
-            current_task="",
-            recent_completions=[],
-            pending_decisions=[],
-            key_files=[]
+            current_task="", recent_completions=[], pending_decisions=[], key_files=[]
         )
 
     # Parse the NOW.md content
     from ..persistence import NOWEntry
-    now_entry = NOWEntry.from_markdown(content) if content else NOWEntry(
-        timestamp=datetime.now(),
-        current_task="",
-        recent_completions=[],
-        pending_decisions=[],
-        key_files=[]
+
+    now_entry = (
+        NOWEntry.from_markdown(content)
+        if content
+        else NOWEntry(
+            timestamp=datetime.now(),
+            current_task="",
+            recent_completions=[],
+            pending_decisions=[],
+            key_files=[],
+        )
     )
 
     # 2. Get database stats
@@ -221,6 +239,7 @@ def session_start(ctx, show_now: bool) -> None:
     mem_count = 0
     if db_path.exists():
         import sqlite3
+
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM memories")
@@ -228,7 +247,9 @@ def session_start(ctx, show_now: bool) -> None:
         mem_count = result[0] if result else 0
         conn.close()
 
-    echo_verbose(f" ✓ Loaded context: {len(now_entry.recent_completions)} recent completions", verbosity)
+    echo_verbose(
+        f" ✓ Loaded context: {len(now_entry.recent_completions)} recent completions", verbosity
+    )
     echo_verbose(f" ✓ Database: {mem_count} memories stored", verbosity)
 
     # 3. Semantic recall for current task
@@ -243,6 +264,7 @@ def session_start(ctx, show_now: bool) -> None:
 
     # 4. Session status
     from ..security import IntegrityChecker
+
     integrity_checker = IntegrityChecker(base_path.parent if base_path.name == "omi" else base_path)
     now_integrity = integrity_checker.check_now_md()
 
@@ -256,26 +278,28 @@ def session_start(ctx, show_now: bool) -> None:
             echo_normal(f"  - [ ] {item}", verbosity)
 
     status_color = "green" if now_integrity else "red"
-    echo_verbose(f"\n NOW.md integrity: {click.style('✓' if now_integrity else '✗', fg=status_color)}", verbosity)
+    echo_verbose(
+        f"\n NOW.md integrity: {click.style('✓' if now_integrity else '✗', fg=status_color)}",
+        verbosity,
+    )
 
     session_timestamp = datetime.now()
-    echo_verbose(f" Session started: {click.style(session_timestamp.isoformat(), fg='cyan')}", verbosity)
+    echo_verbose(
+        f" Session started: {click.style(session_timestamp.isoformat(), fg='cyan')}", verbosity
+    )
     echo_normal(click.style("\n✓ Session ready!", fg="green", bold=True), verbosity)
 
     # Emit session started event
     event = SessionStartedEvent(
         session_id=session_timestamp.isoformat(),
         timestamp=session_timestamp,
-        metadata={
-            "memory_count": mem_count,
-            "now_integrity": now_integrity
-        }
+        metadata={"memory_count": mem_count, "now_integrity": now_integrity},
     )
     get_event_bus().publish(event)
 
 
 @session_group.command("session-end")
-@click.option('--no-backup', is_flag=True, help="Skip vault backup")
+@click.option("--no-backup", is_flag=True, help="Skip vault backup")
 @click.pass_context
 def session_end(ctx, no_backup: bool) -> None:
     """End session and backup.
@@ -285,14 +309,93 @@ def session_end(ctx, no_backup: bool) -> None:
     - Appends to daily log
     - Triggers vault backup (if enabled and configured)
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
-    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get("data_dir"))
+    verbosity = ctx.obj.get("verbosity", VERBOSITY_NORMAL)
 
     if not base_path.exists():
-        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        echo_quiet(
+            click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity
+        )
         sys.exit(1)
 
     echo_normal(click.style("Ending OMI session...", fg="cyan", bold=True), verbosity)
+
+    # Query session memories from Graph Palace
+    session_memories: List[Dict[str, Any]] = []
+    db_path = base_path / "palace.sqlite"
+    if db_path.exists():
+        try:
+            # Query memories from the last 24 hours (session window)
+            session_start_threshold = datetime.now() - timedelta(hours=24)
+
+            # Get all memories and filter by timestamp
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.execute("""
+                    SELECT id, content, memory_type, confidence, created_at
+                    FROM memories
+                    WHERE created_at >= ?
+                    ORDER BY created_at DESC
+                """, (session_start_threshold.isoformat(),))
+
+                rows = cursor.fetchall()
+                for row in rows:
+                    session_memories.append({
+                        'id': row[0],
+                        'content': row[1],
+                        'memory_type': row[2],
+                        'confidence': row[3],
+                        'created_at': row[4]
+                    })
+
+            if session_memories:
+                echo_verbose(f" ✓ Retrieved {len(session_memories)} session memories", verbosity)
+            else:
+                echo_verbose(" ⚠ No session memories found", verbosity)
+        except Exception as e:
+            echo_verbose(click.style(f" ⚠ Failed to retrieve session memories: {e}", fg="yellow"), verbosity)
+
+    # Compress session memories if enabled
+    compression_result: Optional[Dict[str, Any]] = None
+    if session_memories:
+        try:
+            compression_config = load_compression_config(base_path)
+
+            if compression_config.get('enabled', False):
+                echo_verbose(" → Compressing session memories...", verbosity)
+
+                # Get provider and model from config
+                provider = compression_config.get('provider', 'ollama')
+                model = compression_config.get('model')
+                api_key = compression_config.get('api_key')
+                max_tokens = compression_config.get('max_summary_tokens', 150)
+
+                # Create summarizer instance
+                summarizer = MemorySummarizer(
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    max_tokens=max_tokens
+                )
+
+                # Compress memories
+                compression_result = summarizer.compress_session_memories(
+                    session_memories,
+                    config=compression_config
+                )
+
+                # Show compression stats
+                if compression_result:
+                    echo_normal(click.style(
+                        f" ✓ Compressed {compression_result['count']} memories: "
+                        f"{compression_result['original_tokens']} tokens → "
+                        f"{compression_result['compressed_tokens']} tokens "
+                        f"({compression_result['savings_percent']}% savings)",
+                        fg="green"
+                    ), verbosity)
+            else:
+                echo_verbose(" ⚠ Compression disabled in config", verbosity)
+        except Exception as e:
+            echo_verbose(click.style(f" ⚠ Compression failed: {e}", fg="yellow"), verbosity)
 
     # Update NOW.md timestamp and get current task for log
     now_storage = NOWStore(base_path)
@@ -302,12 +405,13 @@ def session_end(ctx, no_backup: bool) -> None:
         if content and content != now_storage._default_content():
             # Parse existing content and re-write to update timestamp
             from ..persistence import NOWEntry
+
             now_entry = NOWEntry.from_markdown(content)
             now_storage.update(
                 current_task=now_entry.current_task,
                 recent_completions=now_entry.recent_completions,
                 pending_decisions=now_entry.pending_decisions,
-                key_files=now_entry.key_files
+                key_files=now_entry.key_files,
             )
             echo_verbose(f" ✓ Updated NOW.md", verbosity)
 
@@ -316,6 +420,25 @@ def session_end(ctx, no_backup: bool) -> None:
     entry_content = f"Session ended at {datetime.now().isoformat()}"
     if now_entry and now_entry.current_task:
         entry_content += f"\nLast task: {now_entry.current_task}"
+
+    # Add compressed session memories if available
+    if compression_result and compression_result.get('compressed_memories'):
+        entry_content += "\n\n## Session Memories (Compressed)\n"
+        entry_content += f"*Compressed {compression_result['count']} memories: "
+        entry_content += f"{compression_result['original_tokens']} tokens → "
+        entry_content += f"{compression_result['compressed_tokens']} tokens "
+        entry_content += f"({compression_result['savings_percent']}% savings)*\n\n"
+
+        for mem in compression_result['compressed_memories']:
+            # Format each compressed memory with metadata
+            memory_type = mem.get('memory_type', 'unknown')
+            original_tokens = mem.get('_original_tokens', 0)
+            compressed_tokens = mem.get('_compressed_tokens', 0)
+
+            entry_content += f"### {memory_type.capitalize()}\n"
+            entry_content += f"{mem['content']}\n\n"
+            entry_content += f"*[{original_tokens} → {compressed_tokens} tokens]*\n\n"
+
     log_path = daily_store.append(entry_content)
     echo_verbose(f" ✓ Appended to daily log: {log_path.name}", verbosity)
 
@@ -325,15 +448,64 @@ def session_end(ctx, no_backup: bool) -> None:
         vault_enabled = False
         if config_path.exists():
             import yaml
+
             try:
                 config = yaml.safe_load(config_path.read_text())
-                vault_enabled = config.get('vault', {}).get('enabled', False)
+                vault_enabled = config.get("vault", {}).get("enabled", False)
             except Exception:
                 pass
         if vault_enabled:
             echo_verbose(click.style(" ✓ Vault backup triggered", fg="cyan"), verbosity)
         else:
-            echo_verbose(click.style(" ⚠ Vault backup disabled (see config.yaml)", fg="yellow"), verbosity)
+            echo_verbose(
+                click.style(" ⚠ Vault backup disabled (see config.yaml)", fg="yellow"), verbosity
+            )
+
+    # Execute policies on session end
+    config_path = base_path / "config.yaml"
+    db_path = base_path / "palace.sqlite"
+
+    if db_path.exists():
+        try:
+            from ..policies import (
+                PolicyEngine,
+                load_policies_from_config,
+                get_default_policies
+            )
+
+            # Load policies from config or use defaults
+            policies = []
+            if config_path.exists():
+                try:
+                    policies = load_policies_from_config(config_path)
+                    echo_verbose(" ✓ Loaded policies from config", verbosity)
+                except Exception as e:
+                    echo_verbose(f" ⚠ Config load error, using defaults: {e}", verbosity)
+                    policies = get_default_policies()
+            else:
+                policies = get_default_policies()
+                echo_verbose(" ✓ Using default policies", verbosity)
+
+            # Initialize policy engine and execute policies
+            if policies:
+                palace = GraphPalace(db_path)
+                engine = PolicyEngine(palace)
+
+                # Register policies and execute
+                for policy in policies:
+                    engine.register_policy(policy)
+
+                results = engine.execute(dry_run=False)
+                palace.close()
+
+                # Log policy execution results
+                total_actions = sum(len(r.affected_memory_ids) for r in results)
+                if total_actions > 0:
+                    echo_verbose(f" ✓ Executed {len(results)} policies, {total_actions} memories affected", verbosity)
+                else:
+                    echo_verbose(" ✓ Policies executed, no actions needed", verbosity)
+        except Exception as e:
+            echo_verbose(f" ⚠ Policy execution error: {e}", verbosity)
 
     echo_normal(click.style("\n✓ Session ended", fg="green", bold=True), verbosity)
     echo_normal("Remember: The seeking is the continuity.", verbosity)
@@ -344,7 +516,9 @@ def session_end(ctx, no_backup: bool) -> None:
         session_id=session_timestamp.isoformat(),
         timestamp=session_timestamp,
         metadata={
-            "vault_backup": not no_backup and vault_enabled if 'vault_enabled' in locals() else False
-        }
+            "vault_backup": (
+                not no_backup and vault_enabled if "vault_enabled" in locals() else False
+            )
+        },
     )
     get_event_bus().publish(event)

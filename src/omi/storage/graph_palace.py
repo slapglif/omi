@@ -23,6 +23,11 @@ from dataclasses import dataclass, asdict
 from collections import deque
 import numpy as np
 import struct
+from omi.storage.schema import init_database
+
+# Event bus integration for incremental sync
+from ..events import MemoryStoredEvent
+from ..event_bus import get_event_bus
 
 
 @dataclass
@@ -38,6 +43,10 @@ class Memory:
     access_count: int = 0
     instance_ids: Optional[List[str]] = None
     content_hash: Optional[str] = None  # SHA-256 for integrity
+    archived: bool = False  # Whether memory is archived (excluded from default search)
+    locked: bool = False  # Whether memory is locked (exempt from policy actions)
+    vector_clock: Optional[Dict[str, int]] = None  # For distributed conflict resolution
+    version: int = 1  # Monotonically increasing version number
 
     def __post_init__(self) -> None:
         if self.created_at is None:
@@ -48,6 +57,8 @@ class Memory:
             self.content_hash = hashlib.sha256(self.content.encode()).hexdigest()
         if self.instance_ids is None:
             self.instance_ids = []
+        if self.vector_clock is None:
+            self.vector_clock = {}
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -61,7 +72,11 @@ class Memory:
             "last_accessed": self.last_accessed.isoformat() if self.last_accessed else None,
             "access_count": self.access_count,
             "instance_ids": self.instance_ids,
-            "content_hash": self.content_hash
+            "content_hash": self.content_hash,
+            "archived": self.archived,
+            "locked": self.locked,
+            "vector_clock": self.vector_clock,
+            "version": self.version
         }
 
 
@@ -112,7 +127,7 @@ class GraphPalace:
     # Target: <500ms for 1000 memories
     QUERY_TIMEOUT_MS = 500
 
-    def __init__(self, db_path: Path, enable_wal: bool = True, embedding_dim: int = None):
+    def __init__(self, db_path: Path, enable_wal: bool = True, embedding_dim: int = None, conflict_detector=None):
         """
         Initialize Graph Palace.
 
@@ -120,11 +135,13 @@ class GraphPalace:
             db_path: Path to SQLite database file
             enable_wal: Enable WAL mode for concurrent writes (default: True)
             embedding_dim: Embedding dimension (default: 1024 for bge-m3)
+            conflict_detector: Optional ConflictDetector for multi-agent conflict resolution
         """
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._enable_wal = enable_wal
         self.embedding_dim = embedding_dim if embedding_dim is not None else self.EMBEDDING_DIM
+        self._conflict_detector = conflict_detector
 
         # Create persistent connection
         # check_same_thread=False allows multi-threaded access (safe with WAL mode)
@@ -193,62 +210,9 @@ class GraphPalace:
 
     def _init_db(self) -> None:
         """Initialize database schema with indexes and FTS5."""
-        # Enable WAL mode for concurrent writes
-        if self._enable_wal:
-            self._conn.execute("PRAGMA journal_mode=WAL")
-
-        # Foreign key constraints
-        self._conn.execute("PRAGMA foreign_keys=ON")
-
-        # Create memories table with vector support
-        self._conn.executescript("""
-            CREATE TABLE IF NOT EXISTS memories (
-                id TEXT PRIMARY KEY,
-                content TEXT NOT NULL,
-                embedding BLOB,  -- 1024-dim float32 for bge-m3
-                memory_type TEXT CHECK(memory_type IN ('fact','experience','belief','decision')),
-                confidence REAL CHECK(confidence >= 0 AND confidence <= 1),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_accessed TIMESTAMP,
-                access_count INTEGER DEFAULT 0,
-                instance_ids TEXT,  -- JSON array
-                content_hash TEXT  -- SHA-256 for integrity
-            );
-
-            CREATE TABLE IF NOT EXISTS edges (
-                id TEXT PRIMARY KEY,
-                source_id TEXT NOT NULL,
-                target_id TEXT NOT NULL,
-                edge_type TEXT CHECK(edge_type IN ('SUPPORTS','CONTRADICTS','RELATED_TO','DEPENDS_ON','POSTED','DISCUSSED')),
-                strength REAL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (source_id) REFERENCES memories(id) ON DELETE CASCADE,
-                FOREIGN KEY (target_id) REFERENCES memories(id) ON DELETE CASCADE
-            );
-
-            -- Indexes for performance
-            CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count);
-            CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at);
-            CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed);
-            CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
-            CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
-            CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
-            CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
-            CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
-            CREATE INDEX IF NOT EXISTS idx_edges_bidirectional ON edges(source_id, target_id);
-        """)
-
-        # Create standalone FTS5 virtual table for full-text search
-        # Note: Using standalone FTS5 (no content= sync) because memories.id
-        # is TEXT (UUID), and FTS5 content_rowid requires INTEGER.
-        self._conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-                memory_id,
-                content
-            )
-        """)
-
-        self._conn.commit()
+        # Use the centralized schema initialization from schema.py
+        # This includes memories, memory_versions, edges, snapshots, distributed sync tables, and all indexes
+        init_database(self._conn, enable_wal=self._enable_wal)
 
     def _embed_to_blob(self, embedding: List[float]) -> bytes:
         """Convert embedding list to binary blob (float32)."""
@@ -293,63 +257,239 @@ class GraphPalace:
 
     def store_memory(self,
                    content: str,
-                   embedding: Optional[List[float]] = None,
                    memory_type: str = "experience",
-                   confidence: Optional[float] = None) -> str:
+                   embedding: Optional[List[float]] = None,
+                   confidence: Optional[float] = None,
+                   memory_id: Optional[str] = None,
+                   agent_id: Optional[str] = None,
+                   namespace: Optional[str] = None,
+                   base_version: Optional[int] = None,
+                   conflict_strategy: Optional[str] = None) -> str:
         """
         Store a memory in the palace.
 
+        If memory_id is provided and exists, creates a new version (UPDATE operation).
+        Otherwise, creates a new memory (CREATE operation).
+
         Args:
             content: The memory content text
-            embedding: Vector embedding (1024-dim for bge-m3)
             memory_type: One of (fact, experience, belief, decision)
+            embedding: Vector embedding (1024-dim for bge-m3)
             confidence: 0.0-1.0 for beliefs
+            memory_id: Optional UUID for updating existing memory
+            agent_id: Optional agent ID for conflict detection
+            namespace: Optional namespace for conflict detection
+            base_version: Optional base version for conflict detection
+            conflict_strategy: Optional conflict resolution strategy (last_writer_wins, merge, reject)
 
         Returns:
-            memory_id: UUID of the created memory
+            memory_id: UUID of the created/updated memory
+
+        Raises:
+            RuntimeError: If conflict detected and strategy is REJECT
         """
         self._validate_memory_type(memory_type)
 
         if confidence is not None and (confidence < 0 or confidence > 1):
             raise ValueError("confidence must be between 0.0 and 1.0")
 
-        memory_id = str(uuid.uuid4())
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         now = datetime.now().isoformat()
+
+        # Conflict detection integration
+        write_intent = None
+        if self._conflict_detector and agent_id:
+            # Register write intent before storing
+            write_intent = self._conflict_detector.register_intent(
+                memory_id=memory_id,
+                agent_id=agent_id,
+                content_hash=content_hash,
+                namespace=namespace,
+                base_version=base_version,
+                metadata={"memory_type": memory_type}
+            )
+
+            # Detect conflicts
+            conflict = self._conflict_detector.detect_conflict(
+                memory_id=memory_id,
+                agent_id=agent_id
+            )
+
+            if conflict:
+                # Resolve conflict using specified strategy
+                from omi.conflict_resolution import (
+                    ConflictResolutionStrategy,
+                    LastWriterWinsResolver,
+                    MergeResolver,
+                    RejectResolver
+                )
+
+                # Parse strategy
+                strategy = ConflictResolutionStrategy.LAST_WRITER_WINS
+                if conflict_strategy:
+                    strategy = ConflictResolutionStrategy.from_string(conflict_strategy)
+
+                # Get all conflicting intents
+                intents = [
+                    self._conflict_detector.get_intent(intent_id)
+                    for intent_id in conflict.conflicting_intents
+                ]
+                intents = [i for i in intents if i is not None]
+
+                # Resolve using appropriate resolver
+                if strategy == ConflictResolutionStrategy.LAST_WRITER_WINS:
+                    resolver = LastWriterWinsResolver()
+                    result = resolver.resolve(conflict, intents)
+                elif strategy == ConflictResolutionStrategy.MERGE:
+                    resolver = MergeResolver()
+                    result = resolver.resolve(conflict, intents)
+                elif strategy == ConflictResolutionStrategy.REJECT:
+                    resolver = RejectResolver()
+                    result = resolver.resolve(conflict, intents)
+                    # Reject strategy - raise error
+                    raise RuntimeError(
+                        f"Concurrent write conflict detected and rejected. "
+                        f"Conflict ID: {conflict.id}. "
+                        f"Conflicting agents: {', '.join(conflict.conflicting_agents)}"
+                    )
+                else:
+                    raise ValueError(f"Unknown conflict resolution strategy: {strategy}")
+
+                # Mark conflict as resolved
+                self._conflict_detector.resolve_conflict(
+                    conflict_id=conflict.id,
+                    strategy=strategy,
+                    winner_intent_id=result.winner_intent_id,
+                    metadata=result.metadata
+                )
+
+                # If this write is not the winner, abort
+                if result.winner_intent_id != write_intent.id:
+                    raise RuntimeError(
+                        f"Write intent lost conflict resolution. "
+                        f"Winner: {result.winner_intent_id}. "
+                        f"Strategy: {strategy}"
+                    )
 
         # Convert embedding to blob
         embedding_blob = self._embed_to_blob(embedding) if embedding else None
 
-        # Use lock for thread-safe database access
-        with self._db_lock:
-            self._conn.execute("""
-                INSERT INTO memories
-                (id, content, embedding, memory_type, confidence, created_at,
-                 last_accessed, access_count, instance_ids, content_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                memory_id,
-                content,
-                embedding_blob,
-                memory_type,
-                confidence,
-                now,
-                now,
-                0,
-                json.dumps([]),
-                content_hash
-            ))
-            # Insert into FTS index
-            self._conn.execute("""
-                INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
-            """, (memory_id, content))
-            self._conn.commit()
+        try:
+            # Use lock for thread-safe database access
+            with self._db_lock:
+                # Check if this is an update (memory_id provided and exists)
+                is_update = False
+                if memory_id is not None:
+                    cursor = self._conn.execute(
+                        "SELECT id FROM memories WHERE id = ?", (memory_id,)
+                    )
+                    is_update = cursor.fetchone() is not None
 
-        # Cache the embedding for fast access
-        if embedding:
-            self._embedding_cache[memory_id] = embedding
+                if is_update:
+                    # UPDATE: Create new version and update memory
+                    # Get the next version number
+                    cursor = self._conn.execute("""
+                        SELECT COALESCE(MAX(version_number), 0) + 1
+                        FROM memory_versions
+                        WHERE memory_id = ?
+                    """, (memory_id,))
+                    next_version = cursor.fetchone()[0]
 
-        return memory_id
+                    # Get the previous version_id (most recent version)
+                    cursor = self._conn.execute("""
+                        SELECT version_id
+                        FROM memory_versions
+                        WHERE memory_id = ?
+                        ORDER BY version_number DESC
+                        LIMIT 1
+                    """, (memory_id,))
+                    prev_row = cursor.fetchone()
+                    previous_version_id = prev_row[0] if prev_row else None
+
+                    # Insert new version
+                    version_id = str(uuid.uuid4())
+                    self._conn.execute("""
+                        INSERT INTO memory_versions
+                        (version_id, memory_id, content, version_number, operation_type, created_at, previous_version_id)
+                        VALUES (?, ?, ?, ?, 'UPDATE', ?, ?)
+                    """, (version_id, memory_id, content, next_version, now, previous_version_id))
+
+                    # Update the memories table
+                    self._conn.execute("""
+                        UPDATE memories
+                        SET content = ?, embedding = ?, memory_type = ?, confidence = ?,
+                            last_accessed = ?, content_hash = ?
+                        WHERE id = ?
+                    """, (content, embedding_blob, memory_type, confidence, now, content_hash, memory_id))
+
+                    # Update FTS index
+                    self._conn.execute("""
+                        UPDATE memories_fts SET content = ? WHERE memory_id = ?
+                    """, (content, memory_id))
+
+                else:
+                    # CREATE: New memory
+                    if memory_id is None:
+                        memory_id = str(uuid.uuid4())
+
+                    # Insert into memories table
+                    self._conn.execute("""
+                        INSERT INTO memories
+                        (id, content, embedding, memory_type, confidence, created_at,
+                         last_accessed, access_count, instance_ids, content_hash, archived, locked)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    memory_id,
+                    content,
+                    embedding_blob,
+                    memory_type,
+                    confidence,
+                    now,
+                    now,
+                    0,
+                    json.dumps([]),
+                    content_hash,
+                    0,  # archived = False (0)
+                    0   # locked = False (0)
+                    ))
+
+                    # Insert initial version
+                    version_id = str(uuid.uuid4())
+                    self._conn.execute("""
+                        INSERT INTO memory_versions
+                        (version_id, memory_id, content, version_number, operation_type, created_at, previous_version_id)
+                        VALUES (?, ?, ?, 1, 'CREATE', ?, NULL)
+                    """, (version_id, memory_id, content, now))
+
+                # Insert into FTS index
+                self._conn.execute("""
+                    INSERT INTO memories_fts(memory_id, content) VALUES (?, ?)
+                """, (memory_id, content))
+
+                self._conn.commit()
+
+            # Cache the embedding for fast access
+            if embedding:
+                self._embedding_cache[memory_id] = embedding
+
+            # Publish event for incremental sync
+            # SyncEventHandler will pick up this event and propagate to other instances
+            event = MemoryStoredEvent(
+                memory_id=memory_id,
+                content=content,
+                memory_type=memory_type,
+                confidence=confidence
+            )
+            get_event_bus().publish(event)
+
+            # Commit write intent if conflict detection was used
+            if write_intent:
+                self._conflict_detector.commit_intent(write_intent.id)
+
+            return memory_id
+        except Exception as e:
+            # If write failed, don't commit the intent
+            raise
 
     def get_memory(self, memory_id: str) -> Optional[Memory]:
         """
@@ -373,7 +513,7 @@ class GraphPalace:
         # Retrieve memory
         cursor = self._conn.execute("""
             SELECT id, content, embedding, memory_type, confidence,
-                   created_at, last_accessed, access_count, instance_ids, content_hash
+                   created_at, last_accessed, access_count, instance_ids, content_hash, archived, locked
             FROM memories WHERE id = ?
         """, (memory_id,))
 
@@ -395,7 +535,9 @@ class GraphPalace:
             last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
             access_count=row[7],
             instance_ids=instance_ids,
-            content_hash=row[9]
+            content_hash=row[9],
+            archived=bool(row[10]),  # archived column (convert INTEGER to bool)
+            locked=bool(row[11])     # locked column (convert INTEGER to bool)
         )
 
         # Update cache
@@ -964,6 +1106,10 @@ class GraphPalace:
         if not query_embedding:
             return []
 
+        # If query is a string (no embedder), can't do vector search
+        if isinstance(query_embedding, str):
+            return []
+
         # Convert query to numpy array
         query_vec = np.array(query_embedding, dtype=np.float32)  # type: ignore[attr-defined]
         query_norm = np.linalg.norm(query_vec)
@@ -977,7 +1123,7 @@ class GraphPalace:
 
         cursor = self._conn.execute("""
             SELECT id, content, embedding, memory_type, confidence,
-                   created_at, last_accessed, access_count, instance_ids, content_hash
+                   created_at, last_accessed, access_count, instance_ids, content_hash, archived, locked
             FROM memories WHERE embedding IS NOT NULL
         """)
 
@@ -1039,13 +1185,93 @@ class GraphPalace:
                 last_accessed=last_accessed,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
+                archived=bool(row[10]),
+                locked=bool(row[11])
             )
             results.append((memory, final_score))
 
         # Sort by final score (descending)
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:limit]
+
+    def recall_at(self, timestamp: datetime) -> List[Memory]:
+        """
+        Point-in-time query: Reconstruct memory state as it existed at a specific timestamp.
+
+        This method queries the memory_versions table to reconstruct what memories
+        existed at the given timestamp, including their content at that time.
+
+        Algorithm:
+        1. Find all unique memory_ids that had versions created at or before timestamp
+        2. For each memory_id, get the most recent version at or before timestamp
+        3. Exclude memories where the most recent operation was DELETE
+        4. Return Memory objects with historical content
+
+        Args:
+            timestamp: Point in time to query
+
+        Returns:
+            List of Memory objects as they existed at the timestamp
+        """
+        memories = []
+
+        # Query to get the most recent version for each memory_id at or before timestamp
+        # Uses a subquery to find max version_number per memory_id up to timestamp
+        cursor = self._conn.execute("""
+            SELECT mv.memory_id, mv.content, mv.operation_type, mv.created_at
+            FROM memory_versions mv
+            INNER JOIN (
+                SELECT memory_id, MAX(version_number) as max_version
+                FROM memory_versions
+                WHERE created_at <= ?
+                GROUP BY memory_id
+            ) latest ON mv.memory_id = latest.memory_id AND mv.version_number = latest.max_version
+            WHERE mv.operation_type != 'DELETE'
+        """, (timestamp.isoformat(),))
+
+        for row in cursor:
+            memory_id = row[0]
+            content = row[1]
+            operation_type = row[2]
+            created_at_str = row[3]
+
+            # Get additional memory metadata from memories table if it exists
+            # Note: The memory might not exist in memories table if it was deleted,
+            # but we're reconstructing historical state from versions
+            metadata_cursor = self._conn.execute("""
+                SELECT memory_type, confidence, embedding
+                FROM memories
+                WHERE id = ?
+            """, (memory_id,))
+            metadata_row = metadata_cursor.fetchone()
+
+            if metadata_row:
+                memory_type = metadata_row[0] or "experience"
+                confidence = metadata_row[1]
+                embedding_blob = metadata_row[2]
+                embedding = self._blob_to_embed(embedding_blob) if embedding_blob else None
+            else:
+                # Memory was deleted from main table, use defaults
+                memory_type = "experience"
+                confidence = None
+                embedding = None
+
+            memory = Memory(
+                id=memory_id,
+                content=content,
+                embedding=embedding,
+                memory_type=memory_type,
+                confidence=confidence,
+                created_at=datetime.fromisoformat(created_at_str) if created_at_str else None,
+                last_accessed=None,
+                access_count=0,
+                instance_ids=[],
+                content_hash=hashlib.sha256(content.encode()).hexdigest()
+            )
+            memories.append(memory)
+
+        return memories
 
     def full_text_search(self, query: str, limit: int = 10) -> List[Memory]:
         """
@@ -1063,7 +1289,8 @@ class GraphPalace:
         # Use FTS5 MATCH via standalone FTS table
         cursor = self._conn.execute("""
             SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                   m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                   m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
+                   m.archived, m.locked
             FROM memories_fts fts
             JOIN memories m ON m.id = fts.memory_id
             WHERE memories_fts MATCH ?
@@ -1083,7 +1310,9 @@ class GraphPalace:
                 last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
+                archived=bool(row[10]),
+                locked=bool(row[11])
             )
             memories.append(memory)
 
@@ -1176,7 +1405,8 @@ class GraphPalace:
         if edge_type:
             cursor = self._conn.execute("""
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
+                       m.archived, m.locked
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
@@ -1186,7 +1416,8 @@ class GraphPalace:
         else:
             cursor = self._conn.execute("""
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
+                       m.archived, m.locked
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
@@ -1205,7 +1436,9 @@ class GraphPalace:
                 last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                 access_count=row[7],
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
+                archived=bool(row[10]),
+                locked=bool(row[11])
             ))
 
         return memories
@@ -1286,7 +1519,8 @@ class GraphPalace:
             # Get neighbors
             cursor = self._conn.execute("""
                 SELECT DISTINCT m.id, m.content, m.embedding, m.memory_type, m.confidence,
-                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
+                       m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
+                       m.archived, m.locked
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
@@ -1309,7 +1543,9 @@ class GraphPalace:
                         last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                         access_count=row[7],
                         instance_ids=json.loads(row[8]) if row[8] else [],
-                        content_hash=row[9]
+                        content_hash=row[9],
+                        archived=bool(row[10]),
+                        locked=bool(row[11])
                     )
                     result.append(memory)
                     queue.append((neighbor_id, current_depth + 1))
@@ -1332,7 +1568,7 @@ class GraphPalace:
         cursor = self._conn.execute("""
             SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                    m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash,
-                   COUNT(e.id) as edge_count
+                   m.archived, m.locked, COUNT(e.id) as edge_count
             FROM memories m
             LEFT JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
             GROUP BY m.id
@@ -1343,7 +1579,7 @@ class GraphPalace:
             memory_id = row[0]
             access_count = row[7] or 0
             last_accessed = datetime.fromisoformat(row[6]) if row[6] else datetime.now()
-            edge_count = row[10]
+            edge_count = row[12]
 
             # Calculate centrality score (same algorithm as get_centrality)
             # Degree centrality (40% weight)
@@ -1371,7 +1607,9 @@ class GraphPalace:
                 last_accessed=last_accessed,
                 access_count=access_count,
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
+                archived=bool(row[10]),
+                locked=bool(row[11])
             )
 
             memories.append((memory, centrality))
@@ -1403,36 +1641,133 @@ class GraphPalace:
 
         return cursor.rowcount > 0
 
-    def update_memory_content(self, memory_id: str, new_content: str) -> bool:
+    def update_memory_content(self,
+                            memory_id: str,
+                            new_content: str,
+                            agent_id: Optional[str] = None,
+                            namespace: Optional[str] = None,
+                            base_version: Optional[int] = None,
+                            conflict_strategy: Optional[str] = None) -> bool:
         """
         Update the content of a memory and recalculate hash and timestamp.
 
         Args:
             memory_id: Memory ID
             new_content: New content text
+            agent_id: Optional agent ID for conflict detection
+            namespace: Optional namespace for conflict detection
+            base_version: Optional base version for conflict detection
+            conflict_strategy: Optional conflict resolution strategy (last_writer_wins, merge, reject)
 
         Returns:
             True if successful
+
+        Raises:
+            RuntimeError: If conflict detected and strategy is REJECT
         """
         new_content_hash = hashlib.sha256(new_content.encode()).hexdigest()
         now = datetime.now().isoformat()
 
-        cursor = self._conn.execute("""
-            UPDATE memories
-            SET content = ?, content_hash = ?, last_accessed = ?
-            WHERE id = ?
-        """, (new_content, new_content_hash, now, memory_id))
+        # Conflict detection integration
+        write_intent = None
+        if self._conflict_detector and agent_id:
+            # Register write intent before updating
+            write_intent = self._conflict_detector.register_intent(
+                memory_id=memory_id,
+                agent_id=agent_id,
+                content_hash=new_content_hash,
+                namespace=namespace,
+                base_version=base_version,
+                metadata={"operation": "update"}
+            )
 
-        # Update FTS index
-        if cursor.rowcount > 0:
-            self._conn.execute("""
-                UPDATE memories_fts
-                SET content = ?
-                WHERE memory_id = ?
-            """, (new_content, memory_id))
+            # Detect conflicts
+            conflict = self._conflict_detector.detect_conflict(
+                memory_id=memory_id,
+                agent_id=agent_id
+            )
 
-        self._conn.commit()
-        return cursor.rowcount > 0
+            if conflict:
+                # Resolve conflict using specified strategy
+                from omi.conflict_resolution import (
+                    ConflictResolutionStrategy,
+                    LastWriterWinsResolver,
+                    MergeResolver,
+                    RejectResolver
+                )
+
+                # Parse strategy
+                strategy = ConflictResolutionStrategy.LAST_WRITER_WINS
+                if conflict_strategy:
+                    strategy = ConflictResolutionStrategy.from_string(conflict_strategy)
+
+                # Get all conflicting intents
+                intents = [
+                    self._conflict_detector.get_intent(intent_id)
+                    for intent_id in conflict.conflicting_intents
+                ]
+                intents = [i for i in intents if i is not None]
+
+                # Resolve using appropriate resolver
+                if strategy == ConflictResolutionStrategy.LAST_WRITER_WINS:
+                    resolver = LastWriterWinsResolver()
+                    result = resolver.resolve(conflict, intents)
+                elif strategy == ConflictResolutionStrategy.MERGE:
+                    resolver = MergeResolver()
+                    result = resolver.resolve(conflict, intents)
+                elif strategy == ConflictResolutionStrategy.REJECT:
+                    resolver = RejectResolver()
+                    result = resolver.resolve(conflict, intents)
+                    # Reject strategy - raise error
+                    raise RuntimeError(
+                        f"Concurrent write conflict detected and rejected. "
+                        f"Conflict ID: {conflict.id}. "
+                        f"Conflicting agents: {', '.join(conflict.conflicting_agents)}"
+                    )
+                else:
+                    raise ValueError(f"Unknown conflict resolution strategy: {strategy}")
+
+                # Mark conflict as resolved
+                self._conflict_detector.resolve_conflict(
+                    conflict_id=conflict.id,
+                    strategy=strategy,
+                    winner_intent_id=result.winner_intent_id,
+                    metadata=result.metadata
+                )
+
+                # If this write is not the winner, abort
+                if result.winner_intent_id != write_intent.id:
+                    raise RuntimeError(
+                        f"Write intent lost conflict resolution. "
+                        f"Winner: {result.winner_intent_id}. "
+                        f"Strategy: {strategy}"
+                    )
+
+        try:
+            cursor = self._conn.execute("""
+                UPDATE memories
+                SET content = ?, content_hash = ?, last_accessed = ?
+                WHERE id = ?
+            """, (new_content, new_content_hash, now, memory_id))
+
+            # Update FTS index
+            if cursor.rowcount > 0:
+                self._conn.execute("""
+                    UPDATE memories_fts
+                    SET content = ?
+                    WHERE memory_id = ?
+                """, (new_content, memory_id))
+
+            self._conn.commit()
+
+            # Commit write intent if conflict detection was used
+            if write_intent:
+                self._conflict_detector.commit_intent(write_intent.id)
+
+            return cursor.rowcount > 0
+        except Exception as e:
+            # If update failed, don't commit the intent
+            raise
 
     def delete_memory(self, memory_id: str) -> bool:
         """
@@ -1456,6 +1791,129 @@ class GraphPalace:
             del self._embedding_cache[memory_id]
 
         return cursor.rowcount > 0
+
+    def archive_memories(self, memory_ids: List[str]) -> int:
+        """
+        Mark memories as archived (excluded from default search).
+
+        Args:
+            memory_ids: List of memory IDs to archive
+
+        Returns:
+            Number of memories successfully archived
+        """
+        if not memory_ids:
+            return 0
+
+        archived_count = 0
+        with self._db_lock:
+            for memory_id in memory_ids:
+                cursor = self._conn.execute("""
+                    UPDATE memories SET archived = 1 WHERE id = ?
+                """, (memory_id,))
+                if cursor.rowcount > 0:
+                    archived_count += 1
+            self._conn.commit()
+
+        return archived_count
+
+    def delete_memories(self, memory_ids: List[str]) -> int:
+        """
+        Delete multiple memories and their edges.
+
+        This is a permanent deletion operation with safety checks:
+        - Validates memory IDs exist before deletion
+        - Removes from FTS index
+        - Removes from embeddings cache
+        - Cascades deletion to edges (via ON DELETE CASCADE)
+
+        Args:
+            memory_ids: List of memory IDs to delete
+
+        Returns:
+            Number of memories successfully deleted
+        """
+        if not memory_ids:
+            return 0
+
+        deleted_count = 0
+        with self._db_lock:
+            for memory_id in memory_ids:
+                # Remove from FTS index first
+                self._conn.execute("""
+                    DELETE FROM memories_fts WHERE memory_id = ?
+                """, (memory_id,))
+
+                # Delete memory (edges cascade automatically)
+                cursor = self._conn.execute("""
+                    DELETE FROM memories WHERE id = ?
+                """, (memory_id,))
+
+                if cursor.rowcount > 0:
+                    deleted_count += 1
+                    # Remove from embedding cache
+                    if memory_id in self._embedding_cache:
+                        del self._embedding_cache[memory_id]
+
+            self._conn.commit()
+
+        return deleted_count
+
+    def lock_memories(self, memory_ids: List[str]) -> int:
+        """
+        Lock memories to exempt them from policy actions.
+
+        Locked memories will not be archived, deleted, compressed, promoted,
+        or demoted by policy engine actions.
+
+        Args:
+            memory_ids: List of memory IDs to lock
+
+        Returns:
+            Number of memories successfully locked
+        """
+        if not memory_ids:
+            return 0
+
+        locked_count = 0
+        with self._db_lock:
+            for memory_id in memory_ids:
+                cursor = self._conn.execute("""
+                    UPDATE memories SET locked = 1 WHERE id = ?
+                """, (memory_id,))
+                if cursor.rowcount > 0:
+                    locked_count += 1
+            self._conn.commit()
+
+        return locked_count
+
+    def unlock_memories(self, memory_ids: List[str]) -> int:
+        """
+        Unlock memories to allow policy actions.
+
+        Unlocking memories allows them to be affected by policy engine actions
+        (archive, delete, compress, promote, demote).
+
+        Args:
+            memory_ids: List of memory IDs to unlock
+
+        Returns:
+            Number of memories successfully unlocked
+        """
+        if not memory_ids:
+            return 0
+
+        unlocked_count = 0
+        with self._db_lock:
+            for memory_id in memory_ids:
+                cursor = self._conn.execute("""
+                    UPDATE memories SET locked = 0 WHERE id = ?
+                """, (memory_id,))
+                if cursor.rowcount > 0:
+                    unlocked_count += 1
+            self._conn.commit()
+
+        return unlocked_count
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -1580,7 +2038,8 @@ class GraphPalace:
             if limit is not None:
                 cursor = conn.execute("""
                     SELECT id, content, embedding, memory_type, confidence,
-                           created_at, last_accessed, access_count, instance_ids, content_hash
+                           created_at, last_accessed, access_count, instance_ids, content_hash,
+                           archived, locked
                     FROM memories
                     WHERE created_at < ?
                     ORDER BY created_at ASC
@@ -1589,7 +2048,8 @@ class GraphPalace:
             else:
                 cursor = conn.execute("""
                     SELECT id, content, embedding, memory_type, confidence,
-                           created_at, last_accessed, access_count, instance_ids, content_hash
+                           created_at, last_accessed, access_count, instance_ids, content_hash,
+                           archived, locked
                     FROM memories
                     WHERE created_at < ?
                     ORDER BY created_at ASC
@@ -1607,11 +2067,169 @@ class GraphPalace:
                     last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                     access_count=row[7],
                     instance_ids=json.loads(row[8]) if row[8] else [],
-                    content_hash=row[9]
+                    content_hash=row[9],
+                    archived=bool(row[10]),
+                    locked=bool(row[11])
                 )
                 memories.append(memory)
 
         return memories
+
+    def add_consensus_vote(self, memory_id: str, instance_id: str, vote: int) -> None:
+        """
+        Add or update a consensus vote for a memory from an instance.
+
+        Args:
+            memory_id: Memory UUID
+            instance_id: Instance identifier
+            vote: Vote value (typically 1 for support, -1 for oppose, 0 for neutral)
+        """
+        with self._db_lock:
+            self._conn.execute("""
+                INSERT INTO consensus_votes (memory_id, instance_id, vote)
+                VALUES (?, ?, ?)
+                ON CONFLICT(memory_id, instance_id)
+                DO UPDATE SET vote=excluded.vote, created_at=CURRENT_TIMESTAMP
+            """, (memory_id, instance_id, vote))
+            self._conn.commit()
+
+    def get_consensus_votes(self, memory_id: str) -> int:
+        """
+        Get the total consensus vote count for a memory.
+
+        Args:
+            memory_id: Memory UUID
+
+        Returns:
+            Total sum of all votes for this memory
+        """
+        cursor = self._conn.execute("""
+            SELECT COALESCE(SUM(vote), 0) FROM consensus_votes
+            WHERE memory_id = ?
+        """, (memory_id,))
+        result = cursor.fetchone()
+        return int(result[0]) if result else 0
+
+    def mark_as_foundational(self, memory_id: str) -> None:
+        """
+        Mark a memory as foundational (protected/trusted).
+
+        Foundational memories have achieved multi-instance consensus
+        and are considered core/trusted memories.
+
+        Args:
+            memory_id: Memory UUID
+        """
+        with self._db_lock:
+            self._conn.execute("""
+                UPDATE memories SET is_foundational = 1
+                WHERE id = ?
+            """, (memory_id,))
+            self._conn.commit()
+
+    def queue_conflict(
+        self,
+        memory_id: str,
+        instance_id_source: str,
+        instance_id_target: str,
+        conflict_data: Dict[str, Any]
+    ) -> str:
+        """
+        Add a conflict to the manual resolution queue.
+
+        Used when automatic conflict resolution fails and requires human intervention.
+
+        Args:
+            memory_id: Memory ID that has a conflict
+            instance_id_source: Instance ID of the first conflicting version
+            instance_id_target: Instance ID of the second conflicting version
+            conflict_data: Dict with conflict details (memory versions, timestamps, etc.)
+
+        Returns:
+            Conflict queue ID (UUID)
+        """
+        conflict_id = str(uuid.uuid4())
+        conflict_data_json = json.dumps(conflict_data)
+        now = datetime.now().isoformat()
+
+        with self._db_lock:
+            self._conn.execute("""
+                INSERT INTO conflict_queue
+                (id, memory_id, instance_id_source, instance_id_target, conflict_data, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (conflict_id, memory_id, instance_id_source, instance_id_target, conflict_data_json, now))
+            self._conn.commit()
+
+        return conflict_id
+
+    def get_queued_conflicts(self, status: str = 'pending') -> List[Dict[str, Any]]:
+        """
+        Retrieve conflicts from the manual resolution queue.
+
+        Args:
+            status: Filter by resolution_status ('pending', 'resolved', 'ignored')
+
+        Returns:
+            List of conflict dicts with all queue fields
+        """
+        cursor = self._conn.execute("""
+            SELECT id, memory_id, instance_id_source, instance_id_target,
+                   conflict_data, resolution_status, created_at, resolved_at
+            FROM conflict_queue
+            WHERE resolution_status = ?
+            ORDER BY created_at ASC
+        """, (status,))
+
+        conflicts = []
+        for row in cursor:
+            conflicts.append({
+                'id': row[0],
+                'memory_id': row[1],
+                'instance_id_source': row[2],
+                'instance_id_target': row[3],
+                'conflict_data': json.loads(row[4]) if row[4] else {},
+                'resolution_status': row[5],
+                'created_at': row[6],
+                'resolved_at': row[7]
+            })
+
+        return conflicts
+
+    def resolve_queued_conflict(
+        self,
+        conflict_id: str,
+        resolution_status: str
+    ) -> bool:
+        """
+        Mark a queued conflict as resolved or ignored.
+
+        Args:
+            conflict_id: Conflict queue ID
+            resolution_status: New status ('resolved' or 'ignored')
+
+        Returns:
+            True if updated, False if conflict not found
+
+        Raises:
+            ValueError: If resolution_status is invalid
+        """
+        if resolution_status not in ('resolved', 'ignored'):
+            raise ValueError(
+                f"Invalid resolution_status: {resolution_status}. "
+                "Must be 'resolved' or 'ignored'"
+            )
+
+        now = datetime.now().isoformat()
+
+        with self._db_lock:
+            cursor = self._conn.execute("""
+                UPDATE conflict_queue
+                SET resolution_status = ?, resolved_at = ?
+                WHERE id = ?
+            """, (resolution_status, now, conflict_id))
+            self._conn.commit()
+
+        return cursor.rowcount > 0
 
     def vacuum(self) -> None:
         """Optimize database ( reclaim space )."""

@@ -8,6 +8,8 @@ This module defines typed events emitted during memory operations:
 - ContradictionDetectedEvent: When a contradiction is detected
 - SessionStartedEvent: When a session starts
 - SessionEndedEvent: When a session ends
+- PolicyTriggeredEvent: When a memory policy is triggered
+- MemorySyncEvent: When a memory operation needs to be synced across instances
 
 All events include full context (memory content, metadata, timestamps).
 """
@@ -20,6 +22,7 @@ from typing import Optional, List, Dict, Any
 @dataclass
 class MemoryStoredEvent:
     """Event emitted when a memory is stored."""
+
     memory_id: str
     content: str
     memory_type: str  # fact | experience | belief | decision
@@ -37,13 +40,14 @@ class MemoryStoredEvent:
             "memory_type": self.memory_type,
             "confidence": self.confidence,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-            "metadata": self.metadata or {}
+            "metadata": self.metadata or {},
         }
 
 
 @dataclass
 class MemoryRecalledEvent:
     """Event emitted when memories are recalled."""
+
     query: str
     result_count: int
     top_results: List[Dict[str, Any]] = field(default_factory=list)
@@ -59,13 +63,14 @@ class MemoryRecalledEvent:
             "result_count": self.result_count,
             "top_results": self.top_results,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-            "metadata": self.metadata or {}
+            "metadata": self.metadata or {},
         }
 
 
 @dataclass
 class BeliefUpdatedEvent:
     """Event emitted when a belief's confidence is updated."""
+
     belief_id: str
     old_confidence: float
     new_confidence: float
@@ -83,13 +88,14 @@ class BeliefUpdatedEvent:
             "new_confidence": self.new_confidence,
             "evidence_id": self.evidence_id,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-            "metadata": self.metadata or {}
+            "metadata": self.metadata or {},
         }
 
 
 @dataclass
 class ContradictionDetectedEvent:
     """Event emitted when a contradiction is detected."""
+
     memory_id_1: str
     memory_id_2: str
     contradiction_pattern: str
@@ -107,13 +113,14 @@ class ContradictionDetectedEvent:
             "contradiction_pattern": self.contradiction_pattern,
             "confidence": self.confidence,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-            "metadata": self.metadata or {}
+            "metadata": self.metadata or {},
         }
 
 
 @dataclass
 class SessionStartedEvent:
     """Event emitted when a session starts."""
+
     session_id: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.now)
     event_type: str = "session.started"
@@ -125,13 +132,14 @@ class SessionStartedEvent:
             "event_type": self.event_type,
             "session_id": self.session_id,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-            "metadata": self.metadata or {}
+            "metadata": self.metadata or {},
         }
 
 
 @dataclass
 class SessionEndedEvent:
     """Event emitted when a session ends."""
+
     session_id: Optional[str] = None
     duration_seconds: Optional[float] = None
     timestamp: datetime = field(default_factory=datetime.now)
@@ -145,6 +153,112 @@ class SessionEndedEvent:
             "session_id": self.session_id,
             "duration_seconds": self.duration_seconds,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "metadata": self.metadata or {},
+        }
+
+
+@dataclass
+class BeliefPropagatedEvent:
+    """Event emitted when a belief is propagated between agents."""
+    belief_id: str
+    source_agent_id: str
+    target_agent_id: str
+    content: str
+    confidence: float
+    timestamp: datetime = field(default_factory=datetime.now)
+    event_type: str = "belief.propagated"
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "belief_id": self.belief_id,
+            "source_agent_id": self.source_agent_id,
+            "target_agent_id": self.target_agent_id,
+            "content": self.content,
+            "confidence": self.confidence,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "metadata": self.metadata or {}
+        }
+
+
+@dataclass
+class PolicyTriggeredEvent:
+    """Event emitted when a memory policy is triggered."""
+    policy_id: str
+    action: str
+    affected_memory_ids: List[str] = field(default_factory=list)
+    reason: Optional[str] = None
+    timestamp: datetime = field(default_factory=datetime.now)
+    event_type: str = "policy.triggered"
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "policy_id": self.policy_id,
+            "action": self.action,
+            "affected_memory_ids": self.affected_memory_ids,
+            "reason": self.reason,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "metadata": self.metadata or {}
+        }
+
+
+@dataclass
+class MemorySyncEvent:
+    """Event emitted when a memory operation needs to be synced across instances."""
+    memory_id: str
+    instance_id: str
+    operation: str  # store | update | delete
+    content: Optional[str] = None
+    memory_type: Optional[str] = None
+    confidence: Optional[float] = None
+    timestamp: datetime = field(default_factory=datetime.now)
+    event_type: str = "memory.sync"
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "memory_id": self.memory_id,
+            "instance_id": self.instance_id,
+            "operation": self.operation,
+            "content": self.content,
+            "memory_type": self.memory_type,
+            "confidence": self.confidence,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "metadata": self.metadata or {}
+        }
+
+
+@dataclass
+class SharedMemoryStoredEvent:
+    """Event emitted when a memory is stored for sharing across agents."""
+    memory_id: str
+    content: str
+    memory_type: str  # fact | experience | belief | decision
+    source_agent_id: str
+    target_agent_ids: List[str] = field(default_factory=list)
+    confidence: Optional[float] = None
+    timestamp: datetime = field(default_factory=datetime.now)
+    event_type: str = "memory.shared_stored"
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "memory_id": self.memory_id,
+            "content": self.content,
+            "memory_type": self.memory_type,
+            "source_agent_id": self.source_agent_id,
+            "target_agent_ids": self.target_agent_ids,
+            "confidence": self.confidence,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
             "metadata": self.metadata or {}
         }
 
@@ -157,4 +271,8 @@ __all__ = [
     "ContradictionDetectedEvent",
     "SessionStartedEvent",
     "SessionEndedEvent",
+    "PolicyTriggeredEvent",
+    "MemorySyncEvent",
+    "BeliefPropagatedEvent",
+    "SharedMemoryStoredEvent",
 ]

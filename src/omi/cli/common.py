@@ -1,4 +1,5 @@
 """Shared utilities for OMI CLI commands."""
+
 import os
 import sys
 from pathlib import Path

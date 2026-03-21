@@ -23,6 +23,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -38,8 +39,9 @@ class TestNamespaceCLI:
 
             # Config should contain namespace
             config = yaml.safe_load(config_path.read_text())
-            assert config.get("namespace") == "org/team/agent", \
-                f"Namespace not set in config. Config: {config}"
+            assert (
+                config.get("namespace") == "org/team/agent"
+            ), f"Namespace not set in config. Config: {config}"
 
     def test_store_with_namespace(self):
         """Test that store command accepts and uses --namespace flag."""
@@ -48,6 +50,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.storage.graph_palace import GraphPalace
@@ -59,10 +62,9 @@ class TestNamespaceCLI:
 
             # Store with namespace
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "store", "Test memory in namespace",
-                    "--namespace", "org/team/agent1"
-                ])
+                result = runner.invoke(
+                    cli, ["store", "Test memory in namespace", "--namespace", "org/team/agent1"]
+                )
 
             # Command should succeed
             assert result.exit_code == 0, f"Command failed: {result.output}"
@@ -73,8 +75,9 @@ class TestNamespaceCLI:
             palace = GraphPalace(db_path)
             results = palace.full_text_search("Test memory in namespace")
             assert len(results) > 0, "Memory not found"
-            assert results[0].namespace == "org/team/agent1", \
-                f"Expected 'org/team/agent1', got '{results[0].namespace}'"
+            assert (
+                results[0].namespace == "org/team/agent1"
+            ), f"Expected 'org/team/agent1', got '{results[0].namespace}'"
             palace.close()
 
     def test_recall_with_namespace(self):
@@ -84,6 +87,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.storage.graph_palace import GraphPalace
@@ -102,10 +106,7 @@ class TestNamespaceCLI:
 
             # Recall with namespace filter for agent1
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "recall", "testing",
-                    "--namespace", "org/team/agent1"
-                ])
+                result = runner.invoke(cli, ["recall", "testing", "--namespace", "org/team/agent1"])
 
             # Command should succeed
             assert result.exit_code == 0, f"Command failed: {result.output}"
@@ -116,10 +117,7 @@ class TestNamespaceCLI:
 
             # Recall with namespace filter for agent2
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "recall", "testing",
-                    "--namespace", "org/team/agent2"
-                ])
+                result = runner.invoke(cli, ["recall", "testing", "--namespace", "org/team/agent2"])
 
             # Should only show agent2's memory
             assert "Agent2" in result.output
@@ -132,6 +130,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.storage.graph_palace import GraphPalace
@@ -143,19 +142,15 @@ class TestNamespaceCLI:
             # Store a memory in source namespace
             db_path = base_path / "palace.sqlite"
             palace = GraphPalace(db_path)
-            memory_id = palace.store_memory(
-                "Test memory to share",
-                namespace="org/team/agent1"
-            )
+            memory_id = palace.store_memory("Test memory to share", namespace="org/team/agent1")
             palace.close()
 
             # Share memory with another namespace
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "share", memory_id,
-                    "--from", "org/team/agent1",
-                    "--with", "org/team/agent2"
-                ])
+                result = runner.invoke(
+                    cli,
+                    ["share", memory_id, "--from", "org/team/agent1", "--with", "org/team/agent2"],
+                )
 
             # Command should succeed
             assert result.exit_code == 0, f"Command failed: {result.output}"
@@ -163,8 +158,9 @@ class TestNamespaceCLI:
 
             # Verify permission was granted
             palace = GraphPalace(db_path)
-            assert palace.can_access("org/team/agent2", memory_id), \
-                "agent2 should have access to shared memory"
+            assert palace.can_access(
+                "org/team/agent2", memory_id
+            ), "agent2 should have access to shared memory"
             palace.close()
 
     def test_backward_compatibility(self):
@@ -180,6 +176,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.storage.graph_palace import GraphPalace
@@ -199,14 +196,15 @@ class TestNamespaceCLI:
             palace = GraphPalace(db_path)
             results = palace.full_text_search("Test memory without namespace")
             assert len(results) > 0, "Memory not found"
-            assert results[0].namespace == 'default', \
-                f"Expected 'default' namespace, got '{results[0].namespace}'"
+            assert (
+                results[0].namespace == "default"
+            ), f"Expected 'default' namespace, got '{results[0].namespace}'"
             palace.close()
 
             # Test 3: Init with namespace in config
             config_path = base_path / "config.yaml"
             config = yaml.safe_load(config_path.read_text())
-            config['namespace'] = 'org/team/agent'
+            config["namespace"] = "org/team/agent"
             config_path.write_text(yaml.dump(config))
 
             # Store without flag should now use namespace from config
@@ -218,8 +216,9 @@ class TestNamespaceCLI:
             palace = GraphPalace(db_path)
             results = palace.full_text_search("config namespace")
             assert len(results) > 0, "Memory not found"
-            assert results[0].namespace == 'org/team/agent', \
-                f"Expected 'org/team/agent' namespace, got '{results[0].namespace}'"
+            assert (
+                results[0].namespace == "org/team/agent"
+            ), f"Expected 'org/team/agent' namespace, got '{results[0].namespace}'"
             palace.close()
 
     def test_invalid_namespace_validation(self):
@@ -229,6 +228,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -247,6 +247,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.storage.graph_palace import GraphPalace
@@ -259,21 +260,24 @@ class TestNamespaceCLI:
             db_path = base_path / "palace.sqlite"
             palace = GraphPalace(db_path)
             commons_id = palace.store_memory(
-                "Shared org knowledge about testing",
-                namespace="org/commons"
+                "Shared org knowledge about testing", namespace="org/commons"
             )
 
             # Verify agents in same org can access commons
-            assert palace.can_access("org/team/agent1", commons_id), \
-                "agent1 should have access to commons"
-            assert palace.can_access("org/team/agent2", commons_id), \
-                "agent2 should have access to commons"
-            assert palace.can_access("org/other/agent3", commons_id), \
-                "agent3 should have access to commons"
+            assert palace.can_access(
+                "org/team/agent1", commons_id
+            ), "agent1 should have access to commons"
+            assert palace.can_access(
+                "org/team/agent2", commons_id
+            ), "agent2 should have access to commons"
+            assert palace.can_access(
+                "org/other/agent3", commons_id
+            ), "agent3 should have access to commons"
 
             # Verify agents in different org cannot access
-            assert not palace.can_access("other_org/team/agent", commons_id), \
-                "Different org should not have access to commons"
+            assert not palace.can_access(
+                "other_org/team/agent", commons_id
+            ), "Different org should not have access to commons"
 
             palace.close()
 
@@ -284,6 +288,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.storage.graph_palace import GraphPalace
@@ -300,10 +305,14 @@ class TestNamespaceCLI:
 
             # Verify namespace isolation (no permissions)
             assert palace.can_access("org/team/agent1", id1), "agent1 should access own memory"
-            assert not palace.can_access("org/team/agent2", id1), "agent2 should NOT access agent1's memory"
+            assert not palace.can_access(
+                "org/team/agent2", id1
+            ), "agent2 should NOT access agent1's memory"
 
             assert palace.can_access("org/team/agent2", id2), "agent2 should access own memory"
-            assert not palace.can_access("org/team/agent1", id2), "agent1 should NOT access agent2's memory"
+            assert not palace.can_access(
+                "org/team/agent1", id2
+            ), "agent1 should NOT access agent2's memory"
 
             palace.close()
 
@@ -314,6 +323,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.storage.graph_palace import GraphPalace
@@ -324,11 +334,17 @@ class TestNamespaceCLI:
 
             # Try to share non-existent memory
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "share", "nonexistent-id",
-                    "--from", "org/team/agent1",
-                    "--with", "org/team/agent2"
-                ])
+                result = runner.invoke(
+                    cli,
+                    [
+                        "share",
+                        "nonexistent-id",
+                        "--from",
+                        "org/team/agent1",
+                        "--with",
+                        "org/team/agent2",
+                    ],
+                )
 
             # Should fail
             assert result.exit_code != 0
@@ -341,6 +357,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.storage.graph_palace import GraphPalace
@@ -358,11 +375,9 @@ class TestNamespaceCLI:
 
             # Recall with JSON output
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "recall", "JSON test",
-                    "--namespace", "org/team/agent1",
-                    "--json-output"
-                ])
+                result = runner.invoke(
+                    cli, ["recall", "JSON test", "--namespace", "org/team/agent1", "--json-output"]
+                )
 
             # Should succeed and return valid JSON
             assert result.exit_code == 0, f"Command failed: {result.output}"
@@ -383,6 +398,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.storage.graph_palace import GraphPalace
@@ -395,22 +411,22 @@ class TestNamespaceCLI:
             db_path = base_path / "palace.sqlite"
             palace = GraphPalace(db_path)
             memory_id = palace.store_memory(
-                "Shared research findings",
-                namespace="org/research/agent1"
+                "Shared research findings", namespace="org/research/agent1"
             )
 
             # Grant permission to agent2
             palace.grant_permission(
                 source_namespace="org/research/agent1",
                 target_namespace="org/writing/agent2",
-                permission_level="read"
+                permission_level="read",
             )
             palace.close()
 
             # Agent2 should be able to access agent1's memory now
             palace = GraphPalace(db_path)
-            assert palace.can_access("org/writing/agent2", memory_id), \
-                "agent2 should have access after permission granted"
+            assert palace.can_access(
+                "org/writing/agent2", memory_id
+            ), "agent2 should have access after permission granted"
             palace.close()
 
     def test_init_without_namespace_creates_default(self):
@@ -420,6 +436,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -436,8 +453,9 @@ class TestNamespaceCLI:
             # Config should not have namespace (or it should be None/empty)
             config = yaml.safe_load(config_path.read_text())
             # Namespace should not be in config, or should be None
-            assert config.get("namespace") is None, \
-                "Namespace should not be set when init called without --namespace"
+            assert (
+                config.get("namespace") is None
+            ), "Namespace should not be set when init called without --namespace"
 
     def test_multi_agent_sharing_scenario_e2e(self):
         """End-to-end test: Multi-agent scenario with sharing.
@@ -456,6 +474,7 @@ class TestNamespaceCLI:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.storage.graph_palace import GraphPalace
@@ -474,112 +493,117 @@ class TestNamespaceCLI:
             palace = GraphPalace(db_path)
 
             researcher_memory_id = palace.store_memory(
-                "Research findings about AI safety",
-                namespace=researcher_ns
+                "Research findings about AI safety", namespace=researcher_ns
             )
             writer_memory_id = palace.store_memory(
-                "Draft article about technology trends",
-                namespace=writer_ns
+                "Draft article about technology trends", namespace=writer_ns
             )
             reviewer_memory_id = palace.store_memory(
-                "Review comments for publication",
-                namespace=reviewer_ns
+                "Review comments for publication", namespace=reviewer_ns
             )
 
             # Verify initial isolation - each agent can only access their own memories
-            assert palace.can_access(researcher_ns, researcher_memory_id), \
-                "Researcher should access own memory"
-            assert not palace.can_access(writer_ns, researcher_memory_id), \
-                "Writer should NOT access researcher's memory initially"
-            assert not palace.can_access(reviewer_ns, researcher_memory_id), \
-                "Reviewer should NOT access researcher's memory initially"
+            assert palace.can_access(
+                researcher_ns, researcher_memory_id
+            ), "Researcher should access own memory"
+            assert not palace.can_access(
+                writer_ns, researcher_memory_id
+            ), "Writer should NOT access researcher's memory initially"
+            assert not palace.can_access(
+                reviewer_ns, researcher_memory_id
+            ), "Reviewer should NOT access researcher's memory initially"
 
-            assert palace.can_access(writer_ns, writer_memory_id), \
-                "Writer should access own memory"
-            assert not palace.can_access(researcher_ns, writer_memory_id), \
-                "Researcher should NOT access writer's memory"
+            assert palace.can_access(writer_ns, writer_memory_id), "Writer should access own memory"
+            assert not palace.can_access(
+                researcher_ns, writer_memory_id
+            ), "Researcher should NOT access writer's memory"
 
-            assert palace.can_access(reviewer_ns, reviewer_memory_id), \
-                "Reviewer should access own memory"
-            assert not palace.can_access(researcher_ns, reviewer_memory_id), \
-                "Researcher should NOT access reviewer's memory"
+            assert palace.can_access(
+                reviewer_ns, reviewer_memory_id
+            ), "Reviewer should access own memory"
+            assert not palace.can_access(
+                researcher_ns, reviewer_memory_id
+            ), "Researcher should NOT access reviewer's memory"
 
             palace.close()
 
             # Step 3: Share a memory from researcher to writer
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "share", researcher_memory_id,
-                    "--from", researcher_ns,
-                    "--with", writer_ns
-                ])
+                result = runner.invoke(
+                    cli,
+                    ["share", researcher_memory_id, "--from", researcher_ns, "--with", writer_ns],
+                )
                 assert result.exit_code == 0, f"Share command failed: {result.output}"
                 assert "shared successfully" in result.output.lower() or "✓" in result.output
 
             # Step 4: Verify writer can access shared memory
             palace = GraphPalace(db_path)
-            assert palace.can_access(writer_ns, researcher_memory_id), \
-                "Writer SHOULD access researcher's memory after sharing"
+            assert palace.can_access(
+                writer_ns, researcher_memory_id
+            ), "Writer SHOULD access researcher's memory after sharing"
 
             # Step 5: Verify reviewer cannot access unless shared
-            assert not palace.can_access(reviewer_ns, researcher_memory_id), \
-                "Reviewer should STILL NOT access researcher's memory (not shared)"
+            assert not palace.can_access(
+                reviewer_ns, researcher_memory_id
+            ), "Reviewer should STILL NOT access researcher's memory (not shared)"
 
             # Step 6: Store memory in org/commons
             commons_memory_id = palace.store_memory(
-                "Shared organizational knowledge about mission and values",
-                namespace="org/commons"
+                "Shared organizational knowledge about mission and values", namespace="org/commons"
             )
 
             # Step 7: Verify all three agents can read commons
-            assert palace.can_access(researcher_ns, commons_memory_id), \
-                "Researcher should access org/commons"
-            assert palace.can_access(writer_ns, commons_memory_id), \
-                "Writer should access org/commons"
-            assert palace.can_access(reviewer_ns, commons_memory_id), \
-                "Reviewer should access org/commons"
+            assert palace.can_access(
+                researcher_ns, commons_memory_id
+            ), "Researcher should access org/commons"
+            assert palace.can_access(
+                writer_ns, commons_memory_id
+            ), "Writer should access org/commons"
+            assert palace.can_access(
+                reviewer_ns, commons_memory_id
+            ), "Reviewer should access org/commons"
 
             # Additional verification: Different org cannot access commons
-            assert not palace.can_access("other_org/team/agent", commons_memory_id), \
-                "Different org should NOT access org/commons"
+            assert not palace.can_access(
+                "other_org/team/agent", commons_memory_id
+            ), "Different org should NOT access org/commons"
 
             # Verify full_text_search works correctly with permissions
             # Researcher should see their own memories
-            researcher_results = palace.full_text_search(
-                "safety",
-                namespace=researcher_ns
-            )
+            researcher_results = palace.full_text_search("safety", namespace=researcher_ns)
             assert len(researcher_results) > 0, "Researcher should find their own memories"
 
             # Writer should see their own memories in their namespace
-            writer_results = palace.full_text_search(
-                "article",
-                namespace=writer_ns
-            )
+            writer_results = palace.full_text_search("article", namespace=writer_ns)
             assert len(writer_results) > 0, "Writer should find their own memories"
 
             # Verify writer can access researcher's shared memory directly
             shared_memory = palace.get_memory(researcher_memory_id)
             assert shared_memory is not None, "Shared memory should exist"
-            assert palace.can_access(writer_ns, researcher_memory_id), \
-                "Writer can access shared memory"
+            assert palace.can_access(
+                writer_ns, researcher_memory_id
+            ), "Writer can access shared memory"
 
             # Reviewer should NOT have access to researcher's memory (not shared)
-            assert not palace.can_access(reviewer_ns, researcher_memory_id), \
-                "Reviewer should NOT access researcher's memory"
+            assert not palace.can_access(
+                reviewer_ns, researcher_memory_id
+            ), "Reviewer should NOT access researcher's memory"
 
             # All agents should be able to find commons memory via direct access
             # (FTS search within namespace may not return commons memories)
             for ns in [researcher_ns, writer_ns, reviewer_ns]:
                 # Verify can_access works for all agents
-                assert palace.can_access(ns, commons_memory_id), \
-                    f"{ns} should have access to org/commons memory"
+                assert palace.can_access(
+                    ns, commons_memory_id
+                ), f"{ns} should have access to org/commons memory"
 
                 # Verify they can retrieve the memory
                 commons_mem = palace.get_memory(commons_memory_id)
-                assert commons_mem is not None, \
-                    f"{ns} should be able to retrieve org/commons memory"
-                assert commons_mem.namespace == "org/commons", \
-                    "Retrieved memory should be from org/commons"
+                assert (
+                    commons_mem is not None
+                ), f"{ns} should be able to retrieve org/commons memory"
+                assert (
+                    commons_mem.namespace == "org/commons"
+                ), "Retrieved memory should be from org/commons"
 
             palace.close()

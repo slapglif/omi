@@ -13,16 +13,30 @@ Usage:
         app.include_router(router)
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Header, Depends, status
+from fastapi.security import APIKeyHeader
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 import os
+import json
 import logging
+import yaml
 
 from .storage.graph_palace import GraphPalace, Memory
 from .embeddings import OllamaEmbedder, EmbeddingCache
+from .auth import APIKeyManager, RateLimiter
 
 logger = logging.getLogger(__name__)
+
+
+# Global rate limiter instance (60 second sliding window)
+rate_limiter = RateLimiter(window_seconds=60)
+
+
+# API Key Authentication
+# API key header security scheme
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
 
 # Create FastAPI router with dashboard prefix
 router = APIRouter(
@@ -30,6 +44,100 @@ router = APIRouter(
     tags=["dashboard"],
     responses={404: {"description": "Not found"}}
 )
+
+
+async def verify_dashboard_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    api_key: Optional[str] = Query(None)
+) -> str:
+    """
+    Verify API key from X-API-Key header or api_key query parameter.
+
+    Checks both header and query parameter for API key.
+    Header takes precedence if both are provided.
+
+    Args:
+        x_api_key: API key from X-API-Key request header
+        api_key: API key from api_key query parameter
+
+    Returns:
+        str: Validated API key
+
+    Raises:
+        HTTPException: 401 Unauthorized if API key is missing or invalid
+    """
+    base_path = Path.home() / '.openclaw' / 'omi'
+    db_path = base_path / 'palace.sqlite'
+    config_path = base_path / 'config.yaml'
+
+    # Load config to check auth_required flag
+    auth_required = True  # Default to requiring auth
+    if config_path.exists():
+        try:
+            config_data = yaml.safe_load(config_path.read_text()) or {}
+            # Check security.auth_required (default: true)
+            security_config = config_data.get('security', {})
+            auth_required = security_config.get('auth_required', True)
+        except Exception as e:
+            logger.warning(f"Failed to load config.yaml: {e}. Defaulting to auth_required=True")
+            auth_required = True
+
+    # If auth is disabled in config, allow all requests (development mode)
+    if not auth_required:
+        logger.info("Authentication disabled via config (security.auth_required=false)")
+        return "development"
+
+    # Check if database exists and has any API keys
+    if not db_path.exists():
+        # No database yet, allow requests (development mode)
+        logger.warning("No database found - authentication disabled (development mode)")
+        return "development"
+
+    # Initialize APIKeyManager
+    key_manager = APIKeyManager(db_path)
+
+    # Check if any API keys exist
+    existing_keys = key_manager.list_keys()
+    if len(existing_keys) == 0:
+        # No API keys configured, allow all requests (development mode)
+        logger.warning("No API keys configured - authentication disabled (development mode)")
+        return "development"
+
+    # Determine which key to validate (prefer header over query param)
+    provided_key = x_api_key if x_api_key is not None else api_key
+
+    # Check if API key was provided
+    if provided_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API key. Provide X-API-Key header or api_key query parameter.",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Validate API key using APIKeyManager
+    validated_key = key_manager.validate_key(provided_key)
+
+    if validated_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked API key",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Check rate limit for this API key
+    allowed, retry_after = rate_limiter.check_rate_limit(
+        api_key=provided_key,
+        limit=validated_key.rate_limit
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    return provided_key
 
 
 def get_palace_instance() -> GraphPalace:
@@ -140,7 +248,8 @@ async def get_memories(
     cursor: Optional[str] = Query(default=None, description="Pagination cursor from previous response"),
     memory_type: Optional[str] = Query(default=None, description="Filter by memory type (fact, experience, belief, decision)"),
     order_by: str = Query(default="created_at", description="Field to order by (created_at, access_count, last_accessed)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve memories with cursor-based pagination.
@@ -200,7 +309,8 @@ async def get_edges(
     cursor: Optional[str] = Query(default=None, description="Pagination cursor from previous response"),
     edge_type: Optional[str] = Query(default=None, description="Filter by edge type (SUPPORTS, CONTRADICTS, RELATED_TO, DEPENDS_ON, POSTED, DISCUSSED)"),
     order_by: str = Query(default="created_at", description="Field to order by (created_at, strength)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve relationship edges with cursor-based pagination.
@@ -259,7 +369,8 @@ async def get_beliefs(
     limit: int = Query(default=50, ge=1, le=500, description="Maximum number of beliefs to return"),
     cursor: Optional[str] = Query(default=None, description="Pagination cursor from previous response"),
     order_by: str = Query(default="created_at", description="Field to order by (confidence, created_at, access_count, last_accessed)"),
-    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve beliefs from the belief network with cursor-based pagination.
@@ -313,7 +424,8 @@ async def get_beliefs(
 
 @router.get("/graph")
 async def get_graph(
-    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of memories and edges to return")
+    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of memories and edges to return"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Retrieve complete graph data (memories + edges) in one call.
@@ -419,7 +531,9 @@ async def get_graph(
 
 
 @router.get("/stats")
-async def get_stats() -> Dict[str, Any]:
+async def get_stats(
+    api_key: str = Depends(verify_dashboard_api_key)
+) -> Dict[str, Any]:
     """
     Get database storage statistics.
 
@@ -482,7 +596,8 @@ async def get_stats() -> Dict[str, Any]:
 async def search_memories(
     q: str = Query(..., description="Search query text", min_length=1),
     limit: int = Query(default=10, ge=1, le=100, description="Maximum number of results to return"),
-    min_relevance: float = Query(default=0.5, ge=0.0, le=1.0, description="Minimum relevance threshold")
+    min_relevance: float = Query(default=0.5, ge=0.0, le=1.0, description="Minimum relevance threshold"),
+    api_key: str = Depends(verify_dashboard_api_key)
 ) -> Dict[str, Any]:
     """
     Semantic search for memories using embeddings.
@@ -557,4 +672,278 @@ async def search_memories(
         )
 
 
-__all__ = ['router', 'get_palace_instance']
+
+@router.get("/versions/timeline")
+async def get_version_timeline(
+    limit: int = Query(default=100, ge=1, le=1000, description="Maximum number of versions to return"),
+    offset: int = Query(default=0, ge=0, description="Number of versions to skip"),
+    start_date: Optional[str] = Query(default=None, description="Start date filter (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="End date filter (YYYY-MM-DD)"),
+    operation_type: Optional[str] = Query(default=None, description="Filter by operation type (CREATE, UPDATE, DELETE)"),
+    memory_id: Optional[str] = Query(default=None, description="Filter by specific memory ID")
+) -> Dict[str, Any]:
+    """
+    Retrieve version timeline with optional filters.
+
+    Returns memory versions grouped by date for timeline visualization.
+    Supports filtering by date range, operation type, and specific memory.
+
+    Query Parameters:
+        limit: Maximum number of versions to return (1-1000, default 100)
+        offset: Number of versions to skip for pagination (default 0)
+        start_date: Start date filter in YYYY-MM-DD format (inclusive)
+        end_date: End date filter in YYYY-MM-DD format (inclusive)
+        operation_type: Filter by type (CREATE, UPDATE, DELETE)
+        memory_id: Filter by specific memory ID
+
+    Returns:
+        Dict containing:
+            - versions: List of version objects with metadata
+            - total: Total count of versions matching filters
+            - limit: Applied limit
+            - offset: Applied offset
+            - grouped_by_date: Versions grouped by date (YYYY-MM-DD)
+
+    Raises:
+        HTTPException: If database access fails or invalid parameters provided
+    """
+    # Validate operation_type if provided
+    if operation_type is not None:
+        valid_ops = {"CREATE", "UPDATE", "DELETE"}
+        if operation_type not in valid_ops:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid operation_type: {operation_type}. Must be one of: {valid_ops}"
+            )
+
+    # Validate date formats if provided
+    if start_date is not None:
+        try:
+            from datetime import datetime
+            datetime.strptime(start_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid start_date format: {start_date}. Must be YYYY-MM-DD"
+            )
+
+    if end_date is not None:
+        try:
+            from datetime import datetime
+            datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid end_date format: {end_date}. Must be YYYY-MM-DD"
+            )
+
+    try:
+        palace = get_palace_instance()
+
+        # Build SQL query
+        base_query = """
+            SELECT version_id, memory_id, content, version_number,
+                   operation_type, created_at, previous_version_id
+            FROM memory_versions
+        """
+        count_query = "SELECT COUNT(*) FROM memory_versions"
+        params: List[Any] = []
+        conditions: List[str] = []
+
+        # Add filters
+        if start_date is not None:
+            conditions.append("DATE(created_at) >= ?")
+            params.append(start_date)
+
+        if end_date is not None:
+            conditions.append("DATE(created_at) <= ?")
+            params.append(end_date)
+
+        if operation_type is not None:
+            conditions.append("operation_type = ?")
+            params.append(operation_type)
+
+        if memory_id is not None:
+            conditions.append("memory_id = ?")
+            params.append(memory_id)
+
+        # Build WHERE clause
+        if conditions:
+            where_clause = " WHERE " + " AND ".join(conditions)
+            base_query += where_clause
+            count_query += where_clause
+
+        # Add ordering and pagination
+        base_query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        # Execute queries
+        with palace._db_lock:
+            # Get total count
+            count_cursor = palace._conn.execute(count_query, params[:-2] if len(params) > 2 else [])
+            total = count_cursor.fetchone()[0]
+
+            # Get versions
+            cursor = palace._conn.execute(base_query, params)
+            rows = cursor.fetchall()
+
+        # Format results
+        versions = []
+        grouped_by_date: Dict[str, List[Dict[str, Any]]] = {}
+
+        for row in rows:
+            version_obj = {
+                "version_id": row[0],
+                "memory_id": row[1],
+                "content": row[2][:200] + "..." if len(row[2]) > 200 else row[2],  # Preview
+                "content_full": row[2],  # Full content
+                "version_number": row[3],
+                "operation_type": row[4],
+                "created_at": row[5],
+                "previous_version_id": row[6]
+            }
+            versions.append(version_obj)
+
+            # Group by date
+            date_key = row[5].split("T")[0] if "T" in row[5] else row[5].split(" ")[0]
+            if date_key not in grouped_by_date:
+                grouped_by_date[date_key] = []
+            grouped_by_date[date_key].append(version_obj)
+
+        return {
+            "versions": versions,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "grouped_by_date": grouped_by_date
+        }
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve version timeline: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve version timeline: {str(e)}"
+        )
+
+
+@router.get("/snapshots")
+async def get_snapshots(
+    limit: int = Query(default=50, ge=1, le=500, description="Maximum number of snapshots to return"),
+    offset: int = Query(default=0, ge=0, description="Number of snapshots to skip"),
+    order_by: str = Query(default="created_at", description="Field to order by (created_at)"),
+    order_dir: str = Query(default="desc", description="Order direction (asc, desc)")
+) -> Dict[str, Any]:
+    """
+    Retrieve list of memory snapshots with metadata.
+
+    Returns snapshots with memory counts and metadata for snapshot visualization.
+
+    Query Parameters:
+        limit: Maximum number of snapshots to return (1-500, default 50)
+        offset: Number of snapshots to skip for pagination (default 0)
+        order_by: Field to order by (created_at)
+        order_dir: Order direction (asc, desc)
+
+    Returns:
+        Dict containing:
+            - snapshots: List of snapshot objects with metadata
+            - total: Total count of snapshots
+            - limit: Applied limit
+            - offset: Applied offset
+
+    Raises:
+        HTTPException: If database access fails or invalid parameters provided
+    """
+    # Validate order_by
+    valid_order_fields = {"created_at"}
+    if order_by not in valid_order_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid order_by: {order_by}. Must be one of: {valid_order_fields}"
+        )
+
+    # Validate order_dir
+    order_dir_upper = order_dir.upper()
+    if order_dir_upper not in {"ASC", "DESC"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid order_dir: {order_dir}. Must be 'asc' or 'desc'"
+        )
+
+    try:
+        palace = get_palace_instance()
+
+        # Build SQL query
+        base_query = f"""
+            SELECT s.snapshot_id, s.created_at, s.description,
+                   s.metadata_json, s.moltvault_backup_id,
+                   COUNT(sm.memory_id) as memory_count
+            FROM snapshots s
+            LEFT JOIN snapshot_memories sm ON s.snapshot_id = sm.snapshot_id
+            GROUP BY s.snapshot_id, s.created_at, s.description, s.metadata_json, s.moltvault_backup_id
+            ORDER BY s.{order_by} {order_dir_upper}
+            LIMIT ? OFFSET ?
+        """
+
+        count_query = "SELECT COUNT(*) FROM snapshots"
+
+        # Execute queries
+        with palace._db_lock:
+            # Get total count
+            count_cursor = palace._conn.execute(count_query)
+            total = count_cursor.fetchone()[0]
+
+            # Get snapshots
+            cursor = palace._conn.execute(base_query, [limit, offset])
+            rows = cursor.fetchall()
+
+        # Format results
+        snapshots = []
+        for row in rows:
+            # Parse metadata JSON if present
+            metadata = {}
+            if row[3]:
+                try:
+                    metadata = json.loads(row[3])
+                except json.JSONDecodeError:
+                    metadata = {}
+
+            # Determine if snapshot is delta or full
+            is_delta = metadata.get("is_delta", False)
+            base_snapshot_id = metadata.get("base_snapshot_id")
+
+            snapshot_obj = {
+                "snapshot_id": row[0],
+                "created_at": row[1],
+                "description": row[2],
+                "metadata": metadata,
+                "moltvault_backup_id": row[4],
+                "memory_count": row[5],
+                "is_delta": is_delta,
+                "base_snapshot_id": base_snapshot_id
+            }
+            snapshots.append(snapshot_obj)
+
+        return {
+            "snapshots": snapshots,
+            "total": total,
+            "limit": limit,
+            "offset": offset
+        }
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve snapshots: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve snapshots: {str(e)}"
+        )
+
+
+__all__ = ['router', 'get_palace_instance', 'verify_dashboard_api_key']
+

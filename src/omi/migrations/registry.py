@@ -97,9 +97,11 @@ class MigrationRegistry:
             # Find MigrationBase subclasses in the module
             for name, obj in inspect.getmembers(module, inspect.isclass):
                 # Check if it's a MigrationBase subclass (but not MigrationBase itself)
-                if (issubclass(obj, MigrationBase) and
-                    obj is not MigrationBase and
-                    obj.__module__ == module_name):
+                if (
+                    issubclass(obj, MigrationBase)
+                    and obj is not MigrationBase
+                    and obj.__module__ == module_name
+                ):
                     # Instantiate and register the migration
                     try:
                         migration = obj()
@@ -151,16 +153,12 @@ class MigrationRegistry:
 
         # Check that versions start at 1
         if versions[0] != 1:
-            raise ValueError(
-                f"Migration versions must start at 1, found {versions[0]}"
-            )
+            raise ValueError(f"Migration versions must start at 1, found {versions[0]}")
 
         # Check for gaps in sequence
         for i, version in enumerate(versions, start=1):
             if version != i:
-                raise ValueError(
-                    f"Migration version gap detected: expected {i}, found {version}"
-                )
+                raise ValueError(f"Migration version gap detected: expected {i}, found {version}")
 
     def get_migration(self, version: int) -> Optional[MigrationBase]:
         """

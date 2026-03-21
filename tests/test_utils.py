@@ -2,6 +2,7 @@
 
 Tests: cosine_similarity, hash_file, hash_content
 """
+
 import pytest
 import numpy as np
 import tempfile
@@ -137,7 +138,7 @@ class TestHashFile:
 
         assert isinstance(result, str)
         assert len(result) == 64
-        assert all(c in '0123456789abcdef' for c in result)
+        assert all(c in "0123456789abcdef" for c in result)
 
     def test_same_content_same_hash(self, tmp_path):
         """Same content should produce same hash."""
@@ -199,7 +200,7 @@ class TestHashFile:
         from src.omi.utils import hash_file
 
         binary_file = tmp_path / "binary.dat"
-        binary_file.write_bytes(b'\x00\x01\x02\x03\xff\xfe\xfd')
+        binary_file.write_bytes(b"\x00\x01\x02\x03\xff\xfe\xfd")
 
         result = hash_file(binary_file)
 
@@ -210,7 +211,7 @@ class TestHashFile:
         from src.omi.utils import hash_file
 
         unicode_file = tmp_path / "unicode.txt"
-        unicode_file.write_text("Hello 世界 🌍", encoding='utf-8')
+        unicode_file.write_text("Hello 世界 🌍", encoding="utf-8")
 
         result = hash_file(unicode_file)
 
@@ -237,7 +238,7 @@ class TestHashContent:
 
         assert isinstance(result, str)
         assert len(result) == 64
-        assert all(c in '0123456789abcdef' for c in result)
+        assert all(c in "0123456789abcdef" for c in result)
 
     def test_same_content_same_hash(self):
         """Same content should produce same hash."""
@@ -351,7 +352,7 @@ class TestHashConsistency:
 
         # Create file with content
         test_file = tmp_path / "test.txt"
-        test_file.write_text(content_str, encoding='utf-8')
+        test_file.write_text(content_str, encoding="utf-8")
 
         file_hash = hash_file(test_file)
         content_hash = hash_content(content_str)
@@ -367,7 +368,7 @@ Second line
 Third line"""
 
         test_file = tmp_path / "multiline.txt"
-        test_file.write_text(content_str, encoding='utf-8')
+        test_file.write_text(content_str, encoding="utf-8")
 
         file_hash = hash_file(test_file)
         content_hash = hash_content(content_str)
@@ -381,7 +382,7 @@ Third line"""
         content_str = "Hello 世界 🌍"
 
         test_file = tmp_path / "unicode.txt"
-        test_file.write_text(content_str, encoding='utf-8')
+        test_file.write_text(content_str, encoding="utf-8")
 
         file_hash = hash_file(test_file)
         content_hash = hash_content(content_str)

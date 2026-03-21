@@ -2,6 +2,7 @@
 
 Status reporting and security audit commands.
 """
+
 import os
 import sys
 from pathlib import Path
@@ -33,11 +34,13 @@ def monitoring_group(ctx):
 @click.pass_context
 def status(ctx) -> None:
     """Show OMI health and size statistics."""
-    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    verbosity = ctx.obj.get("verbosity", VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get("data_dir"))
 
     if not base_path.exists():
-        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        echo_quiet(
+            click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity
+        )
         sys.exit(1)
 
     echo_normal(click.style("OMI Status Report", fg="cyan", bold=True), verbosity)
@@ -59,7 +62,9 @@ def status(ctx) -> None:
         size = path.stat().st_size if exists else 0
         status_symbol = "✓" if exists else "✗"
         status_color = "green" if exists else "red"
-        echo_normal(f"  {name:12} {click.style(status_symbol, fg=status_color)} {path.name}", verbosity)
+        echo_normal(
+            f"  {name:12} {click.style(status_symbol, fg=status_color)} {path.name}", verbosity
+        )
         if size > 0:
             echo_verbose(f"    Size: {size / 1024:.1f} KB", verbosity)
 
@@ -67,6 +72,7 @@ def status(ctx) -> None:
     db_path = base_path / "palace.sqlite"
     if db_path.exists():
         import sqlite3
+
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
@@ -95,18 +101,30 @@ def status(ctx) -> None:
     echo_normal(f"\nIntegrity:", verbosity)
     try:
         from omi.security import IntegrityChecker
-        integrity_checker = IntegrityChecker(base_path.parent if base_path.name == "omi" else base_path)
+
+        integrity_checker = IntegrityChecker(
+            base_path.parent if base_path.name == "omi" else base_path
+        )
         now_ok = integrity_checker.check_now_md()
         mem_ok = integrity_checker.check_memory_md()
         now_color = "green" if now_ok else "red"
         mem_color = "green" if mem_ok else "red"
-        echo_normal(f"  NOW.md: {click.style('✓ OK' if now_ok else '✗ Failed', fg=now_color)}", verbosity)
-        echo_normal(f"  MEMORY.md: {click.style('✓ OK' if mem_ok else '✗ Failed', fg=mem_color)}", verbosity)
+        echo_normal(
+            f"  NOW.md: {click.style('✓ OK' if now_ok else '✗ Failed', fg=now_color)}", verbosity
+        )
+        echo_normal(
+            f"  MEMORY.md: {click.style('✓ OK' if mem_ok else '✗ Failed', fg=mem_color)}", verbosity
+        )
     except Exception as e:
         echo_normal(f"  {click.style(f'Check failed: {e}', fg='yellow')}", verbosity)
 
     # Overall health
-    echo_quiet(f"\n" + click.style("Overall: ", bold=True) + click.style("HEALTHY ✓", fg="green", bold=True), verbosity)
+    echo_quiet(
+        f"\n"
+        + click.style("Overall: ", bold=True)
+        + click.style("HEALTHY ✓", fg="green", bold=True),
+        verbosity,
+    )
 
 
 @monitoring_group.command()
@@ -119,11 +137,13 @@ def audit(ctx) -> None:
     - Graph topology (orphan nodes, sudden cores)
     - Git history for suspicious modifications
     """
-    verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    verbosity = ctx.obj.get("verbosity", VERBOSITY_NORMAL)
+    base_path = get_base_path(ctx.obj.get("data_dir"))
 
     if not base_path.exists():
-        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        echo_quiet(
+            click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity
+        )
         sys.exit(1)
 
     echo_normal(click.style("Running Security Audit...", fg="cyan", bold=True), verbosity)
@@ -136,51 +156,68 @@ def audit(ctx) -> None:
 
         # File integrity
         echo_normal(f"\n{click.style('File Integrity:', bold=True)}", verbosity)
-        file_ok = results.get('file_integrity', False)
+        file_ok = results.get("file_integrity", False)
         file_status = "✓ VERIFIED" if file_ok else "✗ FAILED"
         file_color = "green" if file_ok else "red"
         echo_normal(f"  Status: {click.style(file_status, fg=file_color)}", verbosity)
 
         # Topology
         echo_normal(f"\n{click.style('Graph Topology:', bold=True)}", verbosity)
-        orphans = results.get('orphan_nodes', [])
-        cores = results.get('sudden_cores', [])
+        orphans = results.get("orphan_nodes", [])
+        cores = results.get("sudden_cores", [])
 
         if orphans:
-            echo_normal(click.style(f"  ⚠ {len(orphans)} orphan nodes detected", fg="yellow"), verbosity)
+            echo_normal(
+                click.style(f"  ⚠ {len(orphans)} orphan nodes detected", fg="yellow"), verbosity
+            )
         else:
             echo_normal(click.style(f"  ✓ No orphan nodes", fg="green"), verbosity)
 
         if cores:
-            echo_normal(click.style(f"  ⚠ {len(cores)} sudden cores detected", fg="yellow"), verbosity)
+            echo_normal(
+                click.style(f"  ⚠ {len(cores)} sudden cores detected", fg="yellow"), verbosity
+            )
         else:
             echo_normal(click.style(f"  ✓ No sudden cores", fg="green"), verbosity)
 
         # Git audit
         echo_normal(f"\n{click.style('Git History:', bold=True)}", verbosity)
-        git_check = results.get('git_audit', {})
-        if 'error' in git_check:
+        git_check = results.get("git_audit", {})
+        if "error" in git_check:
             echo_normal(click.style(f"  ⚠ {git_check['error']}", fg="yellow"), verbosity)
         else:
-            commits = git_check.get('recent_commits', 0)
-            suspicious = git_check.get('suspicious', [])
+            commits = git_check.get("recent_commits", 0)
+            suspicious = git_check.get("suspicious", [])
             echo_verbose(f"  Recent commits: {commits}", verbosity)
             if suspicious:
-                echo_normal(click.style(f"  ⚠ {len(suspicious)} suspicious commits", fg="yellow"), verbosity)
+                echo_normal(
+                    click.style(f"  ⚠ {len(suspicious)} suspicious commits", fg="yellow"), verbosity
+                )
             else:
                 echo_normal(click.style(f"  ✓ No suspicious commits", fg="green"), verbosity)
 
         # Overall
-        overall = results.get('overall_safe', False)
+        overall = results.get("overall_safe", False)
         if overall:
-            echo_quiet(f"\n" + click.style("Overall Safety: ", bold=True) + click.style("SAFE ✓", fg="green", bold=True), verbosity)
+            echo_quiet(
+                f"\n"
+                + click.style("Overall Safety: ", bold=True)
+                + click.style("SAFE ✓", fg="green", bold=True),
+                verbosity,
+            )
         else:
-            echo_quiet(f"\n" + click.style("Overall Safety: ", bold=True) + click.style("ATTENTION REQUIRED ⚠", fg="yellow", bold=True), verbosity)
+            echo_quiet(
+                f"\n"
+                + click.style("Overall Safety: ", bold=True)
+                + click.style("ATTENTION REQUIRED ⚠", fg="yellow", bold=True),
+                verbosity,
+            )
 
     except Exception as e:
         echo_quiet(click.style(f"Error: Audit failed: {e}", fg="red"), verbosity)
         echo_verbose("Traceback:", verbosity)
         if verbosity >= 2:  # Only show traceback in verbose mode
             import traceback
+
             traceback.print_exc()
         sys.exit(1)

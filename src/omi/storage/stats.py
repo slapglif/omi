@@ -31,7 +31,9 @@ class DatabaseStats:
     - Database optimization (vacuum)
     """
 
-    def __init__(self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None):
+    def __init__(
+        self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None
+    ):
         """
         Initialize Database Statistics operations.
 
@@ -40,7 +42,7 @@ class DatabaseStats:
             enable_wal: Enable WAL mode for concurrent writes (default: True)
             conn: Optional shared connection (for :memory: databases in facade pattern)
         """
-        self.db_path = Path(db_path) if db_path != ':memory:' else db_path
+        self.db_path = Path(db_path) if db_path != ":memory:" else db_path
         self._owns_connection = conn is None
 
         if conn is not None:
@@ -49,17 +51,14 @@ class DatabaseStats:
             self._db_lock = threading.Lock()
         else:
             # Create parent directory if needed (skip for :memory:)
-            if self.db_path != ':memory:':
+            if self.db_path != ":memory:":
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Create persistent connection
             # check_same_thread=False allows multi-threaded access (safe with WAL mode)
             # isolation_level=None enables autocommit mode for better concurrency
             self._conn = sqlite3.connect(
-                self.db_path,
-                check_same_thread=False,
-                isolation_level=None,
-                timeout=30.0
+                self.db_path, check_same_thread=False, isolation_level=None, timeout=30.0
             )
 
             # Thread lock for serializing database operations
@@ -95,7 +94,7 @@ class DatabaseStats:
             "memory_count": memory_count,
             "edge_count": edge_count,
             "type_distribution": type_distribution,
-            "edge_distribution": edge_distribution
+            "edge_distribution": edge_distribution,
         }
 
     def get_compression_stats(self, threshold: Optional[datetime] = None) -> Dict[str, Any]:
@@ -113,10 +112,13 @@ class DatabaseStats:
         """
         if threshold is not None:
             # Query memories before threshold
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT content, memory_type FROM memories
                 WHERE created_at < ?
-            """, (threshold.isoformat(),))
+            """,
+                (threshold.isoformat(),),
+            )
         else:
             # Query all memories
             cursor = self._conn.execute("""
@@ -143,7 +145,7 @@ class DatabaseStats:
             "total_memories": total_memories,
             "total_chars": total_chars,
             "estimated_tokens": estimated_tokens,
-            "memories_by_type": memories_by_type
+            "memories_by_type": memories_by_type,
         }
 
     def get_memories_before(self, threshold: datetime, limit: Optional[int] = None) -> List[Memory]:
@@ -163,22 +165,28 @@ class DatabaseStats:
 
         with self._db_lock:
             if limit is not None:
-                cursor = self._conn.execute("""
+                cursor = self._conn.execute(
+                    """
                     SELECT id, content, embedding, memory_type, confidence,
                            created_at, last_accessed, access_count, instance_ids, content_hash
                     FROM memories
                     WHERE created_at < ?
                     ORDER BY created_at ASC
                     LIMIT ?
-                """, (threshold.isoformat(), limit))
+                """,
+                    (threshold.isoformat(), limit),
+                )
             else:
-                cursor = self._conn.execute("""
+                cursor = self._conn.execute(
+                    """
                     SELECT id, content, embedding, memory_type, confidence,
                            created_at, last_accessed, access_count, instance_ids, content_hash
                     FROM memories
                     WHERE created_at < ?
                     ORDER BY created_at ASC
-                """, (threshold.isoformat(),))
+                """,
+                    (threshold.isoformat(),),
+                )
 
             for row in cursor:
                 embedding = blob_to_embed(row[2]) if row[2] else None
@@ -192,7 +200,7 @@ class DatabaseStats:
                     last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                     access_count=row[7],
                     instance_ids=json.loads(row[8]) if row[8] else [],
-                    content_hash=row[9]
+                    content_hash=row[9],
                 )
                 memories.append(memory)
 
@@ -205,7 +213,7 @@ class DatabaseStats:
 
     def close(self) -> None:
         """Close database connection."""
-        if self._owns_connection and hasattr(self, '_conn') and self._conn:
+        if self._owns_connection and hasattr(self, "_conn") and self._conn:
             self._conn.close()
 
     def __enter__(self):

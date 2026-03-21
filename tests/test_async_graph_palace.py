@@ -27,6 +27,7 @@ from typing import List
 import numpy as np
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from omi.storage.async_graph_palace import AsyncGraphPalace, Memory, Edge
@@ -45,6 +46,7 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
         """Clean up test database."""
         await self.palace.close()
         import shutil
+
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
@@ -54,7 +56,9 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
         vec = vec / np.linalg.norm(vec)
         return vec.tolist()
 
-    def _generate_similar_embedding(self, base: List[float], similarity: float = 0.9) -> List[float]:
+    def _generate_similar_embedding(
+        self, base: List[float], similarity: float = 0.9
+    ) -> List[float]:
         """Generate an embedding similar to base vector."""
         noise = np.random.randn(len(base))
         noise = noise / np.linalg.norm(noise)
@@ -69,10 +73,7 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
         embedding = self._generate_embedding()
 
         memory_id = await self.palace.store_memory(
-            content="Test memory content",
-            embedding=embedding,
-            memory_type="fact",
-            confidence=0.95
+            content="Test memory content", embedding=embedding, memory_type="fact", confidence=0.95
         )
 
         self.assertIsNotNone(memory_id)
@@ -89,8 +90,7 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
     async def test_store_memory_no_embedding(self):
         """Test storing a memory without embedding."""
         memory_id = await self.palace.store_memory(
-            content="Memory without embedding",
-            memory_type="experience"
+            content="Memory without embedding", memory_type="experience"
         )
 
         memory = await self.palace.get_memory(memory_id)
@@ -101,25 +101,18 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_memory_type(self):
         """Test invalid memory type raises error."""
         with self.assertRaises(ValueError):
-            await self.palace.store_memory(
-                content="Invalid type",
-                memory_type="invalid_type"
-            )
+            await self.palace.store_memory(content="Invalid type", memory_type="invalid_type")
 
     async def test_invalid_confidence(self):
         """Test invalid confidence value raises error."""
         with self.assertRaises(ValueError):
             await self.palace.store_memory(
-                content="Invalid confidence",
-                memory_type="belief",
-                confidence=1.5
+                content="Invalid confidence", memory_type="belief", confidence=1.5
             )
 
         with self.assertRaises(ValueError):
             await self.palace.store_memory(
-                content="Invalid confidence",
-                memory_type="belief",
-                confidence=-0.1
+                content="Invalid confidence", memory_type="belief", confidence=-0.1
             )
 
     async def test_update_embedding(self):
@@ -128,9 +121,7 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
         new_embedding = self._generate_embedding()
 
         memory_id = await self.palace.store_memory(
-            content="Test memory",
-            embedding=old_embedding,
-            memory_type="fact"
+            content="Test memory", embedding=old_embedding, memory_type="fact"
         )
 
         result = await self.palace.update_embedding(memory_id, new_embedding)
@@ -142,8 +133,7 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
     async def test_delete_memory(self):
         """Test deleting a memory."""
         memory_id = await self.palace.store_memory(
-            content="To be deleted",
-            memory_type="experience"
+            content="To be deleted", memory_type="experience"
         )
 
         result = await self.palace.delete_memory(memory_id)
@@ -161,20 +151,11 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
 
     async def test_create_edge(self):
         """Test creating an edge between memories."""
-        memory1_id = await self.palace.store_memory(
-            content="Memory 1",
-            memory_type="fact"
-        )
-        memory2_id = await self.palace.store_memory(
-            content="Memory 2",
-            memory_type="fact"
-        )
+        memory1_id = await self.palace.store_memory(content="Memory 1", memory_type="fact")
+        memory2_id = await self.palace.store_memory(content="Memory 2", memory_type="fact")
 
         edge_id = await self.palace.create_edge(
-            source_id=memory1_id,
-            target_id=memory2_id,
-            edge_type="RELATED_TO",
-            strength=0.8
+            source_id=memory1_id, target_id=memory2_id, edge_type="RELATED_TO", strength=0.8
         )
 
         self.assertIsNotNone(edge_id)
@@ -230,18 +211,16 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
 
         # Store memories
         await self.palace.store_memory(
-            content="Similar memory",
-            embedding=similar_embedding,
-            memory_type="fact"
+            content="Similar memory", embedding=similar_embedding, memory_type="fact"
         )
         await self.palace.store_memory(
-            content="Different memory",
-            embedding=different_embedding,
-            memory_type="fact"
+            content="Different memory", embedding=different_embedding, memory_type="fact"
         )
 
         # Search with base query
-        results = await self.palace.recall(query_embedding=base_embedding, limit=10, min_relevance=0.5)
+        results = await self.palace.recall(
+            query_embedding=base_embedding, limit=10, min_relevance=0.5
+        )
 
         self.assertGreater(len(results), 0)
         # First result should be the similar one
@@ -280,8 +259,12 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
 
     async def test_full_text_search(self):
         """Test FTS5 full-text search."""
-        await self.palace.store_memory(content="Python is great for machine learning", memory_type="fact")
-        await self.palace.store_memory(content="SQLite works well for embedded systems", memory_type="fact")
+        await self.palace.store_memory(
+            content="Python is great for machine learning", memory_type="fact"
+        )
+        await self.palace.store_memory(
+            content="SQLite works well for embedded systems", memory_type="fact"
+        )
         await self.palace.store_memory(content="Cats sleep 15 hours a day", memory_type="fact")
 
         results = await self.palace.full_text_search("machine learning", limit=5)
@@ -290,8 +273,12 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
 
     async def test_full_text_search_multiple_words(self):
         """Test FTS5 with multi-word query."""
-        await self.palace.store_memory(content="Neural networks for natural language processing", memory_type="fact")
-        await self.palace.store_memory(content="Graph databases store relationships", memory_type="fact")
+        await self.palace.store_memory(
+            content="Neural networks for natural language processing", memory_type="fact"
+        )
+        await self.palace.store_memory(
+            content="Graph databases store relationships", memory_type="fact"
+        )
 
         results = await self.palace.full_text_search("neural language", limit=5)
         self.assertEqual(len(results), 1)
@@ -300,14 +287,13 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
 
     async def test_centrality_basic(self):
         """Test basic centrality calculation."""
-        memory_id = await self.palace.store_memory(
-            content="Central node",
-            memory_type="fact"
-        )
+        memory_id = await self.palace.store_memory(content="Central node", memory_type="fact")
 
         # Add neighbors
         for i in range(3):
-            neighbor_id = await self.palace.store_memory(content=f"Neighbor {i}", memory_type="fact")
+            neighbor_id = await self.palace.store_memory(
+                content=f"Neighbor {i}", memory_type="fact"
+            )
             await self.palace.create_edge(memory_id, neighbor_id, "RELATED_TO")
 
         centrality = await self.palace.get_centrality(memory_id)
@@ -390,8 +376,12 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
 
     async def test_find_contradictions(self):
         """Test finding contradicting memories."""
-        belief_id = await self.palace.store_memory(content="I should always work", memory_type="belief")
-        contradiction_id = await self.palace.store_memory(content="I should rest", memory_type="belief")
+        belief_id = await self.palace.store_memory(
+            content="I should always work", memory_type="belief"
+        )
+        contradiction_id = await self.palace.store_memory(
+            content="I should rest", memory_type="belief"
+        )
 
         await self.palace.create_edge(belief_id, contradiction_id, "CONTRADICTS", strength=0.9)
 
@@ -401,8 +391,12 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_supporting_evidence(self):
         """Test getting supporting evidence."""
-        belief_id = await self.palace.store_memory(content="AI is transformative", memory_type="belief")
-        evidence_id = await self.palace.store_memory(content="AI adoption rose 50%", memory_type="fact")
+        belief_id = await self.palace.store_memory(
+            content="AI is transformative", memory_type="belief"
+        )
+        evidence_id = await self.palace.store_memory(
+            content="AI adoption rose 50%", memory_type="fact"
+        )
 
         await self.palace.create_edge(belief_id, evidence_id, "SUPPORTS", strength=0.85)
 
@@ -439,25 +433,26 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
         """Benchmark: 1000 memories searchable in <500ms."""
         # Create 1000 memories with random embeddings
         import random
+
         random.seed(42)
 
         print("\n  Creating 1000 memories...")
         for i in range(1000):
             embedding = [random.random() for _ in range(1024)]
             # Normalize
-            norm = sum(x*x for x in embedding) ** 0.5
-            embedding = [x/norm for x in embedding]
+            norm = sum(x * x for x in embedding) ** 0.5
+            embedding = [x / norm for x in embedding]
 
             await self.palace.store_memory(
                 content=f"Memory {i}: This is a test memory for performance benchmarking",
                 embedding=embedding,
-                memory_type="fact"
+                memory_type="fact",
             )
 
         print("  Benchmarking recall...")
         query_embedding = [random.random() for _ in range(1024)]
-        norm = sum(x*x for x in query_embedding) ** 0.5
-        query_embedding = [x/norm for x in query_embedding]
+        norm = sum(x * x for x in query_embedding) ** 0.5
+        query_embedding = [x / norm for x in query_embedding]
 
         start = time.time()
         results = await self.palace.recall(query_embedding, limit=10, min_relevance=0.0)
@@ -471,6 +466,7 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
     async def test_performance_graph_traversal_10k_edges(self):
         """Benchmark: Graph queries scale to 10k edges."""
         import random
+
         random.seed(42)
 
         print("\n  Creating 500 nodes...")
@@ -510,7 +506,9 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
         connected = await self.palace.get_connected(node_ids[0], depth=2)
         elapsed = time.time() - start
 
-        print(f"  BFS depth 2 from central node: {elapsed*1000:.2f}ms, found {len(connected)} nodes")
+        print(
+            f"  BFS depth 2 from central node: {elapsed*1000:.2f}ms, found {len(connected)} nodes"
+        )
         self.assertGreater(len(connected), 0)
 
     async def test_performance_wal_concurrent_writes(self):
@@ -538,13 +536,15 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
                                 try:
                                     memory_id = await palace.store_memory(
                                         content=f"Thread {thread_id} Memory {i}",
-                                        memory_type="experience"
+                                        memory_type="experience",
                                     )
                                     success_count[0] += 1
                                     break
                                 except Exception as e:
                                     if "locked" in str(e) and retry < max_retries - 1:
-                                        await asyncio.sleep(0.01 * (retry + 1))  # Exponential backoff
+                                        await asyncio.sleep(
+                                            0.01 * (retry + 1)
+                                        )  # Exponential backoff
                                     else:
                                         raise
 
@@ -569,7 +569,9 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
 
         elapsed = time.time() - start
 
-        print(f"  {num_threads} threads x {writes_per_thread} writes = {success_count[0]} in {elapsed*1000:.2f}ms")
+        print(
+            f"  {num_threads} threads x {writes_per_thread} writes = {success_count[0]} in {elapsed*1000:.2f}ms"
+        )
 
         if errors:
             print(f"  Errors: {errors}")
@@ -642,10 +644,7 @@ class TestAsyncGraphPalace(unittest.IsolatedAsyncioTestCase):
         """Test compression statistics calculation."""
         # Create some test memories
         for i in range(10):
-            await self.palace.store_memory(
-                content=f"Test memory {i}" * 10,
-                memory_type="fact"
-            )
+            await self.palace.store_memory(content=f"Test memory {i}" * 10, memory_type="fact")
 
         stats = await self.palace.get_compression_stats()
 
@@ -735,7 +734,7 @@ class TestMemoryDataclass(unittest.TestCase):
             content="Test content",
             embedding=[0.1, 0.2, 0.3],
             memory_type="fact",
-            confidence=0.9
+            confidence=0.9,
         )
 
         d = memory.to_dict()
@@ -755,6 +754,7 @@ class TestEdgeTypes(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.palace.close()
         import shutil
+
         if self.db_path.parent.exists():
             shutil.rmtree(str(self.db_path.parent), ignore_errors=True)
 
@@ -766,7 +766,9 @@ class TestEdgeTypes(unittest.IsolatedAsyncioTestCase):
 
         for edge_type in valid_types:
             with self.subTest(edge_type=edge_type):
-                target = await self.palace.store_memory(content=f"Target {edge_type}", memory_type="fact")
+                target = await self.palace.store_memory(
+                    content=f"Target {edge_type}", memory_type="fact"
+                )
                 edge_id = await self.palace.create_edge(source, target, edge_type, strength=0.5)
                 self.assertIsNotNone(edge_id)
 

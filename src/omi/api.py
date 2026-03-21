@@ -8,14 +8,14 @@ from datetime import datetime
 import json
 import base64
 import hashlib
+import numpy as np
 
 # Storage tier - import from new modular locations
 from .storage.graph_palace import GraphPalace
 from .storage.now import NowStorage
 from .persistence import DailyLogStore, NOWEntry
 
-# Belief system - using legacy module for now due to API compatibility
-# TODO: Migrate to .graph.belief_network when API is unified
+# Belief system
 from .belief import BeliefNetwork, Evidence, ContradictionDetector, calculate_recency_score
 
 # Embeddings
@@ -26,9 +26,23 @@ from .security import IntegrityChecker, TopologyVerifier, ConsensusManager
 from .events import MemoryStoredEvent, MemoryRecalledEvent, BeliefUpdatedEvent, ContradictionDetectedEvent
 from .event_bus import get_event_bus
 
+# RBAC
+from .rbac import RBACManager
+
 # Vault
 from .moltvault import MoltVault
-# from .moltvault import MoltVault
+
+# Sync
+from .sync.sync_manager import SyncManager
+from .sync.protocol import TopologyType, SyncState
+
+# Snapshots
+from .storage.snapshots import SnapshotManager
+# Multi-agent coordination
+from .shared_namespace import SharedNamespace
+from .permissions import PermissionManager, PermissionLevel
+from .subscriptions import SubscriptionManager
+from .audit_log import AuditLogger
 
 
 class MemoryTools:
@@ -40,10 +54,14 @@ class MemoryTools:
 
     def __init__(self, palace_store: GraphPalace,
                  embedder: OllamaEmbedder,
-                 cache: EmbeddingCache) -> None:
+                 cache: EmbeddingCache,
+                 user_id: Optional[str] = None,
+                 rbac_manager: Optional[RBACManager] = None) -> None:
         self.palace: GraphPalace = palace_store
         self.embedder: OllamaEmbedder = embedder
         self.cache: EmbeddingCache = cache
+        self.user_id: Optional[str] = user_id
+        self.rbac: Optional[RBACManager] = rbac_manager
 
     @staticmethod
     def _encode_cursor(cursor_data: Dict[str, Any]) -> str:
@@ -107,6 +125,11 @@ class MemoryTools:
                 - next_cursor: Cursor for next page (empty if no more results)
                 - has_more: Boolean indicating if more results exist
         """
+        # Check permissions
+        if self.rbac and self.user_id:
+            if not self.rbac.check_permission(self.user_id, "read", "memory"):
+                raise PermissionError(f"User {self.user_id} does not have permission to read memories")
+
         # Validate and clamp limit
         limit = max(1, min(limit, 500))
 
@@ -191,7 +214,101 @@ class MemoryTools:
             'next_cursor': next_cursor,
             'has_more': has_more
         }
-    
+
+    def memory_recall_at(self,
+                        query: str,
+                        timestamp: datetime,
+                        limit: int = 10,
+                        memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        memory_recall_at: Point-in-time recall with semantic search
+
+        Queries memories as they existed at a specific timestamp, then ranks
+        by relevance to the query with recency weighting (relative to timestamp).
+
+        Args:
+            query: Natural language search query
+            timestamp: Point in time to query (datetime object)
+            limit: Max results (default: 10)
+            memory_type: Filter by type (fact|experience|belief|decision)
+
+        Returns:
+            Memories sorted by relevance + recency as they existed at timestamp
+        """
+        # Get all memories as they existed at the timestamp
+        historical_memories = self.palace.recall_at(timestamp)
+
+        # Filter by memory type if specified
+        if memory_type:
+            historical_memories = [
+                mem for mem in historical_memories
+                if mem.memory_type == memory_type
+            ]
+
+        # Generate query embedding for semantic search
+        query_embedding = self.cache.get_or_compute(query)
+
+        # Compute cosine similarity for each historical memory
+        candidates: List[Dict[str, Any]] = []
+        for memory in historical_memories:
+            mem_dict = memory.to_dict()
+
+            # Compute relevance via cosine similarity if embedding exists
+            if memory.embedding:
+                # Normalize embeddings
+                query_norm = np.linalg.norm(query_embedding)
+                mem_norm = np.linalg.norm(memory.embedding)
+
+                if query_norm > 0 and mem_norm > 0:
+                    # Cosine similarity
+                    similarity = np.dot(query_embedding, memory.embedding) / (query_norm * mem_norm)
+                    relevance = float(similarity)
+                else:
+                    relevance = 0.0
+            else:
+                # No embedding available, use low baseline relevance
+                relevance = 0.3
+
+            mem_dict['relevance'] = relevance
+            candidates.append(mem_dict)
+
+        # Apply recency weighting relative to the query timestamp
+        half_life = 30.0  # days
+
+        weighted: List[Dict[str, Any]] = []
+        for mem in candidates:
+            created_at = mem.get('created_at')
+            if isinstance(created_at, str):
+                try:
+                    created_at = datetime.fromisoformat(created_at)
+                except (ValueError, TypeError):
+                    created_at = timestamp
+            elif created_at is None:
+                created_at = timestamp
+
+            # Calculate days from creation to query timestamp (not current time)
+            days_ago = (timestamp - created_at).days
+            recency = calculate_recency_score(days_ago, half_life)
+
+            final_score = (mem.get('relevance', 0.7) * 0.7) + (recency * 0.3)
+            mem['final_score'] = final_score
+            weighted.append(mem)
+
+        # Sort by final score
+        weighted.sort(key=lambda x: x.get('final_score', 0.0), reverse=True)
+        results = weighted[:limit]
+
+        # Emit event
+        event = MemoryRecalledEvent(
+            query=f"{query} (at {timestamp.isoformat()})",
+            result_count=len(results),
+            top_results=results
+        )
+        get_event_bus().publish(event)
+
+        return results
+
+
     def store(self,
              content: str,
              memory_type: str = 'experience',
@@ -209,6 +326,11 @@ class MemoryTools:
         Returns:
             memory_id: UUID for created memory
         """
+        # Check permissions
+        if self.rbac and self.user_id:
+            if not self.rbac.check_permission(self.user_id, "write", "memory"):
+                raise PermissionError(f"User {self.user_id} does not have permission to write memories")
+
         # Generate embedding with caching
         embedding = self.cache.get_or_compute(content)
 
@@ -242,23 +364,32 @@ class BeliefTools:
     """
 
     def __init__(self, belief_network: BeliefNetwork,
-                 detector: ContradictionDetector) -> None:
+                 detector: ContradictionDetector,
+                 user_id: Optional[str] = None,
+                 rbac_manager: Optional[RBACManager] = None) -> None:
         self.belief: BeliefNetwork = belief_network
         self.detector: ContradictionDetector = detector
+        self.user_id: Optional[str] = user_id
+        self.rbac: Optional[RBACManager] = rbac_manager
     
     def create(self,
               content: str,
               initial_confidence: float = 0.5) -> str:
         """
         belief_create: Create new belief with confidence
-        
+
         Args:
             content: Belief statement
             initial_confidence: Starting confidence 0.0-1.0
-        
+
         Returns:
             belief_id: UUID for created belief
         """
+        # Check permissions
+        if self.rbac and self.user_id:
+            if not self.rbac.check_permission(self.user_id, "write", "belief"):
+                raise PermissionError(f"User {self.user_id} does not have permission to write beliefs")
+
         return self.belief.create_belief(content, initial_confidence)
     
     def update(self,
@@ -280,6 +411,11 @@ class BeliefTools:
         Returns:
             new_confidence: Updated confidence value
         """
+        # Check permissions
+        if self.rbac and self.user_id:
+            if not self.rbac.check_permission(self.user_id, "write", "belief"):
+                raise PermissionError(f"User {self.user_id} does not have permission to write beliefs")
+
         # Get old confidence before update
         current = self.belief.palace.get_belief(belief_id)
         old_confidence = current.get('confidence', 0.5)
@@ -309,9 +445,14 @@ class BeliefTools:
                min_confidence: Optional[float] = None) -> List[Dict[str, Any]]:
         """
         belief_retrieve: Get beliefs with confidence weighting
-        
+
         High-confidence beliefs rank exponentially higher
         """
+        # Check permissions
+        if self.rbac and self.user_id:
+            if not self.rbac.check_permission(self.user_id, "read", "belief"):
+                raise PermissionError(f"User {self.user_id} does not have permission to read beliefs")
+
         return self.belief.retrieve_with_confidence_weighting(
             query, min_confidence
         )
@@ -365,10 +506,12 @@ class CheckpointTools:
     """
 
     def __init__(self, now_store: NowStorage,
-                 vault: MoltVault) -> None:
+                 vault: MoltVault,
+                 snapshot_manager: Optional[SnapshotManager] = None) -> None:
         # NOWStore is now an alias for NowStorage
         self.now: NowStorage = now_store
         self.vault: MoltVault = vault
+        self.snapshot_manager: Optional[SnapshotManager] = snapshot_manager
     
     def now_read(self) -> Dict[str, Any]:
         """
@@ -465,6 +608,106 @@ class CheckpointTools:
         restore_path = self.vault.restore(backup_id)
         return str(restore_path)
 
+    def snapshot_create(self,
+                       description: Optional[str] = None,
+                       metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        snapshot_create: Create point-in-time memory snapshot
+
+        Creates a delta-encoded snapshot of current memory state.
+        First snapshot is full, subsequent are deltas.
+
+        Args:
+            description: Optional description for the snapshot
+            metadata: Optional metadata dictionary
+
+        Returns:
+            Snapshot information dict with snapshot_id, created_at, etc.
+
+        Raises:
+            RuntimeError: If snapshot manager not initialized
+        """
+        if not self.snapshot_manager:
+            raise RuntimeError("SnapshotManager not initialized")
+
+        snapshot_info = self.snapshot_manager.create_snapshot(
+            description=description,
+            metadata=metadata
+        )
+        return snapshot_info.to_dict()
+
+    def snapshot_list(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        snapshot_list: List all snapshots
+
+        Args:
+            limit: Optional maximum number of snapshots to return
+
+        Returns:
+            List of snapshot information dicts, newest first
+
+        Raises:
+            RuntimeError: If snapshot manager not initialized
+        """
+        if not self.snapshot_manager:
+            raise RuntimeError("SnapshotManager not initialized")
+
+        snapshots = self.snapshot_manager.list_snapshots(limit=limit)
+        return [s.to_dict() for s in snapshots]
+
+    def snapshot_diff(self,
+                     snapshot1_id: str,
+                     snapshot2_id: str) -> Dict[str, Any]:
+        """
+        snapshot_diff: Compare two snapshots
+
+        Shows what changed between two snapshots:
+        added/modified/deleted memories.
+
+        Args:
+            snapshot1_id: First snapshot ID (older)
+            snapshot2_id: Second snapshot ID (newer)
+
+        Returns:
+            Diff information dict with added, modified, deleted lists
+
+        Raises:
+            RuntimeError: If snapshot manager not initialized
+            ValueError: If either snapshot doesn't exist
+        """
+        if not self.snapshot_manager:
+            raise RuntimeError("SnapshotManager not initialized")
+
+        diff = self.snapshot_manager.diff_snapshots(snapshot1_id, snapshot2_id)
+        return diff.to_dict()
+
+    def snapshot_rollback(self, snapshot_id: str) -> Dict[str, Any]:
+        """
+        snapshot_rollback: Rollback to previous snapshot
+
+        WARNING: This is a destructive operation that modifies
+        current memory state. Create a backup snapshot first.
+
+        Args:
+            snapshot_id: Snapshot ID to rollback to
+
+        Returns:
+            Dict with changes_applied count
+
+        Raises:
+            RuntimeError: If snapshot manager not initialized
+            ValueError: If snapshot doesn't exist
+        """
+        if not self.snapshot_manager:
+            raise RuntimeError("SnapshotManager not initialized")
+
+        changes = self.snapshot_manager.rollback_to_snapshot(snapshot_id)
+        return {
+            'snapshot_id': snapshot_id,
+            'changes_applied': changes,
+            'timestamp': datetime.now().isoformat()
+        }
+
 
 class SecurityTools:
     """
@@ -530,53 +773,578 @@ class DailyLogTools:
 
     def __init__(self, daily_store: DailyLogStore) -> None:
         self.daily: DailyLogStore = daily_store
-    
+
     def append(self, content: str) -> str:
         """
         daily_log_append: Add to today's log
-        
+
         Pattern: Append throughout day, continuous capture
         """
         file_path = self.daily.append(content)
         return str(file_path)
-    
+
     def read(self, days_ago: int = 0) -> str:
         """daily_log_read: Read specific day's log"""
         from datetime import datetime, timedelta
-        
+
         target = datetime.now() - timedelta(days=days_ago)
         return self.daily.read_daily(target)
-    
+
     def list_recent(self, days: int = 7) -> List[str]:
         """daily_log_list: Recent log files"""
         return [str(p) for p in self.daily.list_days(days)]
 
 
+class SyncTools:
+    """
+    Distributed synchronization operations (MCP tools)
+
+    Enables multi-instance memory sync with leader-follower
+    and multi-leader topologies, conflict resolution, and
+    network partition handling.
+    """
+
+    def __init__(self, sync_manager: SyncManager) -> None:
+        self.sync: SyncManager = sync_manager
+
+    def status(self) -> Dict[str, Any]:
+        """
+        sync_status: Get comprehensive sync status
+
+        Returns:
+            Sync state, topology info, lag metrics, instance list
+        """
+        return self.sync.get_sync_status()
+
+    def start_incremental(self) -> Dict[str, str]:
+        """
+        sync_start_incremental: Begin real-time event-based sync
+
+        Subscribes to memory events for low-latency propagation
+
+        Returns:
+            Status message
+        """
+        from .event_bus import get_event_bus
+
+        self.sync.start_incremental_sync(get_event_bus())
+        return {
+            'status': 'started',
+            'message': f'Incremental sync started for instance {self.sync.instance_id}'
+        }
+
+    def stop_incremental(self) -> Dict[str, str]:
+        """
+        sync_stop_incremental: Stop real-time sync
+
+        Unsubscribes from event bus
+
+        Returns:
+            Status message
+        """
+        self.sync.stop_incremental_sync()
+        return {
+            'status': 'stopped',
+            'message': f'Incremental sync stopped for instance {self.sync.instance_id}'
+        }
+
+    def bulk_from(self, source_instance_id: str, source_endpoint: str) -> Dict[str, Any]:
+        """
+        sync_bulk_from: Import full memory snapshot from another instance
+
+        Args:
+            source_instance_id: ID of source instance
+            source_endpoint: Network endpoint (URL) of source
+
+        Returns:
+            Success status and sync details
+        """
+        success = self.sync.bulk_sync_from(source_instance_id, source_endpoint)
+        return {
+            'success': success,
+            'source_instance': source_instance_id,
+            'endpoint': source_endpoint,
+            'message': 'Bulk sync completed' if success else 'Bulk sync failed'
+        }
+
+    def bulk_to(self, target_instance_id: str, target_endpoint: str) -> Dict[str, Any]:
+        """
+        sync_bulk_to: Export full memory snapshot to another instance
+
+        Args:
+            target_instance_id: ID of target instance
+            target_endpoint: Network endpoint (URL) of target
+
+        Returns:
+            Success status and sync details
+        """
+        success = self.sync.bulk_sync_to(target_instance_id, target_endpoint)
+        return {
+            'success': success,
+            'target_instance': target_instance_id,
+            'endpoint': target_endpoint,
+            'message': 'Bulk sync completed' if success else 'Bulk sync failed'
+        }
+
+    def register_instance(self, instance_id: str, endpoint: Optional[str] = None) -> Dict[str, str]:
+        """
+        sync_register_instance: Add instance to sync cluster
+
+        Args:
+            instance_id: Unique identifier for instance
+            endpoint: Network endpoint (optional)
+
+        Returns:
+            Status message
+        """
+        self.sync.register_instance(instance_id, endpoint)
+        return {
+            'status': 'registered',
+            'instance_id': instance_id,
+            'endpoint': endpoint or 'not specified'
+        }
+
+    def unregister_instance(self, instance_id: str) -> Dict[str, Any]:
+        """
+        sync_unregister_instance: Remove instance from sync cluster
+
+        Args:
+            instance_id: ID of instance to remove
+
+        Returns:
+            Success status
+        """
+        removed = self.sync.unregister_instance(instance_id)
+        return {
+            'success': removed,
+            'instance_id': instance_id,
+            'message': 'Instance removed' if removed else 'Instance not found'
+        }
+
+    def reconcile_partition(self, instance_id: str) -> Dict[str, Any]:
+        """
+        sync_reconcile_partition: Reconcile after network partition
+
+        Resolves conflicts accumulated during network split
+
+        Args:
+            instance_id: ID of instance to reconcile with
+
+        Returns:
+            Reconciliation results with conflict resolution details
+        """
+        result = self.sync.reconcile_partition(instance_id)
+        return result
+
+class SharedNamespaceTools:
+    """
+    Shared namespace operations for multi-agent coordination
+
+    Recommended: namespace_create, namespace_list, subscribe
+    """
+
+    def __init__(
+        self,
+        shared_namespace: SharedNamespace,
+        permissions: PermissionManager,
+        subscriptions: SubscriptionManager,
+        audit_logger: AuditLogger
+    ) -> None:
+        self.shared_ns: SharedNamespace = shared_namespace
+        self.permissions: PermissionManager = permissions
+        self.subscriptions: SubscriptionManager = subscriptions
+        self.audit: AuditLogger = audit_logger
+
+    def create_namespace(
+        self,
+        namespace: str,
+        created_by: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        namespace_create: Create shared namespace for multi-agent coordination
+
+        Args:
+            namespace: Namespace string (e.g., "team-alpha/research")
+            created_by: Agent ID creating the namespace
+            metadata: Optional metadata dictionary
+
+        Returns:
+            Created namespace information
+        """
+        try:
+            ns_info = self.shared_ns.create(namespace, created_by, metadata)
+
+            # Log creation
+            self.audit.log(
+                agent_id=created_by,
+                action_type=AuditLogger.ACTION_CREATE_NAMESPACE,
+                resource_type=AuditLogger.RESOURCE_NAMESPACE,
+                resource_id=namespace,
+                namespace=namespace,
+                metadata=metadata
+            )
+
+            return ns_info.to_dict()
+        except ValueError as e:
+            return {'error': str(e)}
+
+    def list_namespaces(
+        self,
+        agent_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        namespace_list: List shared namespaces
+
+        Args:
+            agent_id: Optional agent ID to filter by creator
+
+        Returns:
+            List of namespace information dictionaries
+        """
+        if agent_id:
+            namespaces = self.shared_ns.list_by_creator(agent_id)
+        else:
+            namespaces = self.shared_ns.list_all()
+
+        return [ns.to_dict() for ns in namespaces]
+
+    def get_namespace(self, namespace: str) -> Optional[Dict[str, Any]]:
+        """
+        namespace_get: Get information about a specific namespace
+
+        Args:
+            namespace: Namespace string
+
+        Returns:
+            Namespace information or None if not found
+        """
+        ns_info = self.shared_ns.get(namespace)
+        return ns_info.to_dict() if ns_info else None
+
+    def delete_namespace(
+        self,
+        namespace: str,
+        agent_id: str
+    ) -> Dict[str, Any]:
+        """
+        namespace_delete: Delete a shared namespace (admin only)
+
+        Requires ADMIN permission. Cascades to permissions and subscriptions.
+
+        Args:
+            namespace: Namespace string
+            agent_id: Agent ID attempting deletion
+
+        Returns:
+            Success status
+        """
+        # Check admin permission
+        if not self.permissions.can_admin(namespace, agent_id):
+            return {'success': False, 'error': 'Admin permission required'}
+
+        success = self.shared_ns.delete(namespace)
+
+        if success:
+            # Log deletion
+            self.audit.log(
+                agent_id=agent_id,
+                action_type=AuditLogger.ACTION_DELETE_NAMESPACE,
+                resource_type=AuditLogger.RESOURCE_NAMESPACE,
+                resource_id=namespace,
+                namespace=namespace
+            )
+
+        return {'success': success}
+
+    def grant_permission(
+        self,
+        namespace: str,
+        agent_id: str,
+        target_agent_id: str,
+        permission_level: str
+    ) -> Dict[str, Any]:
+        """
+        permission_grant: Grant permission to agent for namespace
+
+        Requires ADMIN permission.
+
+        Args:
+            namespace: Namespace string
+            agent_id: Agent ID granting permission (must have ADMIN)
+            target_agent_id: Agent ID to grant permission to
+            permission_level: Permission level (read|write|admin)
+
+        Returns:
+            Permission information or error
+        """
+        # Check admin permission
+        if not self.permissions.can_admin(namespace, agent_id):
+            return {'error': 'Admin permission required'}
+
+        try:
+            level = PermissionLevel.from_string(permission_level)
+            perm_info = self.permissions.grant(namespace, target_agent_id, level)
+
+            # Log grant
+            self.audit.log(
+                agent_id=agent_id,
+                action_type=AuditLogger.ACTION_GRANT_PERMISSION,
+                resource_type=AuditLogger.RESOURCE_PERMISSION,
+                resource_id=target_agent_id,
+                namespace=namespace,
+                metadata={'permission_level': permission_level}
+            )
+
+            return perm_info.to_dict()
+        except ValueError as e:
+            return {'error': str(e)}
+
+    def revoke_permission(
+        self,
+        namespace: str,
+        agent_id: str,
+        target_agent_id: str
+    ) -> Dict[str, Any]:
+        """
+        permission_revoke: Revoke agent permission from namespace
+
+        Requires ADMIN permission.
+
+        Args:
+            namespace: Namespace string
+            agent_id: Agent ID revoking permission (must have ADMIN)
+            target_agent_id: Agent ID to revoke permission from
+
+        Returns:
+            Success status
+        """
+        # Check admin permission
+        if not self.permissions.can_admin(namespace, agent_id):
+            return {'success': False, 'error': 'Admin permission required'}
+
+        success = self.permissions.revoke(namespace, target_agent_id)
+
+        if success:
+            # Log revoke
+            self.audit.log(
+                agent_id=agent_id,
+                action_type=AuditLogger.ACTION_REVOKE_PERMISSION,
+                resource_type=AuditLogger.RESOURCE_PERMISSION,
+                resource_id=target_agent_id,
+                namespace=namespace
+            )
+
+        return {'success': success}
+
+    def list_permissions(
+        self,
+        namespace: Optional[str] = None,
+        agent_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        permission_list: List permissions for namespace or agent
+
+        Args:
+            namespace: Optional namespace to filter by
+            agent_id: Optional agent ID to filter by
+
+        Returns:
+            List of permission information dictionaries
+        """
+        if namespace:
+            permissions = self.permissions.list_for_namespace(namespace)
+        elif agent_id:
+            permissions = self.permissions.list_for_agent(agent_id)
+        else:
+            return []
+
+        return [perm.to_dict() for perm in permissions]
+
+    def check_permission(
+        self,
+        namespace: str,
+        agent_id: str,
+        required_level: str
+    ) -> bool:
+        """
+        permission_check: Check if agent has required permission level
+
+        Args:
+            namespace: Namespace string
+            agent_id: Agent ID to check
+            required_level: Required permission level (read|write|admin)
+
+        Returns:
+            True if agent has sufficient permission, False otherwise
+        """
+        try:
+            level = PermissionLevel.from_string(required_level)
+            return self.permissions.has_permission(namespace, agent_id, level)
+        except ValueError:
+            return False
+
+    def subscribe(
+        self,
+        agent_id: str,
+        event_types: List[str],
+        namespace: Optional[str] = None,
+        memory_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        subscribe: Subscribe agent to events
+
+        Args:
+            agent_id: Agent ID creating subscription
+            event_types: Event types to subscribe to (e.g., ["memory.stored"])
+            namespace: Optional namespace to filter by
+            memory_id: Optional memory ID to filter by
+
+        Returns:
+            Subscription information or error
+        """
+        try:
+            sub_info = self.subscriptions.subscribe(
+                agent_id=agent_id,
+                event_types=event_types,
+                namespace=namespace,
+                memory_id=memory_id
+            )
+
+            # Log subscription
+            self.audit.log(
+                agent_id=agent_id,
+                action_type=AuditLogger.ACTION_SUBSCRIBE,
+                resource_type=AuditLogger.RESOURCE_SUBSCRIPTION,
+                resource_id=sub_info.id,
+                namespace=namespace,
+                metadata={
+                    'event_types': event_types,
+                    'memory_id': memory_id
+                }
+            )
+
+            return sub_info.to_dict()
+        except ValueError as e:
+            return {'error': str(e)}
+
+    def unsubscribe(
+        self,
+        agent_id: str,
+        subscription_id: str
+    ) -> Dict[str, Any]:
+        """
+        unsubscribe: Remove subscription
+
+        Args:
+            agent_id: Agent ID removing subscription
+            subscription_id: Subscription ID to remove
+
+        Returns:
+            Success status
+        """
+        # Verify subscription belongs to agent
+        sub_info = self.subscriptions.get(subscription_id)
+        if not sub_info or sub_info.agent_id != agent_id:
+            return {'success': False, 'error': 'Subscription not found or unauthorized'}
+
+        success = self.subscriptions.unsubscribe(subscription_id)
+
+        if success:
+            # Log unsubscribe
+            self.audit.log(
+                agent_id=agent_id,
+                action_type=AuditLogger.ACTION_UNSUBSCRIBE,
+                resource_type=AuditLogger.RESOURCE_SUBSCRIPTION,
+                resource_id=subscription_id,
+                namespace=sub_info.namespace
+            )
+
+        return {'success': success}
+
+    def list_subscriptions(
+        self,
+        agent_id: Optional[str] = None,
+        namespace: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        subscription_list: List subscriptions for agent or namespace
+
+        Args:
+            agent_id: Optional agent ID to filter by
+            namespace: Optional namespace to filter by
+
+        Returns:
+            List of subscription information dictionaries
+        """
+        if agent_id:
+            subscriptions = self.subscriptions.list_for_agent(agent_id)
+        elif namespace:
+            subscriptions = self.subscriptions.list_for_namespace(namespace)
+        else:
+            return []
+
+        return [sub.to_dict() for sub in subscriptions]
+
+    def audit_recent(
+        self,
+        limit: int = 50,
+        agent_id: Optional[str] = None,
+        namespace: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        audit_recent: Get recent audit log entries
+
+        Args:
+            limit: Maximum entries to return (default: 50)
+            agent_id: Optional agent ID to filter by
+            namespace: Optional namespace to filter by
+
+        Returns:
+            List of audit entry dictionaries
+        """
+        if agent_id:
+            entries = self.audit.get_by_agent(agent_id, limit=limit)
+        elif namespace:
+            entries = self.audit.get_by_namespace(namespace, limit=limit)
+        else:
+            entries = self.audit.get_recent(limit=limit)
+
+        return [entry.to_dict() for entry in entries]
+
+
 def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Initialize all MCP tools with configuration
-    
+
     Returns:
         Dictionary of tool instances for OpenClaw registration
     """
     from pathlib import Path
-    
+
     base_path = Path(config.get('base_path', '~/.openclaw/omi'))
     db_path = base_path / 'palace.sqlite'
-    
+
     # Initialize stores
     now_store = NowStorage(base_path)
     daily_store = DailyLogStore(base_path)
     palace = GraphPalace(db_path)
     vault = MoltVault(base_path=base_path)
-    
+
+    # Initialize snapshot manager
+    try:
+        snapshot_manager = SnapshotManager(db_path)
+    except FileNotFoundError:
+        snapshot_manager = None
+
+
     # Initialize embedders
     embedder = OllamaEmbedder(
         model=config.get('embedding_model', 'nomic-embed-text')
     )
     cache_path = base_path / 'embeddings'
     cache = EmbeddingCache(cache_path, embedder)
-    
+
     # Initialize belief network
     # BeliefNetwork and ContradictionDetector already imported at module level
     belief_net = BeliefNetwork(palace)
@@ -586,21 +1354,68 @@ def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
     # IntegrityChecker and TopologyVerifier already imported at module level
     integrity = IntegrityChecker(base_path)
     topology = TopologyVerifier(palace)
-    
+
+    # Create checkpoint tools instance
+    checkpoint_tools = CheckpointTools(now_store, vault, snapshot_manager)
+
+    # Initialize sync manager
+    sync_config = config.get('sync', {})
+    instance_id = sync_config.get('instance_id', 'default-instance')
+    topology_type_str = sync_config.get('topology', 'leader_follower')
+
+    # Convert topology string to enum
+    topology_type = TopologyType.LEADER_FOLLOWER
+    if topology_type_str == 'multi_leader':
+        topology_type = TopologyType.MULTI_LEADER
+
+    sync_manager = SyncManager(
+        data_dir=base_path,
+        instance_id=instance_id,
+        topology=topology_type,
+        leader_instance_id=sync_config.get('leader_instance_id')
+    )
+
+    # Initialize RBAC (if user_id provided)
+    user_id = config.get('user_id')
+    rbac_manager = RBACManager(str(db_path)) if user_id else None
+
+    # Create tool instances with user context
+    memory_tools = MemoryTools(palace, embedder, cache, user_id, rbac_manager)
+    belief_tools = BeliefTools(belief_net, detector, user_id, rbac_manager)
+
     # Create tool instances
-    return {
-        'memory_recall': MemoryTools(palace, embedder, cache).recall,
-        'memory_store': MemoryTools(palace, embedder, cache).store,
-        'belief_create': BeliefTools(belief_net, detector).create,
-        'belief_update': BeliefTools(belief_net, detector).update,
-        'belief_retrieve': BeliefTools(belief_net, detector).retrieve,
-        'belief_evidence_chain': BeliefTools(belief_net, detector).get_evidence_chain,
-        'now_read': CheckpointTools(now_store, vault).now_read,
-        'now_update': CheckpointTools(now_store, vault).now_update,
-        'vault_backup': CheckpointTools(now_store, vault).vault_backup,
-        'vault_restore': CheckpointTools(now_store, vault).vault_restore,
+    tools = {
+        'memory_recall': memory_tools.recall,
+        'memory_store': memory_tools.store,
+        'belief_create': belief_tools.create,
+        'belief_update': belief_tools.update,
+        'belief_retrieve': belief_tools.retrieve,
+        'belief_evidence_chain': belief_tools.get_evidence_chain,
+        'now_read': checkpoint_tools.now_read,
+        'now_update': checkpoint_tools.now_update,
+        'vault_backup': checkpoint_tools.vault_backup,
+        'vault_restore': checkpoint_tools.vault_restore,
+        'capsule_create': checkpoint_tools.create_capsule,
         'integrity_check': SecurityTools(integrity, topology).integrity_check,
         'topology_audit': SecurityTools(integrity, topology).topology_audit,
         'daily_log_append': DailyLogTools(daily_store).append,
-        'capsule_create': CheckpointTools(now_store, vault).create_capsule
+        'sync_status': SyncTools(sync_manager).status,
+        'sync_start_incremental': SyncTools(sync_manager).start_incremental,
+        'sync_stop_incremental': SyncTools(sync_manager).stop_incremental,
+        'sync_bulk_from': SyncTools(sync_manager).bulk_from,
+        'sync_bulk_to': SyncTools(sync_manager).bulk_to,
+        'sync_register_instance': SyncTools(sync_manager).register_instance,
+        'sync_unregister_instance': SyncTools(sync_manager).unregister_instance,
+        'sync_reconcile_partition': SyncTools(sync_manager).reconcile_partition
     }
+
+    # Add snapshot tools if snapshot manager is available
+    if snapshot_manager:
+        tools.update({
+            'snapshot_create': checkpoint_tools.snapshot_create,
+            'snapshot_list': checkpoint_tools.snapshot_list,
+            'snapshot_diff': checkpoint_tools.snapshot_diff,
+            'snapshot_rollback': checkpoint_tools.snapshot_rollback
+        })
+
+    return tools

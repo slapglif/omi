@@ -87,8 +87,9 @@ def store(ctx, content: str, memory_type: str, confidence: Optional[float]) -> N
 @click.option('--limit', '-l', default=10, help='Maximum number of results')
 @click.option('--offset', default=0, help='Number of results to skip (for pagination)')
 @click.option('--json-output', is_flag=True, help='Output as JSON')
+@click.option('--at', 'at_timestamp', default=None, help='Query memories as of this date (YYYY-MM-DD)')
 @click.pass_context
-def recall(ctx, query: str, limit: int, offset: int, json_output: bool) -> None:
+def recall(ctx, query: str, limit: int, offset: int, json_output: bool, at_timestamp: Optional[str]) -> None:
     """Search memories using semantic recall.
 
     Args:
@@ -96,12 +97,14 @@ def recall(ctx, query: str, limit: int, offset: int, json_output: bool) -> None:
         --limit: Maximum number of results (default: 10)
         --offset: Number of results to skip for pagination (default: 0)
         --json: Output as JSON (for scripts)
+        --at: Point-in-time query for memories as of date (YYYY-MM-DD)
 
     Examples:
         omi recall "session checkpoint"
         omi recall "auth bug fix" --limit 5
         omi recall "recent decisions" --json
         omi recall "auth" --limit 10 --offset 10
+        omi recall "project setup" --at 2026-01-15
     """
     verbosity = ctx.obj.get('verbosity', VERBOSITY_NORMAL)
     base_path = get_base_path(ctx.obj.get('data_dir'))
@@ -114,10 +117,28 @@ def recall(ctx, query: str, limit: int, offset: int, json_output: bool) -> None:
         echo_quiet(click.style(f"Error: Database not found. Run 'omi init' first.", fg="red"), verbosity)
         sys.exit(1)
 
+    # Parse --at timestamp if provided
+    cutoff_time = None
+    if at_timestamp:
+        try:
+            cutoff_time = datetime.strptime(at_timestamp, "%Y-%m-%d")
+            # Set to end of day (23:59:59) to include all memories from that date
+            cutoff_time = cutoff_time.replace(hour=23, minute=59, second=59)
+        except ValueError:
+            echo_quiet(click.style(f"Error: Invalid date format. Use YYYY-MM-DD (e.g., 2026-01-15)", fg="red"), verbosity)
+            sys.exit(1)
+
     try:
         palace = GraphPalace(db_path)
         # Use full_text_search for query strings
         results = palace.full_text_search(query, limit=limit)
+
+        # Filter by timestamp if --at was provided
+        if cutoff_time:
+            results = [
+                mem for mem in results
+                if mem.created_at and mem.created_at <= cutoff_time
+            ]
 
         if json_output:
             output = []

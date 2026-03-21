@@ -5,17 +5,26 @@ The seeking is the continuity. The palace remembers what the river forgets.
 import os
 import sys
 import json
+import struct
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, Any, Dict, cast
+from datetime import datetime, timedelta
+from typing import Optional, Any, Dict, cast, List
 import click
 
 # OMI imports
 from omi import NOWStore, DailyLogStore, GraphPalace
 from omi.security import PoisonDetector
 from omi.belief import BeliefNetwork, ContradictionDetector, Evidence
+from omi.summarizer import load_compression_config, MemorySummarizer
+from omi.storage.ann_index import ANNIndex
 from .event_bus import get_event_bus
 from .events import SessionStartedEvent, SessionEndedEvent
+
+# Import sync command group (distributed sync commands from modular CLI)
+try:
+    from omi.cli import sync_commands
+except ImportError:
+    sync_commands = None
 
 # CLI version - matches project version
 __version__ = "0.2.0"
@@ -169,6 +178,7 @@ security:
   integrity_checks: true
   auto_audit: true
   required_instances: 3
+  default_rate_limit: 100  # Default rate limit for API keys (requests/minute)
 
 session:
   auto_check_interval: 300  # seconds
@@ -184,10 +194,12 @@ events:
     #     #   Authorization: Bearer ${WEBHOOK_TOKEN}
 
 compression:
-  provider: anthropic  # or openai
-  # api_key: ${ANTHROPIC_API_KEY}  # Set via environment variable
-  age_threshold_days: 30  # Compress memories older than N days
-  batch_size: 8  # Number of memories to process at once
+  enabled: true
+  provider: ollama  # or openai
+  model: llama3.2:3b  # Model to use for compression
+  # api_key: ${OPENAI_API_KEY}  # Set via environment variable for OpenAI
+  max_summary_tokens: 150  # Maximum tokens in compressed summary
+  # summarization_prompt: "Summarize concisely:"  # Optional custom prompt
 """
     config_path = base_path / "config.yaml"
     if not config_path.exists():
@@ -1268,6 +1280,89 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
 
     click.echo(click.style("Ending OMI session...", fg="cyan", bold=True))
 
+    # Query recent session memories from Graph Palace
+    session_memories: List[Dict[str, Any]] = []
+    db_path = base_path / "palace.sqlite"
+    if db_path.exists():
+        try:
+            palace = GraphPalace(db_path)
+
+            # Query memories from the last 24 hours (session window)
+            # This captures all memories created/updated during the session
+            session_start_threshold = datetime.now() - timedelta(hours=24)
+
+            # Get all memories and filter by timestamp
+            import sqlite3
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.execute("""
+                    SELECT id, content, memory_type, confidence, created_at
+                    FROM memories
+                    WHERE created_at >= ?
+                    ORDER BY created_at DESC
+                """, (session_start_threshold.isoformat(),))
+
+                rows = cursor.fetchall()
+                for row in rows:
+                    session_memories.append({
+                        'id': row[0],
+                        'content': row[1],
+                        'memory_type': row[2],
+                        'confidence': row[3],
+                        'created_at': row[4]
+                    })
+
+            palace.close()
+
+            if session_memories:
+                click.echo(f" ✓ Retrieved {len(session_memories)} session memories")
+            else:
+                click.echo(" ⚠ No session memories found")
+        except Exception as e:
+            click.echo(click.style(f" ⚠ Failed to retrieve session memories: {e}", fg="yellow"))
+
+    # Compress session memories if enabled
+    compression_result: Optional[Dict[str, Any]] = None
+    if session_memories:
+        try:
+            compression_config = load_compression_config(base_path)
+
+            if compression_config.get('enabled', False):
+                click.echo(" → Compressing session memories...")
+
+                # Get provider and model from config
+                provider = compression_config.get('provider', 'ollama')
+                model = compression_config.get('model')
+                api_key = compression_config.get('api_key')
+                max_tokens = compression_config.get('max_summary_tokens', 150)
+
+                # Create summarizer instance
+                summarizer = MemorySummarizer(
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    max_tokens=max_tokens
+                )
+
+                # Compress memories
+                compression_result = summarizer.compress_session_memories(
+                    session_memories,
+                    config=compression_config
+                )
+
+                # Show compression stats
+                if compression_result:
+                    click.echo(click.style(
+                        f" ✓ Compressed {compression_result['count']} memories: "
+                        f"{compression_result['original_tokens']} tokens → "
+                        f"{compression_result['compressed_tokens']} tokens "
+                        f"({compression_result['savings_percent']}% savings)",
+                        fg="green"
+                    ))
+            else:
+                click.echo(" ⚠ Compression disabled in config")
+        except Exception as e:
+            click.echo(click.style(f" ⚠ Compression failed: {e}", fg="yellow"))
+
     # Update NOW.md timestamp and get current task for log
     from .persistence import NOWEntry
     now_storage = NOWStore(str(base_path))
@@ -1292,6 +1387,25 @@ def session_end(ctx: click.Context, no_backup: bool) -> None:
     entry_content = f"Session ended at {datetime.now().isoformat()}"
     if now_entry and now_entry.current_task:
         entry_content += f"\nLast task: {now_entry.current_task}"
+
+    # Add compressed session memories if available
+    if compression_result and compression_result.get('compressed_memories'):
+        entry_content += "\n\n## Session Memories (Compressed)\n"
+        entry_content += f"*Compressed {compression_result['count']} memories: "
+        entry_content += f"{compression_result['original_tokens']} tokens → "
+        entry_content += f"{compression_result['compressed_tokens']} tokens "
+        entry_content += f"({compression_result['savings_percent']}% savings)*\n\n"
+
+        for mem in compression_result['compressed_memories']:
+            # Format each compressed memory with metadata
+            memory_type = mem.get('memory_type', 'unknown')
+            original_tokens = mem.get('_original_tokens', 0)
+            compressed_tokens = mem.get('_compressed_tokens', 0)
+
+            entry_content += f"### {memory_type.capitalize()}\n"
+            entry_content += f"{mem['content']}\n\n"
+            entry_content += f"*[{original_tokens} → {compressed_tokens} tokens]*\n\n"
+
     log_path = daily_store.append(entry_content)
     click.echo(f" ✓ Appended to daily log: {log_path.name}")
     
@@ -1791,50 +1905,142 @@ def graph(ctx, limit: int, edge_type_filter: Optional[str], depth: int) -> None:
 
 
 @cli.command()
+@click.option('--cross-agent', is_flag=True, help='Show cross-agent operation audit logs')
+@click.option('--limit', '-l', default=20, type=int, help='Maximum number of audit entries to display (for --cross-agent)')
+@click.option('--agent-id', type=str, default=None, help='Filter by specific agent ID (for --cross-agent)')
+@click.option('--namespace', type=str, default=None, help='Filter by specific namespace (for --cross-agent)')
 @click.pass_context
-def audit(ctx: click.Context) -> None:
+def audit(ctx: click.Context, cross_agent: bool, limit: int, agent_id: Optional[str], namespace: Optional[str]) -> None:
     """Run security audit.
 
     Checks:
     - File integrity (NOW.md, MEMORY.md)
     - Graph topology (orphan nodes, sudden cores)
     - Git history for suspicious modifications
+    - Cross-agent operations audit log (with --cross-agent)
     """
     base_path = get_base_path(ctx.obj.get('data_dir'))
     if not base_path.exists():
         click.echo(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"))
         sys.exit(1)
 
+    db_path = base_path / "palace.sqlite"
+
+    # If --cross-agent flag is set, show audit logs
+    if cross_agent:
+        click.echo(click.style("Cross-Agent Operations Audit Log", fg="cyan", bold=True))
+        click.echo("=" * 80)
+
+        if not db_path.exists():
+            click.echo(click.style("Error: Database not found", fg="red"))
+            sys.exit(1)
+
+        try:
+            from omi.audit_log import AuditLogger
+
+            logger = AuditLogger(db_path)
+
+            # Query audit logs based on filters
+            if agent_id:
+                entries = logger.get_by_agent(agent_id, limit=limit)
+                click.echo(f"\nShowing logs for agent: {click.style(agent_id, fg='cyan', bold=True)}")
+            elif namespace:
+                entries = logger.get_by_namespace(namespace, limit=limit)
+                click.echo(f"\nShowing logs for namespace: {click.style(namespace, fg='cyan', bold=True)}")
+            else:
+                entries = logger.get_recent(limit=limit)
+                click.echo(f"\nShowing {click.style(f'{limit}', fg='cyan')} most recent entries")
+
+            if not entries:
+                click.echo(click.style("\nNo audit entries found.", fg="yellow"))
+                return
+
+            # Display entries
+            click.echo(f"\nTotal entries: {click.style(str(len(entries)), fg='cyan', bold=True)}")
+            click.echo()
+
+            for i, entry in enumerate(entries, 1):
+                # Color-code action types
+                action_color = {
+                    'read': 'blue',
+                    'write': 'green',
+                    'delete': 'red',
+                    'share': 'magenta',
+                    'subscribe': 'cyan',
+                    'unsubscribe': 'yellow',
+                    'grant_permission': 'green',
+                    'revoke_permission': 'red',
+                    'create_namespace': 'magenta',
+                    'delete_namespace': 'red'
+                }.get(entry.action_type, 'white')
+
+                # Format timestamp
+                timestamp_str = entry.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+
+                click.echo(f"{click.style(f'{i}.', fg='bright_black')} "
+                          f"{click.style(timestamp_str, fg='bright_black')} | "
+                          f"{click.style(entry.action_type.upper(), fg=action_color, bold=True)} | "
+                          f"{click.style(entry.resource_type, fg='white')}")
+
+                click.echo(f"   Agent: {click.style(entry.agent_id, fg='cyan')}")
+
+                if entry.namespace:
+                    click.echo(f"   Namespace: {click.style(entry.namespace, fg='magenta')}")
+
+                if entry.resource_id:
+                    # Truncate long resource IDs (like memory UUIDs)
+                    resource_display = entry.resource_id[:16] + '...' if len(entry.resource_id) > 16 else entry.resource_id
+                    click.echo(f"   Resource: {click.style(resource_display, fg='yellow')}")
+
+                if entry.metadata:
+                    # Display metadata if present (truncated for readability)
+                    metadata_str = json.dumps(entry.metadata)
+                    if len(metadata_str) > 60:
+                        metadata_str = metadata_str[:57] + '...'
+                    click.echo(f"   Metadata: {click.style(metadata_str, fg='bright_black')}")
+
+                click.echo()
+
+            logger.close()
+
+        except Exception as e:
+            click.echo(click.style(f"Error: Failed to retrieve audit logs: {e}", fg="red"))
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+        return
+
+    # Standard security audit
     click.echo(click.style("Running Security Audit...", fg="cyan", bold=True))
     click.echo("=" * 50)
-    
-    db_path = base_path / "palace.sqlite"
+
     try:
         detector = PoisonDetector(base_path, GraphPalace(db_path) if db_path.exists() else None)
         results = detector.full_security_audit()
-        
+
         # File integrity
         click.echo(f"\n{click.style('File Integrity:', bold=True)}")
         file_ok = results.get('file_integrity', False)
         file_status = "✓ VERIFIED" if file_ok else "✗ FAILED"
         file_color = "green" if file_ok else "red"
         click.echo(f"  Status: {click.style(file_status, fg=file_color)}")
-        
+
         # Topology
         click.echo(f"\n{click.style('Graph Topology:', bold=True)}")
         orphans = results.get('orphan_nodes', [])
         cores = results.get('sudden_cores', [])
-        
+
         if orphans:
             click.echo(click.style(f"  ⚠ {len(orphans)} orphan nodes detected", fg="yellow"))
         else:
             click.echo(click.style(f"  ✓ No orphan nodes", fg="green"))
-        
+
         if cores:
             click.echo(click.style(f"  ⚠ {len(cores)} sudden cores detected", fg="yellow"))
         else:
             click.echo(click.style(f"  ✓ No sudden cores", fg="green"))
-        
+
         # Git audit
         click.echo(f"\n{click.style('Git History:', bold=True)}")
         git_check = results.get('git_audit', {})
@@ -1848,7 +2054,7 @@ def audit(ctx: click.Context) -> None:
                 click.echo(click.style(f"  ⚠ {len(suspicious)} suspicious commits", fg="yellow"))
             else:
                 click.echo(click.style(f"  ✓ No suspicious commits", fg="green"))
-        
+
         # Overall
         overall = results.get('overall_safe', False)
         click.echo(f"\n" + click.style("Overall Safety: ", bold=True), nl=False)
@@ -1856,12 +2062,111 @@ def audit(ctx: click.Context) -> None:
             click.echo(click.style("SAFE ✓", fg="green", bold=True))
         else:
             click.echo(click.style("ATTENTION REQUIRED ⚠", fg="yellow", bold=True))
-            
+
     except Exception as e:
         click.echo(click.style(f"Error: Audit failed: {e}", fg="red"))
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+@cli.command()
+@click.argument('topic')
+@click.option('--timeout', type=int, default=0, help='Timeout in seconds (0 = forever)')
+@click.option('--format', 'output_format', type=click.Choice(['json', 'pretty']), default='pretty',
+              help='Output format for events')
+@click.pass_context
+def subscribe(ctx: click.Context, topic: str, timeout: int, output_format: str) -> None:
+    """Subscribe to events on a topic.
+
+    Listen for events published to the specified topic and display them
+    as they arrive. Use '*' to subscribe to all events.
+
+    \b
+    Available event types:
+        memory.stored                   Memory stored in Graph Palace
+        memory.recalled                 Memories recalled via search
+        memory.shared_stored           Memory shared across agents
+        belief.updated                  Belief confidence updated
+        belief.contradiction_detected   Contradiction detected
+        belief.propagated              Belief propagated between agents
+        session.started                Session started
+        session.ended                  Session ended
+        *                              All events (wildcard)
+
+    \b
+    Examples:
+        omi subscribe memory.stored
+        omi subscribe "belief.*" --format json
+        omi subscribe "*" --timeout 60
+    """
+    import signal
+    import time
+    from threading import Event as ThreadEvent
+
+    base_path = get_base_path(ctx.obj.get('data_dir'))
+    event_bus = get_event_bus()
+
+    # Event to signal shutdown
+    shutdown_event = ThreadEvent()
+    event_count = 0
+
+    # Define event handler
+    def handle_event(event: Any) -> None:
+        nonlocal event_count
+        event_count += 1
+
+        if output_format == 'json':
+            # JSON format
+            if hasattr(event, 'to_dict'):
+                event_data = event.to_dict()
+            else:
+                event_data = {'event_type': event.event_type}
+            click.echo(json.dumps(event_data))
+        else:
+            # Pretty format
+            timestamp = event.timestamp.strftime('%H:%M:%S') if hasattr(event, 'timestamp') else ''
+            event_type = click.style(event.event_type, fg='cyan', bold=True)
+            click.echo(f"[{timestamp}] {event_type}")
+
+            # Display event-specific details
+            if hasattr(event, 'to_dict'):
+                event_dict = event.to_dict()
+                for key, value in event_dict.items():
+                    if key not in ['event_type', 'timestamp', 'metadata']:
+                        click.echo(f"  {key}: {value}")
+            click.echo()  # Blank line for readability
+
+    # Signal handler for graceful shutdown
+    def signal_handler(sig: int, frame: Any) -> None:
+        click.echo(click.style("\n\nShutdown requested...", fg="yellow"))
+        shutdown_event.set()
+
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Subscribe to topic
+    event_bus.subscribe(topic, handle_event)
+
+    click.echo(click.style(f"Subscribing to topic: {topic}", fg="cyan", bold=True))
+    if timeout > 0:
+        click.echo(f"Timeout: {timeout} seconds")
+    click.echo("Waiting for events... (Ctrl+C to stop)\n")
+
+    try:
+        # Wait for timeout or shutdown signal
+        if timeout > 0:
+            shutdown_event.wait(timeout=timeout)
+        else:
+            # Wait indefinitely
+            while not shutdown_event.is_set():
+                time.sleep(0.1)
+    finally:
+        # Cleanup
+        event_bus.unsubscribe(topic, handle_event)
+        click.echo(click.style(f"\nReceived {event_count} event(s)", fg="green"))
+        click.echo(click.style("Unsubscribed from topic", fg="cyan"))
 
 
 @cli.command()
@@ -2529,6 +2834,29 @@ def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, streng
         click.echo(click.style(f"Error: {str(e)}", fg="red"))
         sys.exit(1)
 
+
+@cli.group()
+@click.pass_context
+def sync(ctx: click.Context) -> None:
+    """Multi-instance synchronization commands.
+
+    Sync memory stores across multiple OMI instances for high-availability
+    and multi-region deployments.
+    """
+    ctx.ensure_object(dict)
+
+
+# Import and register sync subcommands
+if sync_commands is not None:
+    # Add distributed sync commands
+    try:
+        sync.add_command(sync_commands.sync_init)
+        sync.add_command(sync_commands.sync_status)
+        sync.add_command(sync_commands.sync_start)
+        sync.add_command(sync_commands.sync_stop)
+        sync.add_command(sync_commands.sync_reconcile)
+    except AttributeError:
+        pass  # Sync commands module not fully loaded
 
 
 @cli.group()

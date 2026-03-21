@@ -23,6 +23,7 @@ class TestGraph:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -40,6 +41,7 @@ class TestGraph:
             base_path.mkdir(parents=True)
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -56,6 +58,7 @@ class TestGraph:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -74,6 +77,7 @@ class TestGraph:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -112,6 +116,7 @@ class TestGraph:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -153,6 +158,7 @@ class TestGraph:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -165,10 +171,13 @@ class TestGraph:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             for i in range(5):
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type)
                     VALUES (?, ?, 'experience')
-                """, (f"mem-{i:03d}", f"Test memory {i}"))
+                """,
+                    (f"mem-{i:03d}", f"Test memory {i}"),
+                )
             conn.commit()
             conn.close()
 
@@ -186,6 +195,7 @@ class TestGraph:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -235,6 +245,7 @@ class TestGraph:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -275,6 +286,7 @@ class TestGraph:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -287,10 +299,13 @@ class TestGraph:
             db_path = base_path / "palace.sqlite"
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO memories (id, content, memory_type)
                 VALUES ('mem-001', ?, 'fact')
-            """, (long_content,))
+            """,
+                (long_content,),
+            )
             conn.commit()
             conn.close()
 
@@ -308,6 +323,7 @@ class TestGraph:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -320,10 +336,13 @@ class TestGraph:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             for i in range(1, 5):
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type)
                     VALUES (?, ?, 'fact')
-                """, (f"mem-{i:03d}", f"Memory {i}"))
+                """,
+                    (f"mem-{i:03d}", f"Memory {i}"),
+                )
 
             # mem-001 is connected to all others
             cursor.execute("""
@@ -352,6 +371,7 @@ class TestGraph:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -368,6 +388,7 @@ class TestGraph:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -415,6 +436,7 @@ class TestGraph:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -429,10 +451,13 @@ class TestGraph:
 
             # Create a chain of memories with different edge types
             for i in range(1, 7):
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type)
                     VALUES (?, ?, 'fact')
-                """, (f"mem-{i:03d}", f"Memory {i}"))
+                """,
+                    (f"mem-{i:03d}", f"Memory {i}"),
+                )
 
             # Different edge types
             cursor.execute("""
@@ -463,7 +488,11 @@ class TestGraph:
 
             assert result.exit_code == 0
             # Check that various edge types appear
-            assert "SUPPORTS" in result.output or "CONTRADICTS" in result.output or "RELATED_TO" in result.output
+            assert (
+                "SUPPORTS" in result.output
+                or "CONTRADICTS" in result.output
+                or "RELATED_TO" in result.output
+            )
 
 
 class TestCLIGraphGroup:
@@ -474,6 +503,7 @@ class TestCLIGraphGroup:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -487,6 +517,7 @@ class TestCLIGraphGroup:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -506,6 +537,7 @@ class TestCLIGraphNeighbors:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -522,6 +554,7 @@ class TestCLIGraphNeighbors:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -547,7 +580,7 @@ class TestCLIGraphNeighbors:
 
             mock_neighbors = [mock_mem1, mock_mem2]
 
-            with patch.object(GraphPalace, 'get_connected', return_value=mock_neighbors):
+            with patch.object(GraphPalace, "get_connected", return_value=mock_neighbors):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["graph", "neighbors", "test-memory-id"])
 
@@ -562,6 +595,7 @@ class TestCLIGraphNeighbors:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -571,7 +605,7 @@ class TestCLIGraphNeighbors:
                 runner.invoke(cli, ["init"])
 
             # Mock empty result
-            with patch.object(GraphPalace, 'get_connected', return_value=[]):
+            with patch.object(GraphPalace, "get_connected", return_value=[]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["graph", "neighbors", "test-memory-id"])
 
@@ -585,6 +619,7 @@ class TestCLIGraphNeighbors:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -601,9 +636,13 @@ class TestCLIGraphNeighbors:
             mock_mem.confidence = None
             mock_mem.created_at = datetime.now()
 
-            with patch.object(GraphPalace, 'get_connected', return_value=[mock_mem]) as mock_get_connected:
+            with patch.object(
+                GraphPalace, "get_connected", return_value=[mock_mem]
+            ) as mock_get_connected:
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                    result = runner.invoke(cli, ["graph", "neighbors", "test-memory-id", "--depth", "3"])
+                    result = runner.invoke(
+                        cli, ["graph", "neighbors", "test-memory-id", "--depth", "3"]
+                    )
 
             assert result.exit_code == 0
             assert "depth=3" in result.output
@@ -615,6 +654,7 @@ class TestCLIGraphNeighbors:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -631,9 +671,11 @@ class TestCLIGraphNeighbors:
             mock_mem.confidence = None
             mock_mem.created_at = datetime.now()
 
-            with patch.object(GraphPalace, 'get_neighbors', return_value=[mock_mem]):
+            with patch.object(GraphPalace, "get_neighbors", return_value=[mock_mem]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                    result = runner.invoke(cli, ["graph", "neighbors", "test-memory-id", "--type", "RELATED_TO"])
+                    result = runner.invoke(
+                        cli, ["graph", "neighbors", "test-memory-id", "--type", "RELATED_TO"]
+                    )
 
             assert result.exit_code == 0
             assert "edge_type=RELATED_TO" in result.output
@@ -645,6 +687,7 @@ class TestCLIGraphNeighbors:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -661,7 +704,7 @@ class TestCLIGraphNeighbors:
             mock_mem.confidence = 0.95
             mock_mem.created_at = datetime(2024, 1, 1, 12, 0, 0)
 
-            with patch.object(GraphPalace, 'get_connected', return_value=[mock_mem]):
+            with patch.object(GraphPalace, "get_connected", return_value=[mock_mem]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["graph", "neighbors", "test-memory-id", "--json"])
 
@@ -677,6 +720,7 @@ class TestCLIGraphNeighbors:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -685,7 +729,9 @@ class TestCLIGraphNeighbors:
                 runner.invoke(cli, ["init"])
 
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, ["graph", "neighbors", "test-memory-id", "--type", "INVALID_TYPE"])
+                result = runner.invoke(
+                    cli, ["graph", "neighbors", "test-memory-id", "--type", "INVALID_TYPE"]
+                )
 
             assert result.exit_code != 0
             assert "Invalid value" in result.output or "Error" in result.output
@@ -700,6 +746,7 @@ class TestCLIGraphEdges:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -716,6 +763,7 @@ class TestCLIGraphEdges:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -743,7 +791,7 @@ class TestCLIGraphEdges:
 
             mock_edges = [mock_edge1, mock_edge2]
 
-            with patch.object(GraphPalace, 'get_edges', return_value=mock_edges):
+            with patch.object(GraphPalace, "get_edges", return_value=mock_edges):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["graph", "edges", "source-memory-id"])
 
@@ -758,6 +806,7 @@ class TestCLIGraphEdges:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -767,7 +816,7 @@ class TestCLIGraphEdges:
                 runner.invoke(cli, ["init"])
 
             # Mock empty result
-            with patch.object(GraphPalace, 'get_edges', return_value=[]):
+            with patch.object(GraphPalace, "get_edges", return_value=[]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["graph", "edges", "test-memory-id"])
 
@@ -781,6 +830,7 @@ class TestCLIGraphEdges:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -798,16 +848,18 @@ class TestCLIGraphEdges:
             mock_edge.strength = 0.60
             mock_edge.created_at = datetime.now()
 
-            with patch.object(GraphPalace, 'get_edges', return_value=[mock_edge]) as mock_get_edges:
+            with patch.object(GraphPalace, "get_edges", return_value=[mock_edge]) as mock_get_edges:
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                    result = runner.invoke(cli, ["graph", "edges", "source-memory-id", "--type", "CONTRADICTS"])
+                    result = runner.invoke(
+                        cli, ["graph", "edges", "source-memory-id", "--type", "CONTRADICTS"]
+                    )
 
             assert result.exit_code == 0
             assert "edge_type=CONTRADICTS" in result.output
             # Verify that get_edges was called with the correct edge_type
             mock_get_edges.assert_called_once()
             call_args = mock_get_edges.call_args
-            assert call_args[1]['edge_type'] == 'CONTRADICTS'
+            assert call_args[1]["edge_type"] == "CONTRADICTS"
 
     def test_edges_with_json_output(self):
         """Test edges command with --json flag."""
@@ -816,6 +868,7 @@ class TestCLIGraphEdges:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -833,7 +886,7 @@ class TestCLIGraphEdges:
             mock_edge.strength = 0.85
             mock_edge.created_at = datetime(2024, 1, 1, 12, 0, 0)
 
-            with patch.object(GraphPalace, 'get_edges', return_value=[mock_edge]):
+            with patch.object(GraphPalace, "get_edges", return_value=[mock_edge]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["graph", "edges", "source-memory-id", "--json"])
 
@@ -851,6 +904,7 @@ class TestCLIGraphEdges:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -859,7 +913,9 @@ class TestCLIGraphEdges:
                 runner.invoke(cli, ["init"])
 
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, ["graph", "edges", "test-memory-id", "--type", "INVALID_TYPE"])
+                result = runner.invoke(
+                    cli, ["graph", "edges", "test-memory-id", "--type", "INVALID_TYPE"]
+                )
 
             assert result.exit_code != 0
             assert "Invalid value" in result.output or "Error" in result.output
@@ -871,6 +927,7 @@ class TestCLIGraphEdges:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -888,7 +945,7 @@ class TestCLIGraphEdges:
             mock_edge_out.strength = 0.85
             mock_edge_out.created_at = datetime.now()
 
-            with patch.object(GraphPalace, 'get_edges', return_value=[mock_edge_out]):
+            with patch.object(GraphPalace, "get_edges", return_value=[mock_edge_out]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     result = runner.invoke(cli, ["graph", "edges", "query-memory-id"])
 
@@ -905,6 +962,7 @@ class TestCLIGraphIntegration:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -930,6 +988,7 @@ class TestCLIGraphIntegration:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi import GraphPalace
@@ -955,12 +1014,12 @@ class TestCLIGraphIntegration:
             mock_edge.created_at = datetime.now()
 
             # Test neighbors
-            with patch.object(GraphPalace, 'get_connected', return_value=[mock_mem]):
+            with patch.object(GraphPalace, "get_connected", return_value=[mock_mem]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     neighbors_result = runner.invoke(cli, ["graph", "neighbors", "test-memory-id"])
 
             # Test edges
-            with patch.object(GraphPalace, 'get_edges', return_value=[mock_edge]):
+            with patch.object(GraphPalace, "get_edges", return_value=[mock_edge]):
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
                     edges_result = runner.invoke(cli, ["graph", "edges", "test-memory-id"])
 

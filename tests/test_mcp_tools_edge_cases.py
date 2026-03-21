@@ -2,6 +2,7 @@
 Edge case tests for MCP tools (api.py coverage)
 Tests error handling, validation, and edge cases for MCP tool implementations
 """
+
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -41,8 +42,8 @@ class TestMCPToolsEdgeCases:
         mock_embedder = MagicMock()
         mock_embedder.embed.return_value = [0.1] * 768
 
-        with patch('omi.api.GraphPalace', return_value=mock_palace):
-            with patch('omi.api.OllamaEmbedder', return_value=mock_embedder):
+        with patch("omi.api.GraphPalace", return_value=mock_palace):
+            with patch("omi.api.OllamaEmbedder", return_value=mock_embedder):
                 tools = MemoryTools(str(tmp_path / "palace.sqlite"), mock_embedder)
 
                 # Recall with empty query should return empty list
@@ -57,8 +58,8 @@ class TestMCPToolsEdgeCases:
         mock_embedder = MagicMock()
         mock_embedder.embed.return_value = [0.1] * 768
 
-        with patch('omi.api.GraphPalace', return_value=mock_palace):
-            with patch('omi.api.OllamaEmbedder', return_value=mock_embedder):
+        with patch("omi.api.GraphPalace", return_value=mock_palace):
+            with patch("omi.api.OllamaEmbedder", return_value=mock_embedder):
                 tools = MemoryTools(str(tmp_path / "palace.sqlite"), mock_embedder)
 
                 # Store empty content
@@ -77,8 +78,8 @@ class TestMCPToolsEdgeCases:
         mock_embedder = MagicMock()
         mock_embedder.embed.return_value = [0.1] * 768
 
-        with patch('omi.api.GraphPalace', return_value=mock_palace):
-            with patch('omi.api.OllamaEmbedder', return_value=mock_embedder):
+        with patch("omi.api.GraphPalace", return_value=mock_palace):
+            with patch("omi.api.OllamaEmbedder", return_value=mock_embedder):
                 tools = MemoryTools(str(tmp_path / "palace.sqlite"), mock_embedder)
 
                 result = tools.recall("test query", limit=1)
@@ -91,15 +92,15 @@ class TestMCPToolsEdgeCases:
         mock_palace = MagicMock()
         mock_belief_network = MagicMock()
 
-        with patch('omi.api.GraphPalace', return_value=mock_palace):
-            with patch('omi.api.BeliefNetwork', return_value=mock_belief_network):
+        with patch("omi.api.GraphPalace", return_value=mock_palace):
+            with patch("omi.api.BeliefNetwork", return_value=mock_belief_network):
                 tools = BeliefTools(str(tmp_path / "palace.sqlite"))
 
                 # Try to update belief with invalid evidence format
                 result = tools.update_belief(
                     belief_id="belief_123",
                     evidence="invalid_evidence",  # Should be dict/object
-                    evidence_type="supporting"
+                    evidence_type="supporting",
                 )
 
                 # Should handle gracefully (may return None or error)
@@ -113,8 +114,8 @@ class TestMCPToolsEdgeCases:
             {"belief_id_1": "belief_1", "belief_id_2": "belief_2", "score": 0.95}
         ]
 
-        with patch('omi.api.GraphPalace', return_value=mock_palace):
-            with patch('omi.api.BeliefNetwork', return_value=mock_belief_network):
+        with patch("omi.api.GraphPalace", return_value=mock_palace):
+            with patch("omi.api.BeliefNetwork", return_value=mock_belief_network):
                 tools = BeliefTools(str(tmp_path / "palace.sqlite"))
 
                 # Check for contradictions
@@ -124,8 +125,8 @@ class TestMCPToolsEdgeCases:
 
     def test_checkpoint_tools_missing_data(self, tmp_path):
         """Test CheckpointTools with missing checkpoint data"""
-        with patch('omi.api.NOWStore') as mock_now:
-            with patch('omi.api.DailyLogStore') as mock_daily:
+        with patch("omi.api.NOWStore") as mock_now:
+            with patch("omi.api.DailyLogStore") as mock_daily:
                 mock_now_instance = MagicMock()
                 mock_now_instance.read.return_value = ""
                 mock_now.return_value = mock_now_instance
@@ -144,7 +145,7 @@ class TestMCPToolsEdgeCases:
 
     def test_checkpoint_tools_restore_nonexistent(self, tmp_path):
         """Test restoring non-existent checkpoint"""
-        with patch('omi.api.NOWStore') as mock_now:
+        with patch("omi.api.NOWStore") as mock_now:
             mock_now_instance = MagicMock()
             mock_now.return_value = mock_now_instance
 
@@ -158,7 +159,7 @@ class TestMCPToolsEdgeCases:
 
     def test_daily_log_tools_empty_logs(self, tmp_path):
         """Test DailyLogTools with empty logs"""
-        with patch('omi.api.DailyLogStore') as mock_daily:
+        with patch("omi.api.DailyLogStore") as mock_daily:
             mock_daily_instance = MagicMock()
             mock_daily_instance.get_entries_for_date.return_value = []
             mock_daily.return_value = mock_daily_instance
@@ -173,7 +174,7 @@ class TestMCPToolsEdgeCases:
 
     def test_daily_log_tools_append_entry(self, tmp_path):
         """Test appending entry to daily log"""
-        with patch('omi.api.DailyLogStore') as mock_daily:
+        with patch("omi.api.DailyLogStore") as mock_daily:
             mock_daily_instance = MagicMock()
             mock_daily.return_value = mock_daily_instance
 
@@ -187,7 +188,7 @@ class TestMCPToolsEdgeCases:
 
     def test_security_tools_integrity_check(self, tmp_path):
         """Test SecurityTools integrity check"""
-        with patch('omi.api.IntegrityChecker') as mock_checker:
+        with patch("omi.api.IntegrityChecker") as mock_checker:
             mock_checker_instance = MagicMock()
             mock_checker_instance.check_now_md.return_value = True
             mock_checker_instance.check_memory_md.return_value = True
@@ -205,17 +206,17 @@ class TestMCPToolsEdgeCases:
         """Test SecurityTools security audit"""
         mock_palace = MagicMock()
 
-        with patch('omi.api.PoisonDetector') as mock_detector:
+        with patch("omi.api.PoisonDetector") as mock_detector:
             mock_detector_instance = MagicMock()
             mock_detector_instance.full_security_audit.return_value = {
                 "file_integrity": True,
                 "orphan_nodes": [],
                 "sudden_cores": [],
-                "overall_safe": True
+                "overall_safe": True,
             }
             mock_detector.return_value = mock_detector_instance
 
-            with patch('omi.api.GraphPalace', return_value=mock_palace):
+            with patch("omi.api.GraphPalace", return_value=mock_palace):
                 tools = SecurityTools(str(tmp_path))
 
                 # Run security audit
@@ -233,15 +234,15 @@ class TestMCPToolsEdgeCases:
         mock_embedder = MagicMock()
         mock_embedder.embed.return_value = [0.1] * 768
 
-        with patch('omi.api.GraphPalace', return_value=mock_palace):
-            with patch('omi.api.OllamaEmbedder', return_value=mock_embedder):
+        with patch("omi.api.GraphPalace", return_value=mock_palace):
+            with patch("omi.api.OllamaEmbedder", return_value=mock_embedder):
                 tools = MemoryTools(str(tmp_path / "palace.sqlite"), mock_embedder)
 
                 # Store with metadata
                 result = tools.store(
                     "Memory content",
                     memory_type="fact",
-                    metadata={"source": "test", "confidence": 0.95}
+                    metadata={"source": "test", "confidence": 0.95},
                 )
 
                 assert result is not None
@@ -253,11 +254,11 @@ class TestMCPToolsEdgeCases:
         mock_belief_network.get_belief.return_value = {
             "id": "belief_123",
             "confidence": 0.85,
-            "evidence_count": 5
+            "evidence_count": 5,
         }
 
-        with patch('omi.api.GraphPalace', return_value=mock_palace):
-            with patch('omi.api.BeliefNetwork', return_value=mock_belief_network):
+        with patch("omi.api.GraphPalace", return_value=mock_palace):
+            with patch("omi.api.BeliefNetwork", return_value=mock_belief_network):
                 tools = BeliefTools(str(tmp_path / "palace.sqlite"))
 
                 # Get belief status
@@ -274,11 +275,11 @@ class TestMCPToolsEdgeCases:
         (checkpoint_dir / "checkpoint_1.json").write_text("{}")
         (checkpoint_dir / "checkpoint_2.json").write_text("{}")
 
-        with patch('omi.api.NOWStore'):
+        with patch("omi.api.NOWStore"):
             tools = CheckpointTools(str(tmp_path))
 
             # List checkpoints (if method exists)
             # This is a speculative test for coverage
-            if hasattr(tools, 'list_checkpoints'):
+            if hasattr(tools, "list_checkpoints"):
                 result = tools.list_checkpoints()
                 assert isinstance(result, list)

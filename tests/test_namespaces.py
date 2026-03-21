@@ -21,6 +21,7 @@ from typing import List
 import numpy as np
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from omi.storage.graph_palace import GraphPalace, Memory
@@ -28,7 +29,7 @@ from omi.namespaces import (
     Namespace,
     NamespaceComponents,
     validate_namespace,
-    parse_namespace_pattern
+    parse_namespace_pattern,
 )
 
 
@@ -238,20 +239,13 @@ class TestNamespaceValidation(unittest.TestCase):
         """Test hierarchy generation for full namespace."""
         ns = Namespace("acme/research/reader")
         hierarchy = ns.get_hierarchy()
-        self.assertEqual(hierarchy, [
-            "acme/research/reader",
-            "acme/research",
-            "acme"
-        ])
+        self.assertEqual(hierarchy, ["acme/research/reader", "acme/research", "acme"])
 
     def test_get_hierarchy_org_team(self):
         """Test hierarchy generation for org/team namespace."""
         ns = Namespace("acme/research")
         hierarchy = ns.get_hierarchy()
-        self.assertEqual(hierarchy, [
-            "acme/research",
-            "acme"
-        ])
+        self.assertEqual(hierarchy, ["acme/research", "acme"])
 
     def test_get_hierarchy_org_only(self):
         """Test hierarchy generation for org-only namespace."""
@@ -378,42 +372,42 @@ class TestNamespaceHelperFunctions(unittest.TestCase):
     def test_parse_namespace_pattern_org_only(self):
         """Test parsing org-only pattern."""
         result = parse_namespace_pattern("acme")
-        self.assertEqual(result['org'], "acme")
-        self.assertIsNone(result['team'])
-        self.assertIsNone(result['agent'])
-        self.assertFalse(result['wildcard'])
+        self.assertEqual(result["org"], "acme")
+        self.assertIsNone(result["team"])
+        self.assertIsNone(result["agent"])
+        self.assertFalse(result["wildcard"])
 
     def test_parse_namespace_pattern_org_team(self):
         """Test parsing org/team pattern."""
         result = parse_namespace_pattern("acme/research")
-        self.assertEqual(result['org'], "acme")
-        self.assertEqual(result['team'], "research")
-        self.assertIsNone(result['agent'])
-        self.assertFalse(result['wildcard'])
+        self.assertEqual(result["org"], "acme")
+        self.assertEqual(result["team"], "research")
+        self.assertIsNone(result["agent"])
+        self.assertFalse(result["wildcard"])
 
     def test_parse_namespace_pattern_full(self):
         """Test parsing full namespace pattern."""
         result = parse_namespace_pattern("acme/research/reader")
-        self.assertEqual(result['org'], "acme")
-        self.assertEqual(result['team'], "research")
-        self.assertEqual(result['agent'], "reader")
-        self.assertFalse(result['wildcard'])
+        self.assertEqual(result["org"], "acme")
+        self.assertEqual(result["team"], "research")
+        self.assertEqual(result["agent"], "reader")
+        self.assertFalse(result["wildcard"])
 
     def test_parse_namespace_pattern_org_wildcard(self):
         """Test parsing org wildcard pattern."""
         result = parse_namespace_pattern("acme/*")
-        self.assertEqual(result['org'], "acme")
-        self.assertIsNone(result['team'])
-        self.assertIsNone(result['agent'])
-        self.assertTrue(result['wildcard'])
+        self.assertEqual(result["org"], "acme")
+        self.assertIsNone(result["team"])
+        self.assertIsNone(result["agent"])
+        self.assertTrue(result["wildcard"])
 
     def test_parse_namespace_pattern_team_wildcard(self):
         """Test parsing team wildcard pattern."""
         result = parse_namespace_pattern("acme/research/*")
-        self.assertEqual(result['org'], "acme")
-        self.assertEqual(result['team'], "research")
-        self.assertIsNone(result['agent'])
-        self.assertTrue(result['wildcard'])
+        self.assertEqual(result["org"], "acme")
+        self.assertEqual(result["team"], "research")
+        self.assertIsNone(result["agent"])
+        self.assertTrue(result["wildcard"])
 
     def test_parse_namespace_pattern_invalid(self):
         """Test parsing invalid pattern raises ValueError."""
@@ -424,10 +418,10 @@ class TestNamespaceHelperFunctions(unittest.TestCase):
     def test_parse_namespace_pattern_agent_wildcard(self):
         """Test parsing agent wildcard pattern."""
         result = parse_namespace_pattern("acme/team/agent/*")
-        self.assertEqual(result['org'], "acme")
-        self.assertEqual(result['team'], "team")
-        self.assertEqual(result['agent'], "agent")
-        self.assertTrue(result['wildcard'])
+        self.assertEqual(result["org"], "acme")
+        self.assertEqual(result["team"], "team")
+        self.assertEqual(result["agent"], "agent")
+        self.assertTrue(result["wildcard"])
 
 
 class TestNamespacePermissions(unittest.TestCase):
@@ -443,6 +437,7 @@ class TestNamespacePermissions(unittest.TestCase):
         """Clean up test database."""
         self.palace.close()
         import shutil
+
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
@@ -452,7 +447,9 @@ class TestNamespacePermissions(unittest.TestCase):
         vec = vec / np.linalg.norm(vec)
         return vec.tolist()
 
-    def _generate_similar_embedding(self, base: List[float], similarity: float = 0.9) -> List[float]:
+    def _generate_similar_embedding(
+        self, base: List[float], similarity: float = 0.9
+    ) -> List[float]:
         """Generate an embedding similar to base vector."""
         noise = np.random.randn(len(base))
         noise = noise / np.linalg.norm(noise)
@@ -464,48 +461,27 @@ class TestNamespacePermissions(unittest.TestCase):
 
     def test_grant_permission(self):
         """Test granting read permission between namespaces."""
-        memory_id = self.palace.store_memory(
-            "Secret knowledge",
-            namespace="acme/team/agent1"
-        )
+        memory_id = self.palace.store_memory("Secret knowledge", namespace="acme/team/agent1")
 
-        perm_id = self.palace.grant_permission(
-            "acme/team/agent1",
-            "acme/team/agent2",
-            "read"
-        )
+        perm_id = self.palace.grant_permission("acme/team/agent1", "acme/team/agent2", "read")
 
         self.assertIsNotNone(perm_id)
         self.assertTrue(self.palace.can_access("acme/team/agent2", memory_id))
 
     def test_grant_permission_cross_team(self):
         """Test granting permission across teams."""
-        memory_id = self.palace.store_memory(
-            "Team A knowledge",
-            namespace="acme/teamA/agent1"
-        )
+        memory_id = self.palace.store_memory("Team A knowledge", namespace="acme/teamA/agent1")
 
-        perm_id = self.palace.grant_permission(
-            "acme/teamA/agent1",
-            "acme/teamB/agent2",
-            "read"
-        )
+        perm_id = self.palace.grant_permission("acme/teamA/agent1", "acme/teamB/agent2", "read")
 
         self.assertIsNotNone(perm_id)
         self.assertTrue(self.palace.can_access("acme/teamB/agent2", memory_id))
 
     def test_grant_permission_to_team_level(self):
         """Test granting permission to team-level namespace."""
-        memory_id = self.palace.store_memory(
-            "Agent knowledge",
-            namespace="acme/team/agent1"
-        )
+        memory_id = self.palace.store_memory("Agent knowledge", namespace="acme/team/agent1")
 
-        perm_id = self.palace.grant_permission(
-            "acme/team/agent1",
-            "acme/team",
-            "read"
-        )
+        perm_id = self.palace.grant_permission("acme/team/agent1", "acme/team", "read")
 
         self.assertIsNotNone(perm_id)
 
@@ -513,16 +489,9 @@ class TestNamespacePermissions(unittest.TestCase):
 
     def test_revoke_permission(self):
         """Test revoking permission."""
-        memory_id = self.palace.store_memory(
-            "Secret knowledge",
-            namespace="acme/team/agent1"
-        )
+        memory_id = self.palace.store_memory("Secret knowledge", namespace="acme/team/agent1")
 
-        self.palace.grant_permission(
-            "acme/team/agent1",
-            "acme/team/agent2",
-            "read"
-        )
+        self.palace.grant_permission("acme/team/agent1", "acme/team/agent2", "read")
         self.assertTrue(self.palace.can_access("acme/team/agent2", memory_id))
 
         self.palace.revoke_permission("acme/team/agent1", "acme/team/agent2")
@@ -538,8 +507,7 @@ class TestNamespacePermissions(unittest.TestCase):
     def test_commons_namespace_readable_by_org(self):
         """Test that commons namespace is readable by all agents in org."""
         memory_id = self.palace.store_memory(
-            "Shared organizational knowledge",
-            namespace="acme/commons"
+            "Shared organizational knowledge", namespace="acme/commons"
         )
 
         self.assertTrue(self.palace.can_access("acme/team/agent1", memory_id))
@@ -549,24 +517,17 @@ class TestNamespacePermissions(unittest.TestCase):
 
     def test_commons_namespace_not_readable_by_other_org(self):
         """Test that commons namespace is not readable by other orgs."""
-        memory_id = self.palace.store_memory(
-            "Acme shared knowledge",
-            namespace="acme/commons"
-        )
+        memory_id = self.palace.store_memory("Acme shared knowledge", namespace="acme/commons")
 
         self.assertFalse(self.palace.can_access("other-org/team/agent", memory_id))
         self.assertFalse(self.palace.can_access("other-org/commons", memory_id))
 
     def test_multiple_commons_namespaces(self):
         """Test multiple organizations have separate commons namespaces."""
-        acme_memory_id = self.palace.store_memory(
-            "Acme shared knowledge",
-            namespace="acme/commons"
-        )
+        acme_memory_id = self.palace.store_memory("Acme shared knowledge", namespace="acme/commons")
 
         other_memory_id = self.palace.store_memory(
-            "Other org shared knowledge",
-            namespace="other-org/commons"
+            "Other org shared knowledge", namespace="other-org/commons"
         )
 
         # Acme agents can access acme/commons but not other-org/commons
@@ -585,25 +546,19 @@ class TestNamespacePermissions(unittest.TestCase):
 
         # Agent1's memory
         mem1_id = self.palace.store_memory(
-            "Agent 1 knowledge",
-            embedding=base_embedding,
-            namespace="acme/team/agent1"
+            "Agent 1 knowledge", embedding=base_embedding, namespace="acme/team/agent1"
         )
 
         # Agent2's memory (similar embedding)
         similar_emb = self._generate_similar_embedding(base_embedding, similarity=0.95)
         mem2_id = self.palace.store_memory(
-            "Agent 2 knowledge",
-            embedding=similar_emb,
-            namespace="acme/team/agent2"
+            "Agent 2 knowledge", embedding=similar_emb, namespace="acme/team/agent2"
         )
 
         # Commons memory (similar embedding)
         commons_emb = self._generate_similar_embedding(base_embedding, similarity=0.93)
         commons_id = self.palace.store_memory(
-            "Shared knowledge",
-            embedding=commons_emb,
-            namespace="acme/commons"
+            "Shared knowledge", embedding=commons_emb, namespace="acme/commons"
         )
 
         # Test 1: Agent1 should only see their own memory and commons
@@ -611,13 +566,15 @@ class TestNamespacePermissions(unittest.TestCase):
             query_embedding=base_embedding,
             namespace="acme/team/agent1",
             min_relevance=0.7,
-            limit=10
+            limit=10,
         )
 
         result_ids = [m.id for m, score in results]
         self.assertIn(mem1_id, result_ids, "Agent1 should see their own memory")
         self.assertIn(commons_id, result_ids, "Agent1 should see commons memory")
-        self.assertNotIn(mem2_id, result_ids, "Agent1 should NOT see agent2's memory without permission")
+        self.assertNotIn(
+            mem2_id, result_ids, "Agent1 should NOT see agent2's memory without permission"
+        )
 
         # Test 2: Grant agent1 permission to read agent2's memories
         self.palace.grant_permission("acme/team/agent2", "acme/team/agent1", "read")
@@ -626,7 +583,7 @@ class TestNamespacePermissions(unittest.TestCase):
             query_embedding=base_embedding,
             namespace="acme/team/agent1",
             min_relevance=0.7,
-            limit=10
+            limit=10,
         )
 
         result_ids = [m.id for m, score in results]
@@ -639,13 +596,15 @@ class TestNamespacePermissions(unittest.TestCase):
             query_embedding=base_embedding,
             namespace="acme/team/agent2",
             min_relevance=0.7,
-            limit=10
+            limit=10,
         )
 
         result_ids = [m.id for m, score in results]
         self.assertIn(mem2_id, result_ids, "Agent2 should see their own memory")
         self.assertIn(commons_id, result_ids, "Agent2 should see commons memory")
-        self.assertNotIn(mem1_id, result_ids, "Agent2 should NOT see agent1's memory without permission")
+        self.assertNotIn(
+            mem1_id, result_ids, "Agent2 should NOT see agent1's memory without permission"
+        )
 
     def test_namespace_isolation(self):
         """Test that namespaces are properly isolated without permissions."""
@@ -653,23 +612,18 @@ class TestNamespacePermissions(unittest.TestCase):
 
         # Create memories in different namespaces
         mem_acme = self.palace.store_memory(
-            "Acme knowledge",
-            embedding=base_embedding,
-            namespace="acme/team/agent"
+            "Acme knowledge", embedding=base_embedding, namespace="acme/team/agent"
         )
 
         mem_other = self.palace.store_memory(
             "Other org knowledge",
             embedding=self._generate_similar_embedding(base_embedding, 0.95),
-            namespace="other-org/team/agent"
+            namespace="other-org/team/agent",
         )
 
         # Acme agent should not see other org's memory
         results = self.palace.recall(
-            query_embedding=base_embedding,
-            namespace="acme/team/agent",
-            min_relevance=0.7,
-            limit=10
+            query_embedding=base_embedding, namespace="acme/team/agent", min_relevance=0.7, limit=10
         )
 
         result_ids = [m.id for m, score in results]
@@ -681,7 +635,7 @@ class TestNamespacePermissions(unittest.TestCase):
             query_embedding=base_embedding,
             namespace="other-org/team/agent",
             min_relevance=0.7,
-            limit=10
+            limit=10,
         )
 
         result_ids = [m.id for m, score in results]
@@ -693,15 +647,13 @@ class TestNamespacePermissions(unittest.TestCase):
         base_embedding = self._generate_embedding()
 
         mem1 = self.palace.store_memory(
-            "Agent 1 knowledge",
-            embedding=base_embedding,
-            namespace="acme/team/agent1"
+            "Agent 1 knowledge", embedding=base_embedding, namespace="acme/team/agent1"
         )
 
         mem2 = self.palace.store_memory(
             "Agent 2 knowledge",
             embedding=self._generate_similar_embedding(base_embedding, 0.95),
-            namespace="acme/team/agent2"
+            namespace="acme/team/agent2",
         )
 
         # Grant bidirectional permissions
@@ -713,7 +665,7 @@ class TestNamespacePermissions(unittest.TestCase):
             query_embedding=base_embedding,
             namespace="acme/team/agent1",
             min_relevance=0.7,
-            limit=10
+            limit=10,
         )
         result_ids1 = [m.id for m, score in results1]
         self.assertIn(mem1, result_ids1)
@@ -723,7 +675,7 @@ class TestNamespacePermissions(unittest.TestCase):
             query_embedding=base_embedding,
             namespace="acme/team/agent2",
             min_relevance=0.7,
-            limit=10
+            limit=10,
         )
         result_ids2 = [m.id for m, score in results2]
         self.assertIn(mem1, result_ids2)

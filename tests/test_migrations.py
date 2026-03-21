@@ -21,6 +21,7 @@ from typing import List
 from unittest.mock import patch
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from omi.migrations.manager import MigrationManager, MigrationRecord
@@ -39,6 +40,7 @@ class TestMigrationManager(unittest.TestCase):
     def tearDown(self):
         """Clean up test database."""
         import shutil
+
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
@@ -75,9 +77,7 @@ class TestMigrationManager(unittest.TestCase):
     def test_record_migration(self):
         """Test recording a migration."""
         record_id = self.manager.record_migration(
-            version=1,
-            description="Initial migration",
-            duration_ms=150
+            version=1, description="Initial migration", duration_ms=150
         )
 
         self.assertIsNotNone(record_id)
@@ -85,16 +85,10 @@ class TestMigrationManager(unittest.TestCase):
 
     def test_record_migration_with_metadata(self):
         """Test recording a migration with metadata."""
-        metadata = {
-            "author": "test_user",
-            "tables_created": ["users", "posts"]
-        }
+        metadata = {"author": "test_user", "tables_created": ["users", "posts"]}
 
         record_id = self.manager.record_migration(
-            version=1,
-            description="Migration with metadata",
-            duration_ms=200,
-            metadata=metadata
+            version=1, description="Migration with metadata", duration_ms=200, metadata=metadata
         )
 
         # Retrieve and verify metadata
@@ -113,11 +107,7 @@ class TestMigrationManager(unittest.TestCase):
 
     def test_get_migration_record(self):
         """Test retrieving a specific migration record."""
-        self.manager.record_migration(
-            version=2,
-            description="Test migration",
-            duration_ms=100
-        )
+        self.manager.record_migration(version=2, description="Test migration", duration_ms=100)
 
         record = self.manager.get_migration_record(2)
         self.assertIsNotNone(record)
@@ -211,10 +201,7 @@ class TestMigrationManager(unittest.TestCase):
     def test_migration_record_to_dict(self):
         """Test MigrationRecord serialization to dictionary."""
         record_id = self.manager.record_migration(
-            version=1,
-            description="Test migration",
-            duration_ms=150,
-            metadata={"key": "value"}
+            version=1, description="Test migration", duration_ms=150, metadata={"key": "value"}
         )
 
         record = self.manager.get_migration_record(1)
@@ -263,6 +250,7 @@ class TestBackupManager(unittest.TestCase):
     def tearDown(self):
         """Clean up test files."""
         import shutil
+
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
@@ -294,10 +282,7 @@ class TestBackupManager(unittest.TestCase):
 
     def test_create_backup_with_metadata(self):
         """Test creating a backup with custom metadata."""
-        metadata = {
-            "reason": "pre-migration backup",
-            "version": "1.0.0"
-        }
+        metadata = {"reason": "pre-migration backup", "version": "1.0.0"}
 
         backup_info = self.backup_manager.create_backup(metadata=metadata)
 
@@ -528,9 +513,7 @@ class TestBackupManager(unittest.TestCase):
 
     def test_get_backup_info(self):
         """Test getting info about a specific backup."""
-        backup_info = self.backup_manager.create_backup(
-            metadata={"test": "value"}
-        )
+        backup_info = self.backup_manager.create_backup(metadata={"test": "value"})
 
         retrieved_info = self.backup_manager.get_backup_info(backup_info.path)
 
@@ -549,9 +532,7 @@ class TestBackupManager(unittest.TestCase):
 
     def test_backup_info_to_dict(self):
         """Test BackupInfo serialization to dictionary."""
-        backup_info = self.backup_manager.create_backup(
-            metadata={"key": "value"}
-        )
+        backup_info = self.backup_manager.create_backup(metadata={"key": "value"})
 
         info_dict = backup_info.to_dict()
 
@@ -588,6 +569,7 @@ class TestBackupManager(unittest.TestCase):
 
 # ==================== Performance Tests ====================
 
+
 class TestMigrationPerformance(unittest.TestCase):
     """Performance and stress tests."""
 
@@ -600,6 +582,7 @@ class TestMigrationPerformance(unittest.TestCase):
     def tearDown(self):
         """Clean up test files."""
         import shutil
+
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
@@ -610,9 +593,7 @@ class TestMigrationPerformance(unittest.TestCase):
         # Record 100 migrations
         for i in range(1, 101):
             self.manager.record_migration(
-                version=i,
-                description=f"Migration {i}",
-                duration_ms=i * 10
+                version=i, description=f"Migration {i}", duration_ms=i * 10
             )
 
         elapsed = time.time() - start_time
@@ -652,9 +633,11 @@ class TestMigrateCLI(unittest.TestCase):
         """Test that 'omi migrate run' requires initialization."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -668,9 +651,11 @@ class TestMigrateCLI(unittest.TestCase):
         """Test that 'omi migrate run' requires database to exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -688,9 +673,11 @@ class TestMigrateCLI(unittest.TestCase):
         """Test 'omi migrate run --dry-run' does not modify database."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -704,6 +691,7 @@ class TestMigrateCLI(unittest.TestCase):
 
             # Get initial database state
             import sqlite3
+
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             cursor.execute("PRAGMA user_version")
@@ -717,8 +705,7 @@ class TestMigrateCLI(unittest.TestCase):
             self.assertEqual(result.exit_code, 0)
             # Should show either "dry run" or "up to date" (if no migrations)
             self.assertTrue(
-                "dry run" in result.output.lower() or
-                "up to date" in result.output.lower()
+                "dry run" in result.output.lower() or "up to date" in result.output.lower()
             )
 
             # Verify database state unchanged
@@ -734,9 +721,11 @@ class TestMigrateCLI(unittest.TestCase):
         """Test 'omi migrate run' completes successfully when up to date."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -751,17 +740,18 @@ class TestMigrateCLI(unittest.TestCase):
 
             self.assertEqual(result.exit_code, 0)
             self.assertTrue(
-                "up to date" in result.output.lower() or
-                "no migrations" in result.output.lower()
+                "up to date" in result.output.lower() or "no migrations" in result.output.lower()
             )
 
     def test_migrate_status_requires_init(self):
         """Test that 'omi migrate status' requires initialization."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -775,9 +765,11 @@ class TestMigrateCLI(unittest.TestCase):
         """Test that 'omi migrate status' requires database to exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -795,9 +787,11 @@ class TestMigrateCLI(unittest.TestCase):
         """Test 'omi migrate status' displays current schema version."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -817,9 +811,11 @@ class TestMigrateCLI(unittest.TestCase):
         """Test 'omi migrate status' shows pending migrations message."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -835,17 +831,19 @@ class TestMigrateCLI(unittest.TestCase):
             self.assertEqual(result.exit_code, 0)
             # Should show either "no pending migrations" or list of pending
             self.assertTrue(
-                "no pending" in result.output.lower() or
-                "pending migration" in result.output.lower()
+                "no pending" in result.output.lower()
+                or "pending migration" in result.output.lower()
             )
 
     def test_migrate_rollback_requires_init(self):
         """Test that 'omi migrate rollback' requires initialization."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -859,9 +857,11 @@ class TestMigrateCLI(unittest.TestCase):
         """Test that 'omi migrate rollback' requires database to exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -879,9 +879,11 @@ class TestMigrateCLI(unittest.TestCase):
         """Test 'omi migrate rollback --dry-run' does not modify database."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -895,6 +897,7 @@ class TestMigrateCLI(unittest.TestCase):
 
             # Get initial database state
             import sqlite3
+
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             cursor.execute("PRAGMA user_version")
@@ -908,8 +911,8 @@ class TestMigrateCLI(unittest.TestCase):
             self.assertEqual(result.exit_code, 0)
             # Should show dry run message or "nothing to roll back"
             self.assertTrue(
-                "dry run" in result.output.lower() or
-                "nothing to roll back" in result.output.lower()
+                "dry run" in result.output.lower()
+                or "nothing to roll back" in result.output.lower()
             )
 
             # Verify database state unchanged
@@ -925,9 +928,11 @@ class TestMigrateCLI(unittest.TestCase):
         """Test 'omi migrate rollback' handles version 0 gracefully."""
         with tempfile.TemporaryDirectory() as tmpdir:
             from click.testing import CliRunner
+
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -940,6 +945,7 @@ class TestMigrateCLI(unittest.TestCase):
 
             # Set schema version to 0
             import sqlite3
+
             conn = sqlite3.connect(db_path)
             conn.execute("PRAGMA user_version = 0")
             conn.close()
@@ -950,8 +956,8 @@ class TestMigrateCLI(unittest.TestCase):
 
             self.assertEqual(result.exit_code, 0)
             self.assertTrue(
-                "nothing to roll back" in result.output.lower() or
-                "version 0" in result.output.lower()
+                "nothing to roll back" in result.output.lower()
+                or "version 0" in result.output.lower()
             )
 
 
@@ -976,6 +982,7 @@ class TestE2EMigration(unittest.TestCase):
     def tearDown(self):
         """Clean up test files."""
         import shutil
+
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
@@ -1016,11 +1023,7 @@ class TestE2EMigration(unittest.TestCase):
         # Step 2: Create backup before migration
         backup_manager = BackupManager(self.db_path, self.backup_dir)
         backup_info = backup_manager.create_backup(
-            metadata={
-                "reason": "pre-migration backup",
-                "from_version": 0,
-                "to_version": 1
-            }
+            metadata={"reason": "pre-migration backup", "from_version": 0, "to_version": 1}
         )
 
         # Verify backup was created
@@ -1046,7 +1049,7 @@ class TestE2EMigration(unittest.TestCase):
             version=1,
             description="Add email column to users table",
             duration_ms=duration_ms,
-            metadata={"column_added": "email"}
+            metadata={"column_added": "email"},
         )
 
         # Step 4: Verify migration applied correctly
@@ -1159,9 +1162,7 @@ class TestE2EMigration(unittest.TestCase):
             conn.commit()
 
         migration_manager.record_migration(
-            version=1,
-            description="Add category column (will be rolled back)",
-            duration_ms=50
+            version=1, description="Add category column (will be rolled back)", duration_ms=50
         )
 
         # Step 4: Detect that migration needs rollback
@@ -1226,9 +1227,7 @@ class TestE2EMigration(unittest.TestCase):
             conn.commit()
 
         migration_manager.record_migration(
-            version=1,
-            description="Add status column",
-            duration_ms=25
+            version=1, description="Add status column", duration_ms=25
         )
 
         self.assertEqual(migration_manager.get_schema_version(), 1)
@@ -1245,9 +1244,7 @@ class TestE2EMigration(unittest.TestCase):
             conn.commit()
 
         migration_manager.record_migration(
-            version=2,
-            description="Add created_at column",
-            duration_ms=30
+            version=2, description="Add created_at column", duration_ms=30
         )
 
         self.assertEqual(migration_manager.get_schema_version(), 2)

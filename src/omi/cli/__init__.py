@@ -11,6 +11,7 @@ Command groups will be organized into separate modules:
 - events.py: events list, subscribe
 - common.py: shared utilities
 """
+
 from pathlib import Path
 from typing import Optional
 import click
@@ -25,6 +26,13 @@ from .events import events_group
 from .sync import sync_group
 from .plugins import plugins_group
 from .serve import serve_group
+from .index import index_group
+from .policy import policy_group
+from .snapshot import snapshot_group
+from .user import user_group
+from .namespace import namespace_group
+from .subscribe import subscribe_group
+from .belief import belief_group
 
 # CLI version - matches project version
 __version__ = "0.2.0"
@@ -32,12 +40,15 @@ __version__ = "0.2.0"
 
 @click.group()
 @click.version_option(version=__version__, prog_name="omi")
-@click.option('--data-dir', type=click.Path(), default=None, envvar='OMI_BASE_PATH',
-              help='Base directory for OMI data (default: ~/.openclaw/omi)')
-@click.option('--verbose', '-v', is_flag=True, default=False,
-              help='Enable verbose output')
-@click.option('--quiet', '-q', is_flag=True, default=False,
-              help='Suppress non-essential output')
+@click.option(
+    "--data-dir",
+    type=click.Path(),
+    default=None,
+    envvar="OMI_BASE_PATH",
+    help="Base directory for OMI data (default: ~/.openclaw/omi)",
+)
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose output")
+@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress non-essential output")
 @click.pass_context
 def cli(ctx, data_dir, verbose, quiet):
     """OMI - OpenClaw Memory Infrastructure
@@ -77,47 +88,68 @@ def cli(ctx, data_dir, verbose, quiet):
 
     # Set verbosity level
     if quiet:
-        ctx.obj['verbosity'] = VERBOSITY_QUIET
+        ctx.obj["verbosity"] = VERBOSITY_QUIET
     elif verbose:
-        ctx.obj['verbosity'] = VERBOSITY_VERBOSE
+        ctx.obj["verbosity"] = VERBOSITY_VERBOSE
     else:
-        ctx.obj['verbosity'] = VERBOSITY_NORMAL
+        ctx.obj["verbosity"] = VERBOSITY_NORMAL
 
     if data_dir:
-        ctx.obj['data_dir'] = Path(data_dir)
+        ctx.obj["data_dir"] = Path(data_dir)
     else:
-        ctx.obj['data_dir'] = None
+        ctx.obj["data_dir"] = None
 
 
 # Register session commands (init, session-start, session-end)
-cli.add_command(session_group.commands['init'])
-cli.add_command(session_group.commands['session-start'])
-cli.add_command(session_group.commands['session-end'])
+cli.add_command(session_group.commands["init"])
+cli.add_command(session_group.commands["session-start"])
+cli.add_command(session_group.commands["session-end"])
 
 # Register memory commands (store, recall, check)
-cli.add_command(memory_group.commands['store'])
-cli.add_command(memory_group.commands['recall'])
-cli.add_command(memory_group.commands['check'])
+cli.add_command(memory_group.commands["store"])
+cli.add_command(memory_group.commands["recall"])
+cli.add_command(memory_group.commands["check"])
 
 # Register monitoring commands (status, audit)
-cli.add_command(monitoring_group.commands['status'])
-cli.add_command(monitoring_group.commands['audit'])
+cli.add_command(monitoring_group.commands["status"])
+cli.add_command(monitoring_group.commands["audit"])
 
 # Register config command group (config set, get, show)
-cli.add_command(config_group, name='config')
+cli.add_command(config_group, name="config")
 
 # Register events command group (events list, subscribe)
-cli.add_command(events_group, name='events')
+cli.add_command(events_group, name="events")
 
 # Register sync command group (sync status, push, pull)
-cli.add_command(sync_group, name='sync')
+cli.add_command(sync_group, name="sync")
 
 # Register plugins command group (plugins list)
-cli.add_command(plugins_group, name='plugins')
+cli.add_command(plugins_group, name="plugins")
+
+# Register index commands
+cli.add_command(index_group, name='index')
+
+# Register policy command group (policy show, dry-run, execute)
+cli.add_command(policy_group, name='policy')
+
+# Register snapshot command group (snapshot create, list, diff, rollback)
+cli.add_command(snapshot_group, name='snapshot')
+
+# Register user command group (user create, list, delete, permissions, set-role)
+cli.add_command(user_group, name='user')
+
+# Register namespace command group (namespace commands)
+cli.add_command(namespace_group, name='namespace')
+
+# Register subscribe command
+cli.add_command(subscribe_group.commands['subscribe'])
+
+# Register belief command group
+cli.add_command(belief_group, name='belief')
 
 
 @cli.command()
-@click.argument('shell', type=click.Choice(['bash', 'zsh']), required=True)
+@click.argument("shell", type=click.Choice(["bash", "zsh"]), required=True)
 def completion(shell):
     """Generate shell completion script.
 
@@ -206,8 +238,9 @@ fi"""
 
     click.echo(script)
 
+
 # Register serve command
-cli.add_command(serve_group.commands['serve'])
+cli.add_command(serve_group.commands["serve"])
 
 
 def main():
@@ -216,8 +249,8 @@ def main():
 
 
 __all__ = [
-    '__version__',
-    'cli',
-    'main',
-    'get_base_path',
+    "__version__",
+    "cli",
+    "main",
+    "get_base_path",
 ]

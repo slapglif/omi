@@ -9,6 +9,7 @@ Expected: Async should be at least 2x faster than sync for batch operations
 
 Issue: https://github.com/slapglif/omi/issues/4
 """
+
 import asyncio
 import time
 import tempfile
@@ -109,10 +110,10 @@ def benchmark_sync_batch_operations(num_operations=10):
         palace.close()
 
         return {
-            'store_time': store_time,
-            'recall_time': recall_time,
-            'total_time': total_time,
-            'operations': num_operations
+            "store_time": store_time,
+            "recall_time": recall_time,
+            "total_time": total_time,
+            "operations": num_operations,
         }
 
 
@@ -157,57 +158,57 @@ async def benchmark_async_batch_operations(num_operations=10):
             total_time = store_time + recall_time
 
             return {
-                'store_time': store_time,
-                'recall_time': recall_time,
-                'total_time': total_time,
-                'operations': num_operations
+                "store_time": store_time,
+                "recall_time": recall_time,
+                "total_time": total_time,
+                "operations": num_operations,
             }
 
 
 def print_results(sync_results, async_results):
     """Print benchmark results in a readable format."""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("ASYNC vs SYNC BATCH OPERATIONS BENCHMARK")
-    print("="*70)
+    print("=" * 70)
 
     print(f"\nNumber of operations: {sync_results['operations']}")
 
-    print("\n" + "-"*70)
+    print("\n" + "-" * 70)
     print("SYNC (Sequential) Results:")
-    print("-"*70)
+    print("-" * 70)
     print(f"  Store operations:  {sync_results['store_time']:.4f}s")
     print(f"  Recall operations: {sync_results['recall_time']:.4f}s")
     print(f"  Total time:        {sync_results['total_time']:.4f}s")
 
-    print("\n" + "-"*70)
+    print("\n" + "-" * 70)
     print("ASYNC (Concurrent) Results:")
-    print("-"*70)
+    print("-" * 70)
     print(f"  Store operations:  {async_results['store_time']:.4f}s")
     print(f"  Recall operations: {async_results['recall_time']:.4f}s")
     print(f"  Total time:        {async_results['total_time']:.4f}s")
 
-    print("\n" + "-"*70)
+    print("\n" + "-" * 70)
     print("Performance Comparison:")
-    print("-"*70)
+    print("-" * 70)
 
-    store_speedup = sync_results['store_time'] / async_results['store_time']
-    recall_speedup = sync_results['recall_time'] / async_results['recall_time']
-    total_speedup = sync_results['total_time'] / async_results['total_time']
+    store_speedup = sync_results["store_time"] / async_results["store_time"]
+    recall_speedup = sync_results["recall_time"] / async_results["recall_time"]
+    total_speedup = sync_results["total_time"] / async_results["total_time"]
 
     print(f"  Store speedup:     {store_speedup:.2f}x faster")
     print(f"  Recall speedup:    {recall_speedup:.2f}x faster")
     print(f"  Total speedup:     {total_speedup:.2f}x faster")
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
 
     # Acceptance criteria check
     if total_speedup >= 2.0:
         print("✓ PASS: Async is at least 2x faster than sync")
-        print("="*70)
+        print("=" * 70)
         return True
     else:
         print(f"✗ FAIL: Async is only {total_speedup:.2f}x faster (expected >= 2.0x)")
-        print("="*70)
+        print("=" * 70)
         return False
 
 
@@ -224,6 +225,7 @@ def main():
 
     # Exit with appropriate code
     import sys
+
     sys.exit(0 if passed else 1)
 
 

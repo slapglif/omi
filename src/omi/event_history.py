@@ -20,6 +20,7 @@ from dataclasses import dataclass
 @dataclass
 class EventRecord:
     """A stored event record."""
+
     id: str
     event_type: str
     payload: Dict[str, Any]
@@ -33,7 +34,7 @@ class EventRecord:
             "event_type": self.event_type,
             "payload": self.payload,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-            "metadata": self.metadata or {}
+            "metadata": self.metadata or {},
         }
 
 
@@ -89,10 +90,9 @@ class EventHistory:
 
             conn.commit()
 
-    def store_event(self,
-                   event_type: str,
-                   payload: Dict[str, Any],
-                   metadata: Optional[Dict[str, Any]] = None) -> str:
+    def store_event(
+        self, event_type: str, payload: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
         """
         Store an event in the history.
 
@@ -108,16 +108,19 @@ class EventHistory:
         timestamp = datetime.now().isoformat()
 
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO events (id, event_type, payload, timestamp, metadata)
                 VALUES (?, ?, ?, ?, ?)
-            """, (
-                event_id,
-                event_type,
-                json.dumps(payload),
-                timestamp,
-                json.dumps(metadata) if metadata else None
-            ))
+            """,
+                (
+                    event_id,
+                    event_type,
+                    json.dumps(payload),
+                    timestamp,
+                    json.dumps(metadata) if metadata else None,
+                ),
+            )
             conn.commit()
 
         return event_id
@@ -133,10 +136,13 @@ class EventHistory:
             EventRecord or None if not found
         """
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, event_type, payload, timestamp, metadata
                 FROM events WHERE id = ?
-            """, (event_id,))
+            """,
+                (event_id,),
+            )
 
             row = cursor.fetchone()
             if not row:
@@ -147,14 +153,16 @@ class EventHistory:
                 event_type=row[1],
                 payload=json.loads(row[2]) if row[2] else {},
                 timestamp=datetime.fromisoformat(row[3]) if row[3] else datetime.now(),
-                metadata=json.loads(row[4]) if row[4] else None
+                metadata=json.loads(row[4]) if row[4] else None,
             )
 
-    def query_events(self,
-                    event_type: Optional[str] = None,
-                    since: Optional[datetime] = None,
-                    until: Optional[datetime] = None,
-                    limit: int = 100) -> List[EventRecord]:
+    def query_events(
+        self,
+        event_type: Optional[str] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        limit: int = 100,
+    ) -> List[EventRecord]:
         """
         Query events with filters.
 
@@ -192,13 +200,15 @@ class EventHistory:
             cursor = conn.execute(query, params)
 
             for row in cursor:
-                events.append(EventRecord(
-                    id=row[0],
-                    event_type=row[1],
-                    payload=json.loads(row[2]) if row[2] else {},
-                    timestamp=datetime.fromisoformat(row[3]) if row[3] else datetime.now(),
-                    metadata=json.loads(row[4]) if row[4] else None
-                ))
+                events.append(
+                    EventRecord(
+                        id=row[0],
+                        event_type=row[1],
+                        payload=json.loads(row[2]) if row[2] else {},
+                        timestamp=datetime.fromisoformat(row[3]) if row[3] else datetime.now(),
+                        metadata=json.loads(row[4]) if row[4] else None,
+                    )
+                )
 
         return events
 
@@ -215,10 +225,12 @@ class EventHistory:
             """)
             return [row[0] for row in cursor]
 
-    def count_events(self,
-                    event_type: Optional[str] = None,
-                    since: Optional[datetime] = None,
-                    until: Optional[datetime] = None) -> int:
+    def count_events(
+        self,
+        event_type: Optional[str] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> int:
         """
         Count events matching filters.
 
@@ -262,9 +274,12 @@ class EventHistory:
             Number of events deleted
         """
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 DELETE FROM events WHERE timestamp < ?
-            """, (timestamp.isoformat(),))
+            """,
+                (timestamp.isoformat(),),
+            )
             conn.commit()
             return cursor.rowcount
 
@@ -298,7 +313,7 @@ class EventHistory:
                 "event_count": event_count,
                 "type_distribution": type_distribution,
                 "oldest_event": oldest,
-                "newest_event": newest
+                "newest_event": newest,
             }
 
     def vacuum(self) -> None:

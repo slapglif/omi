@@ -41,11 +41,7 @@ class TestMemoryGraph:
         db_path = tmp_path / "memory_graph.db"
         mg = MemoryGraph(db_path)
 
-        node = MemoryNode(
-            id=str(uuid.uuid4()),
-            content="Test memory content",
-            memory_type="fact"
-        )
+        node = MemoryNode(id=str(uuid.uuid4()), content="Test memory content", memory_type="fact")
 
         node_id = mg.store(node)
 
@@ -62,7 +58,7 @@ class TestMemoryGraph:
             id=str(uuid.uuid4()),
             content="Memory with embedding",
             embedding=embedding,
-            memory_type="experience"
+            memory_type="experience",
         )
 
         node_id = mg.store(node)
@@ -75,10 +71,7 @@ class TestMemoryGraph:
         mg = MemoryGraph(db_path)
 
         node = MemoryNode(
-            id=str(uuid.uuid4()),
-            content="Belief content",
-            memory_type="belief",
-            confidence=0.85
+            id=str(uuid.uuid4()), content="Belief content", memory_type="belief", confidence=0.85
         )
 
         node_id = mg.store(node)
@@ -90,11 +83,7 @@ class TestMemoryGraph:
         db_path = tmp_path / "memory_graph.db"
         mg = MemoryGraph(db_path)
 
-        node = MemoryNode(
-            id=str(uuid.uuid4()),
-            content="Test",
-            memory_type="fact"
-        )
+        node = MemoryNode(id=str(uuid.uuid4()), content="Test", memory_type="fact")
 
         mg.store(node)
 
@@ -107,11 +96,7 @@ class TestMemoryGraph:
         mg = MemoryGraph(db_path)
 
         content = "Test content"
-        node = MemoryNode(
-            id=str(uuid.uuid4()),
-            content=content,
-            memory_type="fact"
-        )
+        node = MemoryNode(id=str(uuid.uuid4()), content=content, memory_type="fact")
 
         mg.store(node)
 
@@ -136,10 +121,7 @@ class TestMemoryGraph:
         # Store memory with embedding
         embedding = [0.5] * 768
         node = MemoryNode(
-            id=str(uuid.uuid4()),
-            content="Test memory",
-            embedding=embedding,
-            memory_type="fact"
+            id=str(uuid.uuid4()), content="Test memory", embedding=embedding, memory_type="fact"
         )
         mg.store(node)
 
@@ -161,19 +143,23 @@ class TestMemoryGraph:
         similar_embedding = [1.0] * 768
         different_embedding = [0.0] + [1.0] * 767
 
-        mg.store(MemoryNode(
-            id=str(uuid.uuid4()),
-            content="Similar",
-            embedding=similar_embedding,
-            memory_type="fact"
-        ))
+        mg.store(
+            MemoryNode(
+                id=str(uuid.uuid4()),
+                content="Similar",
+                embedding=similar_embedding,
+                memory_type="fact",
+            )
+        )
 
-        mg.store(MemoryNode(
-            id=str(uuid.uuid4()),
-            content="Different",
-            embedding=different_embedding,
-            memory_type="fact"
-        ))
+        mg.store(
+            MemoryNode(
+                id=str(uuid.uuid4()),
+                content="Different",
+                embedding=different_embedding,
+                memory_type="fact",
+            )
+        )
 
         # Search with high threshold
         query = [0.95] * 768
@@ -191,13 +177,15 @@ class TestMemoryGraph:
         # Store multiple memories
         embedding_base = [0.5] * 768
         for i in range(5):
-            embedding = [0.5 + i*0.01] * 768
-            mg.store(MemoryNode(
-                id=str(uuid.uuid4()),
-                content=f"Memory {i}",
-                embedding=embedding,
-                memory_type="fact"
-            ))
+            embedding = [0.5 + i * 0.01] * 768
+            mg.store(
+                MemoryNode(
+                    id=str(uuid.uuid4()),
+                    content=f"Memory {i}",
+                    embedding=embedding,
+                    memory_type="fact",
+                )
+            )
 
         # Search with limit=2
         query = [0.5] * 768
@@ -220,18 +208,17 @@ class TestMemoryGraph:
         ]
 
         for i, emb in enumerate(embeddings):
-            mg.store(MemoryNode(
-                id=str(uuid.uuid4()),
-                content=f"Memory {i}",
-                embedding=emb,
-                memory_type="fact"
-            ))
+            mg.store(
+                MemoryNode(
+                    id=str(uuid.uuid4()), content=f"Memory {i}", embedding=emb, memory_type="fact"
+                )
+            )
 
         results = mg.semantic_search(query, min_similarity=0.0)
 
         # Should be sorted descending by similarity
         for i in range(len(results) - 1):
-            assert results[i][1] >= results[i+1][1]
+            assert results[i][1] >= results[i + 1][1]
 
     def test_get_centrality_basic(self, tmp_path):
         """Test centrality calculation"""
@@ -239,12 +226,7 @@ class TestMemoryGraph:
         mg = MemoryGraph(db_path)
 
         node_id = str(uuid.uuid4())
-        node = MemoryNode(
-            id=node_id,
-            content="Test",
-            memory_type="fact",
-            access_count=10
-        )
+        node = MemoryNode(id=node_id, content="Test", memory_type="fact", access_count=10)
         mg.store(node)
 
         centrality = mg.get_centrality(node_id)
@@ -270,11 +252,7 @@ class TestMemoryGraph:
         mg = MemoryGraph(db_path)
 
         # Store regular memory
-        node = MemoryNode(
-            id=str(uuid.uuid4()),
-            content="Regular memory",
-            memory_type="fact"
-        )
+        node = MemoryNode(id=str(uuid.uuid4()), content="Regular memory", memory_type="fact")
         mg.store(node)
 
         anomalies = mg.verify_topology()
@@ -314,10 +292,7 @@ class TestMemoryGraph:
 
         instance_ids = ["inst1", "inst2", "inst3"]
         node = MemoryNode(
-            id=str(uuid.uuid4()),
-            content="Test",
-            memory_type="fact",
-            instance_ids=instance_ids
+            id=str(uuid.uuid4()), content="Test", memory_type="fact", instance_ids=instance_ids
         )
 
         node_id = mg.store(node)
@@ -332,19 +307,11 @@ class TestMemoryGraph:
         node_id = str(uuid.uuid4())
 
         # Store initial node
-        node1 = MemoryNode(
-            id=node_id,
-            content="Original content",
-            memory_type="fact"
-        )
+        node1 = MemoryNode(id=node_id, content="Original content", memory_type="fact")
         mg.store(node1)
 
         # Store with same ID but different content
-        node2 = MemoryNode(
-            id=node_id,
-            content="Updated content",
-            memory_type="experience"
-        )
+        node2 = MemoryNode(id=node_id, content="Updated content", memory_type="experience")
         mg.store(node2)
 
         # Only one node should exist with the updated content

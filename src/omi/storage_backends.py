@@ -17,6 +17,7 @@ from datetime import datetime
 @dataclass
 class StorageObject:
     """Metadata for a stored object"""
+
     key: str  # Object key/path in storage
     size: int  # Size in bytes
     last_modified: datetime  # Last modification timestamp
@@ -221,23 +222,27 @@ class StorageBackend(ABC):
 
 class StorageError(Exception):
     """Base exception for storage backend errors"""
+
     pass
 
 
 class StorageAuthError(StorageError):
     """Exception for authentication/authorization errors"""
+
     pass
 
 
 class StorageConnectionError(StorageError):
     """Exception for connection/network errors"""
+
     pass
 
 
 # S3/Boto3 imports
 try:
-    import boto3
-    from botocore.exceptions import ClientError, NoCredentialsError
+    import boto3  # type: ignore
+    from botocore.exceptions import ClientError, NoCredentialsError  # type: ignore
+
     BOTO3_AVAILABLE = True
 except ImportError:
     BOTO3_AVAILABLE = False
@@ -283,8 +288,7 @@ class S3Backend(StorageBackend):
 
         if not BOTO3_AVAILABLE:
             raise ImportError(
-                "boto3 package required for S3 backend. "
-                "Install with: pip install boto3"
+                "boto3 package required for S3 backend. " "Install with: pip install boto3"
             )
 
         self.endpoint: Optional[str] = endpoint
@@ -322,9 +326,7 @@ class S3Backend(StorageBackend):
                 "access_key and secret_key parameters."
             ) from e
         except Exception as e:
-            raise StorageConnectionError(
-                f"Failed to create S3 client: {e}"
-            ) from e
+            raise StorageConnectionError(f"Failed to create S3 client: {e}") from e
 
     def upload(
         self,
@@ -419,15 +421,17 @@ class S3Backend(StorageBackend):
                 # Remove bucket prefix to get relative key
                 key = item["Key"]
                 if self.prefix and key.startswith(self.prefix):
-                    key = key[len(self.prefix):]
+                    key = key[len(self.prefix) :]
 
-                objects.append(StorageObject(
-                    key=key,
-                    size=item["Size"],
-                    last_modified=item["LastModified"],
-                    etag=item.get("ETag", "").strip('"'),
-                    metadata=None,  # Metadata not included in list
-                ))
+                objects.append(
+                    StorageObject(
+                        key=key,
+                        size=item["Size"],
+                        last_modified=item["LastModified"],
+                        etag=item.get("ETag", "").strip('"'),
+                        metadata=None,  # Metadata not included in list
+                    )
+                )
 
             return objects
 
@@ -550,9 +554,10 @@ class S3Backend(StorageBackend):
 
 # Google Cloud Storage imports
 try:
-    from google.cloud import storage  # type: ignore[import-untyped]
-    from google.cloud.exceptions import NotFound, Forbidden, GoogleCloudError  # type: ignore[import-untyped]
-    from google.api_core.exceptions import Unauthenticated
+    from google.cloud import storage  # type: ignore
+    from google.cloud.exceptions import NotFound, Forbidden, GoogleCloudError  # type: ignore
+    from google.api_core.exceptions import Unauthenticated  # type: ignore
+
     GCS_AVAILABLE = True
 except ImportError:
     GCS_AVAILABLE = False
@@ -593,7 +598,9 @@ class GCSBackend(StorageBackend):
             )
 
         self.project: Optional[str] = project
-        self.credentials_file: Optional[str] = credentials_file or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        self.credentials_file: Optional[str] = credentials_file or os.getenv(
+            "GOOGLE_APPLICATION_CREDENTIALS"
+        )
 
         # Initialize GCS client
         self._client: Any = self._create_client()
@@ -609,8 +616,9 @@ class GCSBackend(StorageBackend):
 
             # Load credentials from file if specified
             if self.credentials_file:
-                from google.oauth2 import service_account
-                credentials = service_account.Credentials.from_service_account_file(  # type: ignore[no-untyped-call]
+                from google.oauth2 import service_account  # type: ignore
+
+                credentials = service_account.Credentials.from_service_account_file(  # type: ignore
                     self.credentials_file
                 )
                 client_kwargs["credentials"] = credentials
@@ -624,9 +632,7 @@ class GCSBackend(StorageBackend):
                     "environment variable or pass credentials_file parameter."
                 ) from e
             else:
-                raise StorageConnectionError(
-                    f"Failed to create GCS client: {e}"
-                ) from e
+                raise StorageConnectionError(f"Failed to create GCS client: {e}") from e
 
     def upload(
         self,
@@ -714,15 +720,17 @@ class GCSBackend(StorageBackend):
                 # Remove bucket prefix to get relative key
                 key = blob.name
                 if self.prefix and key.startswith(self.prefix):
-                    key = key[len(self.prefix):]
+                    key = key[len(self.prefix) :]
 
-                objects.append(StorageObject(
-                    key=key,
-                    size=blob.size,
-                    last_modified=blob.updated,
-                    etag=blob.etag,
-                    metadata=blob.metadata,
-                ))
+                objects.append(
+                    StorageObject(
+                        key=key,
+                        size=blob.size,
+                        last_modified=blob.updated,
+                        etag=blob.etag,
+                        metadata=blob.metadata,
+                    )
+                )
 
             return objects
 
@@ -833,6 +841,7 @@ class GCSBackend(StorageBackend):
 try:
     from azure.storage.blob import BlobServiceClient, BlobClient, ContentSettings  # type: ignore[import-not-found]
     from azure.core.exceptions import ResourceNotFoundError, HttpResponseError  # type: ignore[import-not-found]
+
     AZURE_AVAILABLE = True
 except ImportError:
     AZURE_AVAILABLE = False
@@ -879,7 +888,9 @@ class AzureBackend(StorageBackend):
                 "Install with: pip install azure-storage-blob"
             )
 
-        self.connection_string: Optional[str] = connection_string or os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        self.connection_string: Optional[str] = connection_string or os.getenv(
+            "AZURE_STORAGE_CONNECTION_STRING"
+        )
         self.account_name: Optional[str] = account_name or os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
         self.account_key: Optional[str] = account_key or os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
         self.sas_token: Optional[str] = sas_token or os.getenv("AZURE_STORAGE_SAS_TOKEN")
@@ -901,7 +912,7 @@ class AzureBackend(StorageBackend):
                 )
             elif self.account_name and self.sas_token:
                 # SAS token should not start with '?'
-                sas_token = self.sas_token.lstrip('?')
+                sas_token = self.sas_token.lstrip("?")
                 account_url = f"https://{self.account_name}.blob.core.windows.net"
                 return BlobServiceClient(
                     account_url=account_url,
@@ -917,9 +928,7 @@ class AzureBackend(StorageBackend):
         except Exception as e:
             if isinstance(e, StorageAuthError):
                 raise
-            raise StorageConnectionError(
-                f"Failed to create Azure client: {e}"
-            ) from e
+            raise StorageConnectionError(f"Failed to create Azure client: {e}") from e
 
     def upload(
         self,
@@ -1012,15 +1021,17 @@ class AzureBackend(StorageBackend):
                 # Remove bucket prefix to get relative key
                 key = blob.name
                 if self.prefix and key.startswith(self.prefix):
-                    key = key[len(self.prefix):]
+                    key = key[len(self.prefix) :]
 
-                objects.append(StorageObject(
-                    key=key,
-                    size=blob.size,
-                    last_modified=blob.last_modified,
-                    etag=blob.etag.strip('"') if blob.etag else None,
-                    metadata=blob.metadata,
-                ))
+                objects.append(
+                    StorageObject(
+                        key=key,
+                        size=blob.size,
+                        last_modified=blob.last_modified,
+                        etag=blob.etag.strip('"') if blob.etag else None,
+                        metadata=blob.metadata,
+                    )
+                )
 
                 # Apply max_keys limit if specified
                 if max_keys is not None and len(objects) >= max_keys:

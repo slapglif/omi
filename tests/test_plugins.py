@@ -4,6 +4,7 @@ Tests for plugin discovery, loading, and validation via Python entry points.
 Ensures the plugin architecture works correctly for embedding providers,
 storage backends, and event handlers.
 """
+
 import pytest
 import sys
 from pathlib import Path
@@ -27,9 +28,9 @@ class TestPluginDiscovery:
         assert isinstance(all_plugins, dict)
 
         # Should have the expected plugin groups
-        assert 'omi.embedding_providers' in all_plugins
-        assert 'omi.storage_backends' in all_plugins
-        assert 'omi.event_handlers' in all_plugins
+        assert "omi.embedding_providers" in all_plugins
+        assert "omi.storage_backends" in all_plugins
+        assert "omi.event_handlers" in all_plugins
 
         # Each group should have a list of entry points
         for group, plugins in all_plugins.items():
@@ -40,22 +41,22 @@ class TestPluginDiscovery:
         from omi.plugins import discover_plugins
 
         # Discover only embedding providers
-        providers = discover_plugins('omi.embedding_providers')
+        providers = discover_plugins("omi.embedding_providers")
 
         assert isinstance(providers, dict)
-        assert 'omi.embedding_providers' in providers
-        assert isinstance(providers['omi.embedding_providers'], list)
+        assert "omi.embedding_providers" in providers
+        assert isinstance(providers["omi.embedding_providers"], list)
 
     def test_discover_plugins_returns_dict(self):
         """Does discover_plugins always return a dict even with no plugins?"""
         from omi.plugins import discover_plugins
 
         # Even if no plugins are installed, should return dict with empty lists
-        plugins = discover_plugins('omi.nonexistent_group')
+        plugins = discover_plugins("omi.nonexistent_group")
 
         assert isinstance(plugins, dict)
-        assert 'omi.nonexistent_group' in plugins
-        assert isinstance(plugins['omi.nonexistent_group'], list)
+        assert "omi.nonexistent_group" in plugins
+        assert isinstance(plugins["omi.nonexistent_group"], list)
 
 
 class TestPluginLoading:
@@ -66,19 +67,19 @@ class TestPluginLoading:
         from omi.plugins import load_plugin, PluginLoadError
 
         with pytest.raises(PluginLoadError) as exc_info:
-            load_plugin('omi.embedding_providers', 'nonexistent-plugin')
+            load_plugin("omi.embedding_providers", "nonexistent-plugin")
 
         # Error message should mention the plugin name
-        assert 'nonexistent-plugin' in str(exc_info.value)
-        assert 'not found' in str(exc_info.value).lower()
+        assert "nonexistent-plugin" in str(exc_info.value)
+        assert "not found" in str(exc_info.value).lower()
 
     def test_load_plugin_with_validation(self):
         """Can we load a plugin with validation enabled?"""
         from omi.plugins import discover_plugins
 
         # First discover what plugins are available
-        providers = discover_plugins('omi.embedding_providers')
-        provider_list = providers.get('omi.embedding_providers', [])
+        providers = discover_plugins("omi.embedding_providers")
+        provider_list = providers.get("omi.embedding_providers", [])
 
         # If there are any plugins, try loading one
         if provider_list:
@@ -102,8 +103,8 @@ class TestPluginValidation:
             validate_plugin(InvalidPlugin)
 
         # Error should mention missing interface_version
-        assert 'interface_version' in str(exc_info.value)
-        assert 'missing' in str(exc_info.value).lower()
+        assert "interface_version" in str(exc_info.value)
+        assert "missing" in str(exc_info.value).lower()
 
     def test_validate_plugin_incompatible_version(self):
         """Does validate_plugin catch incompatible interface versions?"""
@@ -111,14 +112,14 @@ class TestPluginValidation:
 
         # Create a plugin with unsupported version
         class FuturePlugin:
-            interface_version = '99.0'
+            interface_version = "99.0"
 
         with pytest.raises(PluginValidationError) as exc_info:
             validate_plugin(FuturePlugin)
 
         # Error should mention incompatible version
-        assert 'incompatible' in str(exc_info.value).lower()
-        assert '99.0' in str(exc_info.value)
+        assert "incompatible" in str(exc_info.value).lower()
+        assert "99.0" in str(exc_info.value)
 
     def test_validate_plugin_wrong_base_class(self):
         """Does validate_plugin catch wrong base class inheritance?"""
@@ -127,13 +128,15 @@ class TestPluginValidation:
 
         # Create a plugin that doesn't inherit from EmbeddingProvider
         class WrongBasePlugin:
-            interface_version = '1.0'
+            interface_version = "1.0"
 
         with pytest.raises(PluginValidationError) as exc_info:
             validate_plugin(WrongBasePlugin, expected_base_class=EmbeddingProvider)
 
         # Error should mention base class requirement
-        assert 'inherit' in str(exc_info.value).lower() or 'EmbeddingProvider' in str(exc_info.value)
+        assert "inherit" in str(exc_info.value).lower() or "EmbeddingProvider" in str(
+            exc_info.value
+        )
 
     def test_validate_plugin_valid(self):
         """Does validate_plugin pass for valid plugins?"""
@@ -143,7 +146,7 @@ class TestPluginValidation:
 
         # Create a valid plugin class
         class ValidPlugin(EmbeddingProvider):
-            interface_version = '1.0'
+            interface_version = "1.0"
 
             def embed(self, text: str) -> List[float]:
                 return [0.0] * 128
@@ -158,7 +161,7 @@ class TestPluginValidation:
                 return 128
 
             def get_model_name(self) -> str:
-                return 'test-model'
+                return "test-model"
 
         # Should not raise any exceptions
         validate_plugin(ValidPlugin, expected_base_class=EmbeddingProvider)
@@ -186,9 +189,9 @@ class TestPluginRegistry:
         # After discovery, we should be able to list plugins
         all_plugins = registry.list_all()
         assert isinstance(all_plugins, dict)
-        assert 'omi.embedding_providers' in all_plugins
-        assert 'omi.storage_backends' in all_plugins
-        assert 'omi.event_handlers' in all_plugins
+        assert "omi.embedding_providers" in all_plugins
+        assert "omi.storage_backends" in all_plugins
+        assert "omi.event_handlers" in all_plugins
 
     def test_registry_get_plugins(self):
         """Can we get plugins for a specific group?"""
@@ -197,7 +200,7 @@ class TestPluginRegistry:
         registry = PluginRegistry()
 
         # Get embedding providers (triggers auto-discovery)
-        providers = registry.get_plugins('omi.embedding_providers')
+        providers = registry.get_plugins("omi.embedding_providers")
 
         assert isinstance(providers, dict)
 
@@ -209,10 +212,10 @@ class TestPluginRegistry:
         registry.discover_all()
 
         with pytest.raises(PluginLoadError) as exc_info:
-            registry.load('omi.embedding_providers', 'nonexistent-plugin')
+            registry.load("omi.embedding_providers", "nonexistent-plugin")
 
-        assert 'nonexistent-plugin' in str(exc_info.value)
-        assert 'not found' in str(exc_info.value).lower()
+        assert "nonexistent-plugin" in str(exc_info.value)
+        assert "not found" in str(exc_info.value).lower()
 
     def test_registry_is_loaded(self):
         """Does is_loaded() correctly report plugin load status?"""
@@ -222,7 +225,7 @@ class TestPluginRegistry:
         registry.discover_all()
 
         # A non-existent plugin should return False
-        assert registry.is_loaded('omi.embedding_providers', 'nonexistent') is False
+        assert registry.is_loaded("omi.embedding_providers", "nonexistent") is False
 
 
 class TestPluginInfo:
@@ -233,12 +236,12 @@ class TestPluginInfo:
         from omi.plugins import PluginInfo
 
         info = PluginInfo(
-            name='test-plugin',
-            group='omi.embedding_providers',
-            module='test.module',
-            attr='TestClass',
-            version='1.0.0',
-            interface_version='1.0',
+            name="test-plugin",
+            group="omi.embedding_providers",
+            module="test.module",
+            attr="TestClass",
+            version="1.0.0",
+            interface_version="1.0",
             loaded=True,
             error=None,
         )
@@ -246,14 +249,14 @@ class TestPluginInfo:
         data = info.to_dict()
 
         assert isinstance(data, dict)
-        assert data['name'] == 'test-plugin'
-        assert data['group'] == 'omi.embedding_providers'
-        assert data['module'] == 'test.module'
-        assert data['attr'] == 'TestClass'
-        assert data['version'] == '1.0.0'
-        assert data['interface_version'] == '1.0'
-        assert data['loaded'] is True
-        assert data['error'] is None
+        assert data["name"] == "test-plugin"
+        assert data["group"] == "omi.embedding_providers"
+        assert data["module"] == "test.module"
+        assert data["attr"] == "TestClass"
+        assert data["version"] == "1.0.0"
+        assert data["interface_version"] == "1.0"
+        assert data["loaded"] is True
+        assert data["error"] is None
 
 
 class TestPluginExceptions:
@@ -297,14 +300,14 @@ class TestPluginGroups:
         from omi.plugins import PLUGIN_GROUPS
 
         assert isinstance(PLUGIN_GROUPS, dict)
-        assert 'embedding_providers' in PLUGIN_GROUPS
-        assert 'storage_backends' in PLUGIN_GROUPS
-        assert 'event_handlers' in PLUGIN_GROUPS
+        assert "embedding_providers" in PLUGIN_GROUPS
+        assert "storage_backends" in PLUGIN_GROUPS
+        assert "event_handlers" in PLUGIN_GROUPS
 
         # Check the values are correct entry point group names
-        assert PLUGIN_GROUPS['embedding_providers'] == 'omi.embedding_providers'
-        assert PLUGIN_GROUPS['storage_backends'] == 'omi.storage_backends'
-        assert PLUGIN_GROUPS['event_handlers'] == 'omi.event_handlers'
+        assert PLUGIN_GROUPS["embedding_providers"] == "omi.embedding_providers"
+        assert PLUGIN_GROUPS["storage_backends"] == "omi.storage_backends"
+        assert PLUGIN_GROUPS["event_handlers"] == "omi.event_handlers"
 
 
 # Module-level test for verification requirement
@@ -324,9 +327,9 @@ def test_discover_plugins():
     assert isinstance(all_plugins, dict)
 
     # Should have the expected plugin groups
-    assert 'omi.embedding_providers' in all_plugins
-    assert 'omi.storage_backends' in all_plugins
-    assert 'omi.event_handlers' in all_plugins
+    assert "omi.embedding_providers" in all_plugins
+    assert "omi.storage_backends" in all_plugins
+    assert "omi.event_handlers" in all_plugins
 
     # Each group should have a list of entry points
     for group, plugins in all_plugins.items():
@@ -354,33 +357,33 @@ def test_plugin_validation():
         validate_plugin(MissingVersionPlugin)
         assert False, "Should have raised PluginValidationError for missing interface_version"
     except PluginValidationError as e:
-        assert 'interface_version' in str(e)
-        assert 'missing' in str(e).lower()
+        assert "interface_version" in str(e)
+        assert "missing" in str(e).lower()
 
     # Test 2: Incompatible interface_version should raise error
     class IncompatibleVersionPlugin:
-        interface_version = '99.0'
+        interface_version = "99.0"
 
     try:
         validate_plugin(IncompatibleVersionPlugin)
         assert False, "Should have raised PluginValidationError for incompatible version"
     except PluginValidationError as e:
-        assert 'incompatible' in str(e).lower()
-        assert '99.0' in str(e)
+        assert "incompatible" in str(e).lower()
+        assert "99.0" in str(e)
 
     # Test 3: Wrong base class should raise error
     class WrongBaseClassPlugin:
-        interface_version = '1.0'
+        interface_version = "1.0"
 
     try:
         validate_plugin(WrongBaseClassPlugin, expected_base_class=EmbeddingProvider)
         assert False, "Should have raised PluginValidationError for wrong base class"
     except PluginValidationError as e:
-        assert 'inherit' in str(e).lower() or 'EmbeddingProvider' in str(e)
+        assert "inherit" in str(e).lower() or "EmbeddingProvider" in str(e)
 
     # Test 4: Valid plugin should pass validation
     class ValidTestPlugin(EmbeddingProvider):
-        interface_version = '1.0'
+        interface_version = "1.0"
 
         def embed(self, text: str) -> List[float]:
             return [0.0] * 128
@@ -395,7 +398,7 @@ def test_plugin_validation():
             return 128
 
         def get_model_name(self) -> str:
-            return 'test-validation-plugin'
+            return "test-validation-plugin"
 
     # Should not raise any exceptions
     validate_plugin(ValidTestPlugin, expected_base_class=EmbeddingProvider)
@@ -417,12 +420,20 @@ def test_cli_plugins_list():
     runner = CliRunner()
 
     # Run 'omi plugins list' command
-    result = runner.invoke(cli, ['plugins', 'list'])
+    result = runner.invoke(cli, ["plugins", "list"])
 
     # Verify command succeeded
-    assert result.exit_code == 0, f"Command failed with exit code {result.exit_code}: {result.output}"
+    assert (
+        result.exit_code == 0
+    ), f"Command failed with exit code {result.exit_code}: {result.output}"
 
     # Verify all plugin type headers are present in output
-    assert 'Embedding Providers:' in result.output, "Expected 'Embedding Providers:' header not found in output"
-    assert 'Storage Backends:' in result.output, "Expected 'Storage Backends:' header not found in output"
-    assert 'Event Handlers:' in result.output, "Expected 'Event Handlers:' header not found in output"
+    assert (
+        "Embedding Providers:" in result.output
+    ), "Expected 'Embedding Providers:' header not found in output"
+    assert (
+        "Storage Backends:" in result.output
+    ), "Expected 'Storage Backends:' header not found in output"
+    assert (
+        "Event Handlers:" in result.output
+    ), "Expected 'Event Handlers:' header not found in output"

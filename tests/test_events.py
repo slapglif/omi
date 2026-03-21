@@ -2,6 +2,7 @@
 
 Tests: Event dataclass creation, serialization, and attributes
 """
+
 import pytest
 from datetime import datetime
 from unittest.mock import Mock
@@ -14,11 +15,7 @@ class TestMemoryStoredEvent:
         """Can create MemoryStoredEvent with required fields."""
         from omi.events import MemoryStoredEvent
 
-        event = MemoryStoredEvent(
-            memory_id="mem123",
-            content="Test memory",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="mem123", content="Test memory", memory_type="fact")
 
         assert event.memory_id == "mem123"
         assert event.content == "Test memory"
@@ -38,7 +35,7 @@ class TestMemoryStoredEvent:
             memory_type="fact",
             confidence=0.95,
             timestamp=timestamp,
-            metadata=metadata
+            metadata=metadata,
         )
 
         assert event.confidence == 0.95
@@ -50,11 +47,7 @@ class TestMemoryStoredEvent:
         from omi.events import MemoryStoredEvent
 
         before = datetime.now()
-        event = MemoryStoredEvent(
-            memory_id="mem123",
-            content="Test memory",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="mem123", content="Test memory", memory_type="fact")
         after = datetime.now()
 
         assert before <= event.timestamp <= after
@@ -70,7 +63,7 @@ class TestMemoryStoredEvent:
             memory_type="fact",
             confidence=0.9,
             timestamp=timestamp,
-            metadata={"key": "value"}
+            metadata={"key": "value"},
         )
 
         result = event.to_dict()
@@ -87,11 +80,7 @@ class TestMemoryStoredEvent:
         """to_dict handles None metadata gracefully."""
         from omi.events import MemoryStoredEvent
 
-        event = MemoryStoredEvent(
-            memory_id="mem123",
-            content="Test memory",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="mem123", content="Test memory", memory_type="fact")
 
         result = event.to_dict()
 
@@ -104,11 +93,7 @@ class TestMemoryStoredEvent:
         types = ["fact", "experience", "belief", "decision"]
 
         for mem_type in types:
-            event = MemoryStoredEvent(
-                memory_id="mem123",
-                content="Test",
-                memory_type=mem_type
-            )
+            event = MemoryStoredEvent(memory_id="mem123", content="Test", memory_type=mem_type)
             assert event.memory_type == mem_type
 
 
@@ -119,10 +104,7 @@ class TestMemoryRecalledEvent:
         """Can create MemoryRecalledEvent with required fields."""
         from omi.events import MemoryRecalledEvent
 
-        event = MemoryRecalledEvent(
-            query="test query",
-            result_count=5
-        )
+        event = MemoryRecalledEvent(query="test query", result_count=5)
 
         assert event.query == "test query"
         assert event.result_count == 5
@@ -135,14 +117,10 @@ class TestMemoryRecalledEvent:
 
         top_results = [
             {"memory_id": "mem1", "content": "Result 1", "score": 0.95},
-            {"memory_id": "mem2", "content": "Result 2", "score": 0.85}
+            {"memory_id": "mem2", "content": "Result 2", "score": 0.85},
         ]
 
-        event = MemoryRecalledEvent(
-            query="test query",
-            result_count=2,
-            top_results=top_results
-        )
+        event = MemoryRecalledEvent(query="test query", result_count=2, top_results=top_results)
 
         assert event.top_results == top_results
         assert len(event.top_results) == 2
@@ -159,7 +137,7 @@ class TestMemoryRecalledEvent:
             result_count=1,
             top_results=top_results,
             timestamp=timestamp,
-            metadata={"context": "test"}
+            metadata={"context": "test"},
         )
 
         result = event.to_dict()
@@ -179,11 +157,7 @@ class TestBeliefUpdatedEvent:
         """Can create BeliefUpdatedEvent with required fields."""
         from omi.events import BeliefUpdatedEvent
 
-        event = BeliefUpdatedEvent(
-            belief_id="belief123",
-            old_confidence=0.5,
-            new_confidence=0.8
-        )
+        event = BeliefUpdatedEvent(belief_id="belief123", old_confidence=0.5, new_confidence=0.8)
 
         assert event.belief_id == "belief123"
         assert event.old_confidence == 0.5
@@ -196,10 +170,7 @@ class TestBeliefUpdatedEvent:
         from omi.events import BeliefUpdatedEvent
 
         event = BeliefUpdatedEvent(
-            belief_id="belief123",
-            old_confidence=0.5,
-            new_confidence=0.8,
-            evidence_id="evidence456"
+            belief_id="belief123", old_confidence=0.5, new_confidence=0.8, evidence_id="evidence456"
         )
 
         assert event.evidence_id == "evidence456"
@@ -215,7 +186,7 @@ class TestBeliefUpdatedEvent:
             new_confidence=0.8,
             evidence_id="evidence456",
             timestamp=timestamp,
-            metadata={"reason": "new evidence"}
+            metadata={"reason": "new evidence"},
         )
 
         result = event.to_dict()
@@ -233,27 +204,15 @@ class TestBeliefUpdatedEvent:
         from omi.events import BeliefUpdatedEvent
 
         # Confidence increase
-        event1 = BeliefUpdatedEvent(
-            belief_id="belief1",
-            old_confidence=0.3,
-            new_confidence=0.7
-        )
+        event1 = BeliefUpdatedEvent(belief_id="belief1", old_confidence=0.3, new_confidence=0.7)
         assert event1.new_confidence > event1.old_confidence
 
         # Confidence decrease
-        event2 = BeliefUpdatedEvent(
-            belief_id="belief2",
-            old_confidence=0.9,
-            new_confidence=0.4
-        )
+        event2 = BeliefUpdatedEvent(belief_id="belief2", old_confidence=0.9, new_confidence=0.4)
         assert event2.new_confidence < event2.old_confidence
 
         # No change (edge case)
-        event3 = BeliefUpdatedEvent(
-            belief_id="belief3",
-            old_confidence=0.5,
-            new_confidence=0.5
-        )
+        event3 = BeliefUpdatedEvent(belief_id="belief3", old_confidence=0.5, new_confidence=0.5)
         assert event3.new_confidence == event3.old_confidence
 
 
@@ -265,9 +224,7 @@ class TestContradictionDetectedEvent:
         from omi.events import ContradictionDetectedEvent
 
         event = ContradictionDetectedEvent(
-            memory_id_1="mem1",
-            memory_id_2="mem2",
-            contradiction_pattern="negation"
+            memory_id_1="mem1", memory_id_2="mem2", contradiction_pattern="negation"
         )
 
         assert event.memory_id_1 == "mem1"
@@ -284,7 +241,7 @@ class TestContradictionDetectedEvent:
             memory_id_1="mem1",
             memory_id_2="mem2",
             contradiction_pattern="negation",
-            confidence=0.85
+            confidence=0.85,
         )
 
         assert event.confidence == 0.85
@@ -300,7 +257,7 @@ class TestContradictionDetectedEvent:
             contradiction_pattern="negation",
             confidence=0.9,
             timestamp=timestamp,
-            metadata={"severity": "high"}
+            metadata={"severity": "high"},
         )
 
         result = event.to_dict()
@@ -317,18 +274,11 @@ class TestContradictionDetectedEvent:
         """Supports different contradiction patterns."""
         from omi.events import ContradictionDetectedEvent
 
-        patterns = [
-            "negation",
-            "temporal_conflict",
-            "value_conflict",
-            "logical_inconsistency"
-        ]
+        patterns = ["negation", "temporal_conflict", "value_conflict", "logical_inconsistency"]
 
         for pattern in patterns:
             event = ContradictionDetectedEvent(
-                memory_id_1="mem1",
-                memory_id_2="mem2",
-                contradiction_pattern=pattern
+                memory_id_1="mem1", memory_id_2="mem2", contradiction_pattern=pattern
             )
             assert event.contradiction_pattern == pattern
 
@@ -360,9 +310,7 @@ class TestSessionStartedEvent:
 
         timestamp = datetime(2024, 1, 15, 10, 30, 0)
         event = SessionStartedEvent(
-            session_id="session123",
-            timestamp=timestamp,
-            metadata={"user": "test_user"}
+            session_id="session123", timestamp=timestamp, metadata={"user": "test_user"}
         )
 
         result = event.to_dict()
@@ -391,10 +339,7 @@ class TestSessionEndedEvent:
         """Can create SessionEndedEvent with all fields."""
         from omi.events import SessionEndedEvent
 
-        event = SessionEndedEvent(
-            session_id="session123",
-            duration_seconds=3600.5
-        )
+        event = SessionEndedEvent(session_id="session123", duration_seconds=3600.5)
 
         assert event.session_id == "session123"
         assert event.duration_seconds == 3600.5
@@ -408,7 +353,7 @@ class TestSessionEndedEvent:
             session_id="session123",
             duration_seconds=3600.0,
             timestamp=timestamp,
-            metadata={"user": "test_user", "exit_reason": "normal"}
+            metadata={"user": "test_user", "exit_reason": "normal"},
         )
 
         result = event.to_dict()
@@ -431,20 +376,22 @@ class TestEventTypeAttributes:
             BeliefUpdatedEvent,
             ContradictionDetectedEvent,
             SessionStartedEvent,
-            SessionEndedEvent
+            SessionEndedEvent,
         )
 
         events = [
             MemoryStoredEvent(memory_id="1", content="test", memory_type="fact"),
             MemoryRecalledEvent(query="test", result_count=0),
             BeliefUpdatedEvent(belief_id="1", old_confidence=0.5, new_confidence=0.8),
-            ContradictionDetectedEvent(memory_id_1="1", memory_id_2="2", contradiction_pattern="test"),
+            ContradictionDetectedEvent(
+                memory_id_1="1", memory_id_2="2", contradiction_pattern="test"
+            ),
             SessionStartedEvent(),
-            SessionEndedEvent()
+            SessionEndedEvent(),
         ]
 
         for event in events:
-            assert hasattr(event, 'event_type')
+            assert hasattr(event, "event_type")
             assert isinstance(event.event_type, str)
             assert len(event.event_type) > 0
 
@@ -456,20 +403,22 @@ class TestEventTypeAttributes:
             BeliefUpdatedEvent,
             ContradictionDetectedEvent,
             SessionStartedEvent,
-            SessionEndedEvent
+            SessionEndedEvent,
         )
 
         events = [
             MemoryStoredEvent(memory_id="1", content="test", memory_type="fact"),
             MemoryRecalledEvent(query="test", result_count=0),
             BeliefUpdatedEvent(belief_id="1", old_confidence=0.5, new_confidence=0.8),
-            ContradictionDetectedEvent(memory_id_1="1", memory_id_2="2", contradiction_pattern="test"),
+            ContradictionDetectedEvent(
+                memory_id_1="1", memory_id_2="2", contradiction_pattern="test"
+            ),
             SessionStartedEvent(),
-            SessionEndedEvent()
+            SessionEndedEvent(),
         ]
 
         for event in events:
-            assert hasattr(event, 'timestamp')
+            assert hasattr(event, "timestamp")
             assert isinstance(event.timestamp, datetime)
 
     def test_all_events_have_to_dict(self):
@@ -480,24 +429,26 @@ class TestEventTypeAttributes:
             BeliefUpdatedEvent,
             ContradictionDetectedEvent,
             SessionStartedEvent,
-            SessionEndedEvent
+            SessionEndedEvent,
         )
 
         events = [
             MemoryStoredEvent(memory_id="1", content="test", memory_type="fact"),
             MemoryRecalledEvent(query="test", result_count=0),
             BeliefUpdatedEvent(belief_id="1", old_confidence=0.5, new_confidence=0.8),
-            ContradictionDetectedEvent(memory_id_1="1", memory_id_2="2", contradiction_pattern="test"),
+            ContradictionDetectedEvent(
+                memory_id_1="1", memory_id_2="2", contradiction_pattern="test"
+            ),
             SessionStartedEvent(),
-            SessionEndedEvent()
+            SessionEndedEvent(),
         ]
 
         for event in events:
-            assert hasattr(event, 'to_dict')
+            assert hasattr(event, "to_dict")
             result = event.to_dict()
             assert isinstance(result, dict)
-            assert 'event_type' in result
-            assert 'timestamp' in result
+            assert "event_type" in result
+            assert "timestamp" in result
 
     def test_event_types_are_unique(self):
         """Each event type has unique event_type string."""
@@ -507,16 +458,18 @@ class TestEventTypeAttributes:
             BeliefUpdatedEvent,
             ContradictionDetectedEvent,
             SessionStartedEvent,
-            SessionEndedEvent
+            SessionEndedEvent,
         )
 
         event_types = {
             MemoryStoredEvent(memory_id="1", content="test", memory_type="fact").event_type,
             MemoryRecalledEvent(query="test", result_count=0).event_type,
             BeliefUpdatedEvent(belief_id="1", old_confidence=0.5, new_confidence=0.8).event_type,
-            ContradictionDetectedEvent(memory_id_1="1", memory_id_2="2", contradiction_pattern="test").event_type,
+            ContradictionDetectedEvent(
+                memory_id_1="1", memory_id_2="2", contradiction_pattern="test"
+            ).event_type,
             SessionStartedEvent().event_type,
-            SessionEndedEvent().event_type
+            SessionEndedEvent().event_type,
         }
 
         # All should be unique
@@ -544,7 +497,7 @@ class TestEventSerialization:
         event = MemoryStoredEvent(
             memory_id="mem123",
             content="Test with <special> & 'chars' \"quotes\" 你好",
-            memory_type="fact"
+            memory_type="fact",
         )
 
         result = event.to_dict()
@@ -556,10 +509,7 @@ class TestEventSerialization:
         from omi.events import MemoryStoredEvent
 
         event = MemoryStoredEvent(
-            memory_id="mem123",
-            content="Test",
-            memory_type="fact",
-            metadata={}
+            memory_id="mem123", content="Test", memory_type="fact", metadata={}
         )
 
         result = event.to_dict()
@@ -571,20 +521,13 @@ class TestEventSerialization:
         from omi.events import MemoryStoredEvent
 
         complex_metadata = {
-            "nested": {
-                "key": "value",
-                "list": [1, 2, 3],
-                "bool": True
-            },
+            "nested": {"key": "value", "list": [1, 2, 3], "bool": True},
             "tags": ["tag1", "tag2"],
-            "count": 42
+            "count": 42,
         }
 
         event = MemoryStoredEvent(
-            memory_id="mem123",
-            content="Test",
-            memory_type="fact",
-            metadata=complex_metadata
+            memory_id="mem123", content="Test", memory_type="fact", metadata=complex_metadata
         )
 
         result = event.to_dict()

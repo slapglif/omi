@@ -18,6 +18,7 @@ from unittest.mock import Mock, MagicMock, patch, AsyncMock
 import sys
 import os
 
+
 # Ensure omi modules are importable
 def ensure_omi_importable():
     """Add src to path if needed."""
@@ -25,6 +26,7 @@ def ensure_omi_importable():
     src_path = test_dir.parent / "src"
     if str(src_path) not in sys.path:
         sys.path.insert(0, str(src_path))
+
 
 ensure_omi_importable()
 
@@ -71,11 +73,7 @@ class TestAsyncOperations:
     @pytest.mark.asyncio
     async def test_async_upload_single_file(self, mock_backend, temp_file):
         """Test async upload of a single file"""
-        result = await mock_backend.async_upload(
-            temp_file,
-            "test-key",
-            metadata={"type": "test"}
-        )
+        result = await mock_backend.async_upload(temp_file, "test-key", metadata={"type": "test"})
 
         assert result == "uploaded-test-key"
 
@@ -84,10 +82,7 @@ class TestAsyncOperations:
         """Test async download of a single file"""
         download_path = tmp_path / "downloaded.txt"
 
-        result = await mock_backend.async_download(
-            "test-key",
-            download_path
-        )
+        result = await mock_backend.async_download("test-key", download_path)
 
         assert result == download_path
 
@@ -102,10 +97,7 @@ class TestAsyncOperations:
             files.append((test_file, f"key-{i}"))
 
         # Upload concurrently
-        tasks = [
-            mock_backend.async_upload(local_path, key)
-            for local_path, key in files
-        ]
+        tasks = [mock_backend.async_upload(local_path, key) for local_path, key in files]
 
         results = await asyncio.gather(*tasks)
 
@@ -126,10 +118,7 @@ class TestAsyncOperations:
         upload_task = mock_backend.async_upload(upload_file, "upload-key")
         download_task = mock_backend.async_download("download-key", download_file)
 
-        upload_result, download_result = await asyncio.gather(
-            upload_task,
-            download_task
-        )
+        upload_result, download_result = await asyncio.gather(upload_task, download_task)
 
         assert upload_result == "uploaded-upload-key"
         assert download_result == download_file
@@ -140,10 +129,7 @@ class TestAsyncOperations:
         start_time = asyncio.get_event_loop().time()
 
         # Start 3 uploads that should run concurrently
-        tasks = [
-            mock_backend.async_upload(temp_file, f"key-{i}")
-            for i in range(3)
-        ]
+        tasks = [mock_backend.async_upload(temp_file, f"key-{i}") for i in range(3)]
 
         results = await asyncio.gather(*tasks)
 
@@ -173,7 +159,7 @@ class TestConflictDetection:
         from omi.storage_backends import StorageObject
 
         # Calculate checksum of local file
-        with open(temp_file, 'rb') as f:
+        with open(temp_file, "rb") as f:
             local_checksum = hashlib.sha256(f.read()).hexdigest()
 
         # Create remote object with matching checksum
@@ -276,7 +262,7 @@ class TestConflictDetection:
         from omi.storage_backends import StorageObject
 
         # Calculate checksum
-        with open(temp_file, 'rb') as f:
+        with open(temp_file, "rb") as f:
             checksum = hashlib.sha256(f.read()).hexdigest()
 
         # Remote with same modification time and checksum
@@ -298,7 +284,7 @@ class TestConflictDetection:
         from omi.storage_backends import StorageObject
 
         # Calculate checksum
-        with open(temp_file, 'rb') as f:
+        with open(temp_file, "rb") as f:
             checksum = hashlib.sha256(f.read()).hexdigest()
 
         # S3 returns etags with quotes
@@ -343,10 +329,10 @@ class TestConflictResolution:
         # Remote is newer (2024-01-02 vs 2024-01-01)
         result = resolve_conflict(conflict_info, strategy="last-write-wins")
 
-        assert result['status'] == 'resolved'
-        assert result['action'] == 'keep_remote'
-        assert result['winner'] == 'remote'
-        assert 'remote version' in result['message']
+        assert result["status"] == "resolved"
+        assert result["action"] == "keep_remote"
+        assert result["winner"] == "remote"
+        assert "remote version" in result["message"]
 
     def test_last_write_wins_keep_local(self, conflict_info):
         """Test last-write-wins keeps local when it's newer"""
@@ -366,10 +352,10 @@ class TestConflictResolution:
 
         result = resolve_conflict(conflict, strategy="last-write-wins")
 
-        assert result['status'] == 'resolved'
-        assert result['action'] == 'keep_local'
-        assert result['winner'] == 'local'
-        assert 'local version' in result['message']
+        assert result["status"] == "resolved"
+        assert result["action"] == "keep_local"
+        assert result["winner"] == "local"
+        assert "local version" in result["message"]
 
     def test_manual_strategy(self, conflict_info):
         """Test manual strategy returns conflict for user decision"""
@@ -377,11 +363,11 @@ class TestConflictResolution:
 
         result = resolve_conflict(conflict_info, strategy="manual")
 
-        assert result['status'] == 'manual_required'
-        assert result['action'] == 'none'
-        assert result['winner'] is None
-        assert 'Manual resolution required' in result['message']
-        assert result['conflict'] == conflict_info
+        assert result["status"] == "manual_required"
+        assert result["action"] == "none"
+        assert result["winner"] is None
+        assert "Manual resolution required" in result["message"]
+        assert result["conflict"] == conflict_info
 
     def test_invalid_strategy(self, conflict_info):
         """Test error on invalid strategy"""
@@ -409,16 +395,13 @@ class TestConflictResolution:
         backend.download = mock_download
 
         result = resolve_conflict(
-            conflict_info,
-            strategy="merge",
-            backend=backend,
-            local_path=local_file
+            conflict_info, strategy="merge", backend=backend, local_path=local_file
         )
 
-        assert result['status'] == 'resolved'
-        assert result['action'] == 'keep_local'
-        assert result['winner'] == 'both'
-        assert 'identical' in result['message'].lower()
+        assert result["status"] == "resolved"
+        assert result["action"] == "keep_local"
+        assert result["winner"] == "both"
+        assert "identical" in result["message"].lower()
 
     def test_merge_remote_superset(self, tmp_path, conflict_info):
         """Test merge suggests keeping remote when it's a superset"""
@@ -440,16 +423,13 @@ class TestConflictResolution:
         backend.download = mock_download
 
         result = resolve_conflict(
-            conflict_info,
-            strategy="merge",
-            backend=backend,
-            local_path=local_file
+            conflict_info, strategy="merge", backend=backend, local_path=local_file
         )
 
-        assert result['status'] == 'manual_required'
-        assert result['action'] == 'keep_remote'
-        assert result['winner'] == 'remote'
-        assert 'superset' in result['message'].lower()
+        assert result["status"] == "manual_required"
+        assert result["action"] == "keep_remote"
+        assert result["winner"] == "remote"
+        assert "superset" in result["message"].lower()
 
     def test_merge_local_superset(self, tmp_path, conflict_info):
         """Test merge suggests keeping local when it's a superset"""
@@ -471,16 +451,13 @@ class TestConflictResolution:
         backend.download = mock_download
 
         result = resolve_conflict(
-            conflict_info,
-            strategy="merge",
-            backend=backend,
-            local_path=local_file
+            conflict_info, strategy="merge", backend=backend, local_path=local_file
         )
 
-        assert result['status'] == 'manual_required'
-        assert result['action'] == 'keep_local'
-        assert result['winner'] == 'local'
-        assert 'superset' in result['message'].lower()
+        assert result["status"] == "manual_required"
+        assert result["action"] == "keep_local"
+        assert result["winner"] == "local"
+        assert "superset" in result["message"].lower()
 
     def test_merge_diverged_files(self, tmp_path, conflict_info):
         """Test merge requires manual intervention for diverged files"""
@@ -502,17 +479,14 @@ class TestConflictResolution:
         backend.download = mock_download
 
         result = resolve_conflict(
-            conflict_info,
-            strategy="merge",
-            backend=backend,
-            local_path=local_file
+            conflict_info, strategy="merge", backend=backend, local_path=local_file
         )
 
-        assert result['status'] == 'manual_required'
-        assert result['action'] == 'none'
-        assert result['winner'] is None
-        assert 'diverged' in result['message'].lower()
-        assert 'Manual merge required' in result['message']
+        assert result["status"] == "manual_required"
+        assert result["action"] == "none"
+        assert result["winner"] is None
+        assert "diverged" in result["message"].lower()
+        assert "Manual merge required" in result["message"]
 
     def test_merge_binary_file(self, tmp_path, conflict_info):
         """Test merge fails gracefully with binary files"""
@@ -521,21 +495,18 @@ class TestConflictResolution:
 
         # Create binary file
         local_file = tmp_path / "test.bin"
-        local_file.write_bytes(b'\x00\x01\x02\x03\xff\xfe')
+        local_file.write_bytes(b"\x00\x01\x02\x03\xff\xfe")
 
         # Mock backend
         backend = Mock(spec=StorageBackend)
         backend.download = Mock(return_value=tmp_path / "remote.bin")
 
         result = resolve_conflict(
-            conflict_info,
-            strategy="merge",
-            backend=backend,
-            local_path=local_file
+            conflict_info, strategy="merge", backend=backend, local_path=local_file
         )
 
-        assert result['status'] == 'manual_required'
-        assert 'not text' in result['message'].lower() or 'unreadable' in result['message'].lower()
+        assert result["status"] == "manual_required"
+        assert "not text" in result["message"].lower() or "unreadable" in result["message"].lower()
 
     def test_merge_missing_backend(self, conflict_info, tmp_path):
         """Test merge requires backend parameter"""
@@ -545,12 +516,7 @@ class TestConflictResolution:
         local_file.write_text("content")
 
         with pytest.raises(ValueError, match="backend required"):
-            resolve_conflict(
-                conflict_info,
-                strategy="merge",
-                backend=None,
-                local_path=local_file
-            )
+            resolve_conflict(conflict_info, strategy="merge", backend=None, local_path=local_file)
 
     def test_merge_missing_local_path(self, conflict_info):
         """Test merge requires local_path parameter"""
@@ -560,12 +526,7 @@ class TestConflictResolution:
         backend = Mock(spec=StorageBackend)
 
         with pytest.raises(ValueError, match="local_path required"):
-            resolve_conflict(
-                conflict_info,
-                strategy="merge",
-                backend=backend,
-                local_path=None
-            )
+            resolve_conflict(conflict_info, strategy="merge", backend=backend, local_path=None)
 
     def test_merge_missing_local_file(self, conflict_info, tmp_path):
         """Test merge fails when local file doesn't exist"""
@@ -577,10 +538,7 @@ class TestConflictResolution:
 
         with pytest.raises(FileNotFoundError):
             resolve_conflict(
-                conflict_info,
-                strategy="merge",
-                backend=backend,
-                local_path=missing_file
+                conflict_info, strategy="merge", backend=backend, local_path=missing_file
             )
 
 
@@ -613,10 +571,7 @@ class TestIntegrationScenarios:
         backend.async_upload = mock_upload
 
         # Upload all files concurrently
-        tasks = [
-            backend.async_upload(f, f"sync/{f.name}")
-            for f in files
-        ]
+        tasks = [backend.async_upload(f, f"sync/{f.name}") for f in files]
 
         results = await asyncio.gather(*tasks)
 
@@ -650,8 +605,8 @@ class TestIntegrationScenarios:
         # Resolve with last-write-wins
         resolution = resolve_conflict(conflict, strategy="last-write-wins")
 
-        assert resolution['status'] == 'resolved'
-        assert resolution['action'] in ['keep_local', 'keep_remote']
+        assert resolution["status"] == "resolved"
+        assert resolution["action"] in ["keep_local", "keep_remote"]
 
     def test_multiple_conflicts_batch_resolution(self, tmp_path):
         """Test resolving multiple conflicts in batch"""
@@ -687,11 +642,11 @@ class TestIntegrationScenarios:
         # Files 3-4 should keep local (local newer)
         # i=3: local=2024-01-04, remote=2024-01-03 → local newer
         # i=4: local=2024-01-05, remote=2024-01-02 → local newer
-        assert resolutions[0]['action'] == 'keep_remote'
-        assert resolutions[1]['action'] == 'keep_remote'
-        assert resolutions[2]['action'] == 'keep_remote'
-        assert resolutions[3]['action'] == 'keep_local'
-        assert resolutions[4]['action'] == 'keep_local'
+        assert resolutions[0]["action"] == "keep_remote"
+        assert resolutions[1]["action"] == "keep_remote"
+        assert resolutions[2]["action"] == "keep_remote"
+        assert resolutions[3]["action"] == "keep_local"
+        assert resolutions[4]["action"] == "keep_local"
 
 
 class TestErrorHandling:
@@ -722,10 +677,7 @@ class TestErrorHandling:
         backend.async_upload = mock_upload
 
         # Upload all files
-        tasks = [
-            backend.async_upload(f, f"key-{i}")
-            for i, f in enumerate(files)
-        ]
+        tasks = [backend.async_upload(f, f"key-{i}") for i, f in enumerate(files)]
 
         # Use gather with return_exceptions to handle failures
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -762,12 +714,9 @@ class TestErrorHandling:
         backend.download = Mock(side_effect=StorageError("Download failed"))
 
         result = resolve_conflict(
-            conflict,
-            strategy="merge",
-            backend=backend,
-            local_path=local_file
+            conflict, strategy="merge", backend=backend, local_path=local_file
         )
 
         # Should require manual resolution
-        assert result['status'] == 'manual_required'
-        assert result['action'] == 'none'
+        assert result["status"] == "manual_required"
+        assert result["action"] == "none"
