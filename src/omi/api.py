@@ -26,6 +26,9 @@ from .security import IntegrityChecker, TopologyVerifier, ConsensusManager
 from .events import MemoryStoredEvent, MemoryRecalledEvent, BeliefUpdatedEvent, ContradictionDetectedEvent
 from .event_bus import get_event_bus
 
+# RBAC
+from .rbac import RBACManager
+
 # Vault
 from .moltvault import MoltVault
 
@@ -46,10 +49,14 @@ class MemoryTools:
 
     def __init__(self, palace_store: GraphPalace,
                  embedder: OllamaEmbedder,
-                 cache: EmbeddingCache) -> None:
+                 cache: EmbeddingCache,
+                 user_id: Optional[str] = None,
+                 rbac_manager: Optional[RBACManager] = None) -> None:
         self.palace: GraphPalace = palace_store
         self.embedder: OllamaEmbedder = embedder
         self.cache: EmbeddingCache = cache
+        self.user_id: Optional[str] = user_id
+        self.rbac: Optional[RBACManager] = rbac_manager
 
     @staticmethod
     def _encode_cursor(cursor_data: Dict[str, Any]) -> str:
@@ -113,6 +120,11 @@ class MemoryTools:
                 - next_cursor: Cursor for next page (empty if no more results)
                 - has_more: Boolean indicating if more results exist
         """
+        # Check permissions
+        if self.rbac and self.user_id:
+            if not self.rbac.check_permission(self.user_id, "read", "memory"):
+                raise PermissionError(f"User {self.user_id} does not have permission to read memories")
+
         # Validate and clamp limit
         limit = max(1, min(limit, 500))
 
@@ -309,6 +321,11 @@ class MemoryTools:
         Returns:
             memory_id: UUID for created memory
         """
+        # Check permissions
+        if self.rbac and self.user_id:
+            if not self.rbac.check_permission(self.user_id, "write", "memory"):
+                raise PermissionError(f"User {self.user_id} does not have permission to write memories")
+
         # Generate embedding with caching
         embedding = self.cache.get_or_compute(content)
 
@@ -342,23 +359,32 @@ class BeliefTools:
     """
 
     def __init__(self, belief_network: BeliefNetwork,
-                 detector: ContradictionDetector) -> None:
+                 detector: ContradictionDetector,
+                 user_id: Optional[str] = None,
+                 rbac_manager: Optional[RBACManager] = None) -> None:
         self.belief: BeliefNetwork = belief_network
         self.detector: ContradictionDetector = detector
+        self.user_id: Optional[str] = user_id
+        self.rbac: Optional[RBACManager] = rbac_manager
     
     def create(self,
               content: str,
               initial_confidence: float = 0.5) -> str:
         """
         belief_create: Create new belief with confidence
-        
+
         Args:
             content: Belief statement
             initial_confidence: Starting confidence 0.0-1.0
-        
+
         Returns:
             belief_id: UUID for created belief
         """
+        # Check permissions
+        if self.rbac and self.user_id:
+            if not self.rbac.check_permission(self.user_id, "write", "belief"):
+                raise PermissionError(f"User {self.user_id} does not have permission to write beliefs")
+
         return self.belief.create_belief(content, initial_confidence)
     
     def update(self,
@@ -380,6 +406,11 @@ class BeliefTools:
         Returns:
             new_confidence: Updated confidence value
         """
+        # Check permissions
+        if self.rbac and self.user_id:
+            if not self.rbac.check_permission(self.user_id, "write", "belief"):
+                raise PermissionError(f"User {self.user_id} does not have permission to write beliefs")
+
         # Get old confidence before update
         current = self.belief.palace.get_belief(belief_id)
         old_confidence = current.get('confidence', 0.5)
@@ -409,9 +440,14 @@ class BeliefTools:
                min_confidence: Optional[float] = None) -> List[Dict[str, Any]]:
         """
         belief_retrieve: Get beliefs with confidence weighting
-        
+
         High-confidence beliefs rank exponentially higher
         """
+        # Check permissions
+        if self.rbac and self.user_id:
+            if not self.rbac.check_permission(self.user_id, "read", "belief"):
+                raise PermissionError(f"User {self.user_id} does not have permission to read beliefs")
+
         return self.belief.retrieve_with_confidence_weighting(
             query, min_confidence
         )
@@ -920,6 +956,7 @@ def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
     except FileNotFoundError:
         snapshot_manager = None
 
+
     # Initialize embedders
     embedder = OllamaEmbedder(
         model=config.get('embedding_model', 'nomic-embed-text')
@@ -957,14 +994,22 @@ def get_all_mcp_tools(config: Dict[str, Any]) -> Dict[str, Any]:
         leader_instance_id=sync_config.get('leader_instance_id')
     )
 
+    # Initialize RBAC (if user_id provided)
+    user_id = config.get('user_id')
+    rbac_manager = RBACManager(str(db_path)) if user_id else None
+
+    # Create tool instances with user context
+    memory_tools = MemoryTools(palace, embedder, cache, user_id, rbac_manager)
+    belief_tools = BeliefTools(belief_net, detector, user_id, rbac_manager)
+
     # Create tool instances
     tools = {
-        'memory_recall': MemoryTools(palace, embedder, cache).recall,
-        'memory_store': MemoryTools(palace, embedder, cache).store,
-        'belief_create': BeliefTools(belief_net, detector).create,
-        'belief_update': BeliefTools(belief_net, detector).update,
-        'belief_retrieve': BeliefTools(belief_net, detector).retrieve,
-        'belief_evidence_chain': BeliefTools(belief_net, detector).get_evidence_chain,
+        'memory_recall': memory_tools.recall,
+        'memory_store': memory_tools.store,
+        'belief_create': belief_tools.create,
+        'belief_update': belief_tools.update,
+        'belief_retrieve': belief_tools.retrieve,
+        'belief_evidence_chain': belief_tools.get_evidence_chain,
         'now_read': checkpoint_tools.now_read,
         'now_update': checkpoint_tools.now_update,
         'vault_backup': checkpoint_tools.vault_backup,

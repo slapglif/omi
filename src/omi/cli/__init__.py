@@ -28,6 +28,7 @@ from .serve import serve_group
 from .index import index_group
 from .policy import policy_group
 from .snapshot import snapshot_group
+from .user import user_group
 
 # CLI version - matches project version
 __version__ = "0.2.0"
@@ -126,6 +127,9 @@ cli.add_command(policy_group, name='policy')
 
 # Register snapshot command group (snapshot create, list, diff, rollback)
 cli.add_command(snapshot_group, name='snapshot')
+
+# Register user command group (user create, list, delete, permissions, set-role)
+cli.add_command(user_group, name='user')
 
 
 @cli.command()
