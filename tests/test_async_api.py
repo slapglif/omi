@@ -10,6 +10,7 @@ Tests all async MCP tools to ensure they:
 
 Issue: https://github.com/slapglif/omi/issues/4
 """
+
 import pytest
 import asyncio
 import tempfile
@@ -24,7 +25,7 @@ from omi.async_api import (
     AsyncCheckpointTools,
     AsyncDailyLogTools,
     AsyncSession,
-    async_session
+    async_session,
 )
 from omi.storage.async_graph_palace import AsyncGraphPalace
 from omi.async_embeddings import AsyncNIMEmbedder, AsyncOllamaEmbedder, AsyncEmbeddingCache
@@ -39,11 +40,11 @@ from omi.events import (
     BeliefUpdatedEvent,
     ContradictionDetectedEvent,
     SessionStartedEvent,
-    SessionEndedEvent
+    SessionEndedEvent,
 )
 
-
 # Fixtures for async testing
+
 
 @pytest.fixture
 def async_temp_setup(tmp_path):
@@ -106,7 +107,9 @@ class TestAsyncMemoryTools:
     """Test async memory_recall, memory_store"""
 
     @pytest.mark.asyncio
-    async def test_async_memory_recall_returns_relevant(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_async_memory_recall_returns_relevant(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Store 3 memories about "Python"
         Store 2 memories about "JavaScript"
@@ -149,9 +152,9 @@ class TestAsyncMemoryTools:
             assert isinstance(results, list)
             # If results exist, they should contain Python-related content
             for result in results:
-                content = result.get('content', '').lower()
+                content = result.get("content", "").lower()
                 # None should contain JavaScript
-                assert 'javascript' not in content
+                assert "javascript" not in content
 
     @pytest.mark.asyncio
     async def test_async_memory_recall_limit(self, async_temp_setup, mock_async_embedder, tmp_path):
@@ -166,7 +169,9 @@ class TestAsyncMemoryTools:
 
             # Store multiple memories
             for i in range(10):
-                await memory_tools.store(f"Memory number {i} about various topics", memory_type="fact")
+                await memory_tools.store(
+                    f"Memory number {i} about various topics", memory_type="fact"
+                )
 
             # Test different limits
             results_5 = await memory_tools.recall("memory", limit=5)
@@ -177,7 +182,9 @@ class TestAsyncMemoryTools:
             assert len(results_3) <= 3
 
     @pytest.mark.asyncio
-    async def test_async_memory_store_creates_embedding(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_async_memory_store_creates_embedding(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Store: "Learned that SQLAlchemy is slow"
         Verify:
@@ -211,7 +218,9 @@ class TestAsyncMemoryTools:
             assert isinstance(results, list)
 
     @pytest.mark.asyncio
-    async def test_async_memory_store_emits_event(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_async_memory_store_emits_event(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Verify that memory_store emits MemoryStoredEvent
         """
@@ -245,7 +254,9 @@ class TestAsyncMemoryTools:
             assert event.memory_type == "fact"
 
     @pytest.mark.asyncio
-    async def test_async_memory_recall_emits_event(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_async_memory_recall_emits_event(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Verify that memory_recall emits MemoryRecalledEvent
         """
@@ -278,7 +289,9 @@ class TestAsyncMemoryTools:
             assert event.result_count == len(results)
 
     @pytest.mark.asyncio
-    async def test_async_memory_store_with_relationships(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_async_memory_store_with_relationships(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Test storing memory with related_to parameter
         """
@@ -295,9 +308,7 @@ class TestAsyncMemoryTools:
 
             # Store second memory related to first
             mem2_id = await memory_tools.store(
-                "Second memory related to first",
-                memory_type="fact",
-                related_to=[mem1_id]
+                "Second memory related to first", memory_type="fact", related_to=[mem1_id]
             )
 
             # Both should be stored
@@ -353,16 +364,12 @@ class TestAsyncBeliefTools:
 
             # Store a memory to use as evidence
             memory_id = await palace.store_memory(
-                content="Evidence that X works",
-                memory_type="fact"
+                content="Evidence that X works", memory_type="fact"
             )
 
             # Update belief with supporting evidence
             new_confidence = await belief_tools.update(
-                belief_id=belief_id,
-                evidence_memory_id=memory_id,
-                supports=True,
-                strength=0.8
+                belief_id=belief_id, evidence_memory_id=memory_id, supports=True, strength=0.8
             )
 
             # Confidence should have increased
@@ -426,22 +433,32 @@ class TestAsyncBeliefTools:
 
             # Mock the recall to return both memories with same base relevance
             mock_results = [
-                {'id': 'belief_a', 'content': 'Topic A statement', 'confidence': 0.9, 'relevance': 0.8},
-                {'id': 'belief_b', 'content': 'Topic B statement', 'confidence': 0.3, 'relevance': 0.8},
+                {
+                    "id": "belief_a",
+                    "content": "Topic A statement",
+                    "confidence": 0.9,
+                    "relevance": 0.8,
+                },
+                {
+                    "id": "belief_b",
+                    "content": "Topic B statement",
+                    "confidence": 0.3,
+                    "relevance": 0.8,
+                },
             ]
 
             # Patch palace.recall to return our mock results
-            with patch.object(palace, 'recall', return_value=mock_results):
+            with patch.object(palace, "recall", return_value=mock_results):
                 results = await belief_tools.retrieve("topic")
 
                 if results:  # Only check if results are returned
                     # High confidence should rank higher
-                    high_conf = [r for r in results if r.get('confidence', 0) > 0.5]
-                    low_conf = [r for r in results if r.get('confidence', 0) <= 0.5]
+                    high_conf = [r for r in results if r.get("confidence", 0) > 0.5]
+                    low_conf = [r for r in results if r.get("confidence", 0) <= 0.5]
 
                     # Verify confidence weighting applied
                     for r in results:
-                        assert 'weighted_score' in r
+                        assert "weighted_score" in r
 
     @pytest.mark.asyncio
     async def test_async_belief_check_contradiction(self, async_temp_setup):
@@ -455,14 +472,8 @@ class TestAsyncBeliefTools:
             belief_tools = AsyncBeliefTools(belief_network, detector)
 
             # Store contradicting memories
-            mem1_id = await palace.store_memory(
-                "Always use sync code",
-                memory_type="fact"
-            )
-            mem2_id = await palace.store_memory(
-                "Never use sync code",
-                memory_type="fact"
-            )
+            mem1_id = await palace.store_memory("Always use sync code", memory_type="fact")
+            mem2_id = await palace.store_memory("Never use sync code", memory_type="fact")
 
             # Check for contradiction
             is_contradiction = await belief_tools.check_contradiction(mem1_id, mem2_id)
@@ -529,15 +540,15 @@ class TestAsyncCheckpointTools:
             current_task="Test task",
             recent_completions=["Task 1", "Task 2"],
             pending_decisions=["Decision 1"],
-            key_files=["file1.py", "file2.py"]
+            key_files=["file1.py", "file2.py"],
         )
 
         # Read back
         context = await checkpoint_tools.now_read()
 
         # Should have updated values
-        assert context.get('current_task') == "Test task"
-        assert "Task 1" in context.get('recent_completions', [])
+        assert context.get("current_task") == "Test task"
+        assert "Task 1" in context.get("recent_completions", [])
 
     @pytest.mark.asyncio
     async def test_async_create_capsule(self, async_temp_setup):
@@ -551,17 +562,16 @@ class TestAsyncCheckpointTools:
 
         # Create capsule
         capsule = await checkpoint_tools.create_capsule(
-            intent="Test intent",
-            partial_plan="Test plan"
+            intent="Test intent", partial_plan="Test plan"
         )
 
         # Should return capsule with required fields
         assert isinstance(capsule, dict)
-        assert 'version' in capsule
-        assert 'intent_hash' in capsule
-        assert 'partial_plan' in capsule
-        assert 'timestamp' in capsule
-        assert 'checksum' in capsule
+        assert "version" in capsule
+        assert "intent_hash" in capsule
+        assert "partial_plan" in capsule
+        assert "timestamp" in capsule
+        assert "checksum" in capsule
 
     @pytest.mark.asyncio
     async def test_async_vault_backup(self, async_temp_setup):
@@ -660,7 +670,9 @@ class TestAsyncSession:
     """Test async session context manager"""
 
     @pytest.mark.asyncio
-    async def test_async_session_context_manager(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_async_session_context_manager(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Test that async session context manager works correctly
         """
@@ -674,8 +686,7 @@ class TestAsyncSession:
 
             # Use async session
             async with async_session(
-                memory_tools=memory_tools,
-                session_id="test-session-123"
+                memory_tools=memory_tools, session_id="test-session-123"
             ) as session:
                 # Should have access to tools
                 assert session.memory is not None
@@ -686,7 +697,9 @@ class TestAsyncSession:
                 assert memory_id is not None
 
     @pytest.mark.asyncio
-    async def test_async_session_emits_events(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_async_session_emits_events(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Test that session emits SessionStartedEvent and SessionEndedEvent
         """
@@ -710,8 +723,7 @@ class TestAsyncSession:
 
             # Use async session
             async with async_session(
-                memory_tools=memory_tools,
-                session_id="test-session-456"
+                memory_tools=memory_tools, session_id="test-session-456"
             ) as session:
                 pass
 
@@ -727,10 +739,12 @@ class TestAsyncSession:
         assert events[1].session_id == "test-session-456"
         assert events[1].duration_seconds is not None
         # No error in normal case - metadata might be empty or not have 'error' key
-        assert 'error' not in (events[1].metadata or {})
+        assert "error" not in (events[1].metadata or {})
 
     @pytest.mark.asyncio
-    async def test_async_session_handles_errors(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_async_session_handles_errors(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Test that session handles errors correctly and emits SessionEndedEvent with error
         """
@@ -754,8 +768,7 @@ class TestAsyncSession:
             # Use async session with error
             try:
                 async with async_session(
-                    memory_tools=memory_tools,
-                    session_id="test-session-error"
+                    memory_tools=memory_tools, session_id="test-session-error"
                 ) as session:
                     raise ValueError("Test error")
             except ValueError:
@@ -766,8 +779,8 @@ class TestAsyncSession:
         event = events[0]
         assert isinstance(event, SessionEndedEvent)
         assert event.metadata is not None
-        assert 'error' in event.metadata
-        assert "Test error" in event.metadata['error']
+        assert "error" in event.metadata
+        assert "Test error" in event.metadata["error"]
 
 
 @pytest.mark.asyncio
@@ -805,7 +818,7 @@ async def test_async_session_context(async_temp_setup, mock_async_embedder, tmp_
         async with async_session(
             memory_tools=memory_tools,
             session_id="comprehensive-test-session",
-            metadata={"test": "comprehensive"}
+            metadata={"test": "comprehensive"},
         ) as session:
             # Verify tool access
             assert session.memory is not None
@@ -823,10 +836,16 @@ async def test_async_session_context(async_temp_setup, mock_async_embedder, tmp_
         assert len(events) >= 2  # At least start and end events
 
         # Find the start and end events for our session
-        start_events = [e for e in events if isinstance(e, SessionStartedEvent)
-                       and e.session_id == "comprehensive-test-session"]
-        end_events = [e for e in events if isinstance(e, SessionEndedEvent)
-                     and e.session_id == "comprehensive-test-session"]
+        start_events = [
+            e
+            for e in events
+            if isinstance(e, SessionStartedEvent) and e.session_id == "comprehensive-test-session"
+        ]
+        end_events = [
+            e
+            for e in events
+            if isinstance(e, SessionEndedEvent) and e.session_id == "comprehensive-test-session"
+        ]
 
         assert len(start_events) == 1, "Should have exactly one SessionStartedEvent"
         assert len(end_events) == 1, "Should have exactly one SessionEndedEvent"
@@ -842,7 +861,7 @@ async def test_async_session_context(async_temp_setup, mock_async_embedder, tmp_
         assert end_event.duration_seconds is not None
         assert end_event.duration_seconds > 0
         # No error in successful session
-        assert 'error' not in (end_event.metadata or {})
+        assert "error" not in (end_event.metadata or {})
 
         # Clear events for next test
         events.clear()
@@ -850,21 +869,23 @@ async def test_async_session_context(async_temp_setup, mock_async_embedder, tmp_
         # Test 2: Error handling
         try:
             async with async_session(
-                memory_tools=memory_tools,
-                session_id="error-session"
+                memory_tools=memory_tools, session_id="error-session"
             ) as session:
                 raise ValueError("Intentional test error")
         except ValueError:
             pass  # Expected
 
         # Should still emit SessionEndedEvent with error in metadata
-        end_events = [e for e in events if isinstance(e, SessionEndedEvent)
-                     and e.session_id == "error-session"]
+        end_events = [
+            e
+            for e in events
+            if isinstance(e, SessionEndedEvent) and e.session_id == "error-session"
+        ]
         assert len(end_events) == 1
         error_end_event = end_events[0]
         assert error_end_event.metadata is not None
-        assert 'error' in error_end_event.metadata
-        assert "Intentional test error" in error_end_event.metadata['error']
+        assert "error" in error_end_event.metadata
+        assert "Intentional test error" in error_end_event.metadata["error"]
 
         # Clear events for next test
         events.clear()
@@ -872,8 +893,7 @@ async def test_async_session_context(async_temp_setup, mock_async_embedder, tmp_
         # Test 3: Multiple concurrent sessions
         async def run_session(session_num):
             async with async_session(
-                memory_tools=memory_tools,
-                session_id=f"concurrent-session-{session_num}"
+                memory_tools=memory_tools, session_id=f"concurrent-session-{session_num}"
             ) as session:
                 # Each session stores its own memory
                 await session.memory.store(f"Memory from session {session_num}", memory_type="fact")
@@ -882,11 +902,7 @@ async def test_async_session_context(async_temp_setup, mock_async_embedder, tmp_
                 return session_num
 
         # Run 3 sessions concurrently
-        results = await asyncio.gather(
-            run_session(1),
-            run_session(2),
-            run_session(3)
-        )
+        results = await asyncio.gather(run_session(1), run_session(2), run_session(3))
 
         # All sessions should complete successfully
         assert results == [1, 2, 3]
@@ -908,7 +924,9 @@ class TestConcurrentOperations:
     """Test concurrent async operations to verify no deadlocks or data corruption"""
 
     @pytest.mark.asyncio
-    async def test_concurrent_store_operations(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_concurrent_store_operations(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Test storing multiple memories concurrently
         Verify: No deadlocks, all memories stored successfully
@@ -923,8 +941,7 @@ class TestConcurrentOperations:
 
             # Store 10 memories concurrently
             tasks = [
-                memory_tools.store(f"Concurrent memory {i}", memory_type="fact")
-                for i in range(10)
+                memory_tools.store(f"Concurrent memory {i}", memory_type="fact") for i in range(10)
             ]
 
             # Execute concurrently
@@ -937,7 +954,9 @@ class TestConcurrentOperations:
             assert len(set(memory_ids)) == 10
 
     @pytest.mark.asyncio
-    async def test_concurrent_recall_operations(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_concurrent_recall_operations(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Test recalling memories concurrently
         Verify: No deadlocks, all recalls return results
@@ -955,10 +974,7 @@ class TestConcurrentOperations:
                 await memory_tools.store(f"Memory {i}", memory_type="fact")
 
             # Recall concurrently with different queries
-            tasks = [
-                memory_tools.recall(f"query {i}", limit=3)
-                for i in range(10)
-            ]
+            tasks = [memory_tools.recall(f"query {i}", limit=3) for i in range(10)]
 
             # Execute concurrently
             results = await asyncio.gather(*tasks)
@@ -968,7 +984,9 @@ class TestConcurrentOperations:
             assert all(isinstance(r, list) for r in results)
 
     @pytest.mark.asyncio
-    async def test_concurrent_store_and_recall(self, async_temp_setup, mock_async_embedder, tmp_path):
+    async def test_concurrent_store_and_recall(
+        self, async_temp_setup, mock_async_embedder, tmp_path
+    ):
         """
         Test storing and recalling concurrently
         Verify: No deadlocks, no data corruption
@@ -1020,20 +1038,19 @@ class TestConcurrentOperations:
             initial_memories = [
                 "Python is a high-level programming language",
                 "Python supports multiple programming paradigms",
-                "Python has extensive standard library"
+                "Python has extensive standard library",
             ]
             for mem in initial_memories:
                 await memory_tools.store(mem, memory_type="fact")
 
             # Now run concurrent store and recall operations
             store_tasks = [
-                memory_tools.store(f"Python async programming concept {i}", memory_type="experience")
+                memory_tools.store(
+                    f"Python async programming concept {i}", memory_type="experience"
+                )
                 for i in range(5)
             ]
-            recall_tasks = [
-                memory_tools.recall("Python", limit=5)
-                for _ in range(5)
-            ]
+            recall_tasks = [memory_tools.recall("Python", limit=5) for _ in range(5)]
 
             # Mix store and recall tasks and execute concurrently
             all_tasks = store_tasks + recall_tasks

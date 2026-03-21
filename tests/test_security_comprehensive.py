@@ -1,6 +1,7 @@
 """
 Comprehensive tests for security features (IntegrityChecker, TopologyVerifier, PoisonDetector, ConsensusManager)
 """
+
 import pytest
 from pathlib import Path
 from datetime import datetime
@@ -116,7 +117,7 @@ class TestIntegrityChecker:
         """Test auditing git history when git is available"""
         checker = IntegrityChecker(tmp_path)
 
-        with patch('subprocess.run') as mock_run:
+        with patch("subprocess.run") as mock_run:
             # Mock git log output
             mock_result = Mock()
             mock_result.returncode = 0
@@ -132,7 +133,7 @@ class TestIntegrityChecker:
         """Test audit when git is not available"""
         checker = IntegrityChecker(tmp_path)
 
-        with patch('subprocess.run') as mock_run:
+        with patch("subprocess.run") as mock_run:
             mock_result = Mock()
             mock_result.returncode = 1
             mock_run.return_value = mock_result
@@ -166,6 +167,7 @@ class TestTopologyVerifier:
 
         # Create in-memory SQLite for testing
         import sqlite3
+
         conn = sqlite3.connect(str(db_path))
         conn.execute("CREATE TABLE memories (id TEXT PRIMARY KEY)")
         conn.execute("CREATE TABLE edges (id INTEGER PRIMARY KEY, source_id TEXT, target_id TEXT)")
@@ -190,8 +192,11 @@ class TestTopologyVerifier:
 
         # Create test database
         import sqlite3
+
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT, access_count INTEGER)")
+        conn.execute(
+            "CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT, access_count INTEGER)"
+        )
         conn.execute("CREATE TABLE edges (id INTEGER PRIMARY KEY, source_id TEXT, target_id TEXT)")
         # Create a "sudden core" - high in-degree but low access count
         conn.execute("INSERT INTO memories VALUES ('sudden_core', 'Important memory', 1)")
@@ -209,14 +214,11 @@ class TestTopologyVerifier:
     def test_check_embedding_drift(self):
         """Test checking for embedding drift"""
         mock_palace = MagicMock()
-        mock_palace.get_memory.return_value = {
-            "embedding": [0.1] * 768,
-            "content": "Test content"
-        }
+        mock_palace.get_memory.return_value = {"embedding": [0.1] * 768, "content": "Test content"}
 
         verifier = TopologyVerifier(mock_palace)
 
-        with patch('omi.security.OllamaEmbedder') as mock_embedder_class:
+        with patch("omi.security.OllamaEmbedder") as mock_embedder_class:
             mock_embedder = MagicMock()
             mock_embedder.embed.return_value = [0.1] * 768
             mock_embedder.similarity.return_value = 0.85  # Below 0.9 threshold
@@ -247,6 +249,7 @@ class TestTopologyVerifier:
 
         # Create test database with mismatched hash
         import sqlite3
+
         conn = sqlite3.connect(str(db_path))
         conn.execute("CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT, content_hash TEXT)")
 
@@ -278,8 +281,11 @@ class TestTopologyVerifier:
 
         # Create minimal test database
         import sqlite3
+
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT, access_count INTEGER, content_hash TEXT)")
+        conn.execute(
+            "CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT, access_count INTEGER, content_hash TEXT)"
+        )
         conn.execute("CREATE TABLE edges (id INTEGER PRIMARY KEY, source_id TEXT, target_id TEXT)")
         conn.commit()
         conn.close()
@@ -339,9 +345,7 @@ class TestConsensusManager:
         manager.support_memory("memory_id_123")
 
         mock_palace.add_consensus_vote.assert_called_once_with(
-            memory_id="memory_id_123",
-            instance_id="instance_2",
-            votes_for=1
+            memory_id="memory_id_123", instance_id="instance_2", votes_for=1
         )
 
     def test_check_consensus(self):
@@ -393,7 +397,9 @@ class TestPoisonDetector:
 
         detector = PoisonDetector(tmp_path)
 
-        with patch.object(detector.integrity, 'audit_git_history', return_value={"recent_commits": 0}):
+        with patch.object(
+            detector.integrity, "audit_git_history", return_value={"recent_commits": 0}
+        ):
             result = detector.full_security_audit()
 
             assert "file_integrity" in result
@@ -413,11 +419,11 @@ class TestPoisonDetector:
             sudden_cores=[],
             semantic_anomalies=[],
             hash_mismatches=[],
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
-        with patch.object(detector.topology, 'full_topology_audit', return_value=mock_audit):
-            with patch.object(detector.integrity, 'audit_git_history', return_value={}):
+        with patch.object(detector.topology, "full_topology_audit", return_value=mock_audit):
+            with patch.object(detector.integrity, "audit_git_history", return_value={}):
                 result = detector.full_security_audit()
 
                 assert len(result["orphan_nodes"]) == 1
@@ -434,13 +440,13 @@ class TestPoisonDetector:
             sudden_cores=[],
             semantic_anomalies=[],
             hash_mismatches=[],
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
-        with patch.object(detector.topology, 'full_topology_audit', return_value=mock_audit):
-            with patch.object(detector.integrity, 'audit_git_history', return_value={}):
-                with patch.object(detector.integrity, 'check_now_md', return_value=True):
-                    with patch.object(detector.integrity, 'check_memory_md', return_value=True):
+        with patch.object(detector.topology, "full_topology_audit", return_value=mock_audit):
+            with patch.object(detector.integrity, "audit_git_history", return_value={}):
+                with patch.object(detector.integrity, "check_now_md", return_value=True):
+                    with patch.object(detector.integrity, "check_memory_md", return_value=True):
                         result = detector.full_security_audit()
 
                         # Should be unsafe due to many orphans
@@ -457,7 +463,7 @@ class TestAnomalyReport:
             sudden_cores=[{"id": "core1"}],
             semantic_anomalies=[{"id": "anomaly1"}],
             hash_mismatches=["mismatch1"],
-            timestamp=datetime(2024, 1, 1)
+            timestamp=datetime(2024, 1, 1),
         )
 
         assert len(report.orphan_nodes) == 2

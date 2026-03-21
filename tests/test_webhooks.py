@@ -21,12 +21,14 @@ from threading import Event as ThreadEvent
 import sys
 from pathlib import Path
 
+
 def ensure_omi_importable():
     """Add src to path if needed."""
     test_dir = Path(__file__).resolve().parent
     src_path = test_dir.parent / "src"
     if str(src_path) not in sys.path:
         sys.path.insert(0, str(src_path))
+
 
 ensure_omi_importable()
 
@@ -40,15 +42,15 @@ class TestWebhookDispatcherBasics:
 
         dispatcher = WebhookDispatcher(
             webhook_url="https://example.com/webhook",
-            event_types=['memory.stored'],
-            headers={'Authorization': 'Bearer token123'},
+            event_types=["memory.stored"],
+            headers={"Authorization": "Bearer token123"},
             timeout=5,
-            max_retries=2
+            max_retries=2,
         )
 
         assert dispatcher.webhook_url == "https://example.com/webhook"
-        assert dispatcher.event_types == ['memory.stored']
-        assert dispatcher.headers == {'Authorization': 'Bearer token123'}
+        assert dispatcher.event_types == ["memory.stored"]
+        assert dispatcher.headers == {"Authorization": "Bearer token123"}
         assert dispatcher.timeout == 5
         assert dispatcher.max_retries == 2
         assert not dispatcher.is_active()
@@ -59,7 +61,7 @@ class TestWebhookDispatcherBasics:
 
         dispatcher = WebhookDispatcher(webhook_url="https://example.com/webhook")
 
-        assert dispatcher.event_types == ['*']  # Subscribe to all events by default
+        assert dispatcher.event_types == ["*"]  # Subscribe to all events by default
         assert dispatcher.headers == {}
         assert dispatcher.timeout == 10
         assert dispatcher.max_retries == 3
@@ -69,11 +71,12 @@ class TestWebhookDispatcherBasics:
         """Test dispatcher fails gracefully if requests not available."""
         from omi.event_bus import WebhookDispatcher
 
-        with patch.dict('sys.modules', {'requests': None}):
+        with patch.dict("sys.modules", {"requests": None}):
             with pytest.raises(ImportError, match="requests package required"):
                 # Force reimport to trigger the check
                 import importlib
                 import omi.event_bus as eb
+
                 importlib.reload(eb)
                 # This should fail in __init__ when trying to import requests
                 dispatcher = eb.WebhookDispatcher("https://example.com")
@@ -105,9 +108,7 @@ class TestWebhookDelivery:
         reset_event_bus()
 
         dispatcher = WebhookDispatcher(
-            webhook_url="https://example.com/webhook",
-            event_types=['memory.stored'],
-            timeout=5
+            webhook_url="https://example.com/webhook", event_types=["memory.stored"], timeout=5
         )
         dispatcher._requests = mock_requests
 
@@ -129,10 +130,7 @@ class TestWebhookDelivery:
 
         # Create and publish event
         event = MemoryStoredEvent(
-            memory_id="test123",
-            content="Test memory",
-            memory_type="fact",
-            confidence=0.9
+            memory_id="test123", content="Test memory", memory_type="fact", confidence=0.9
         )
 
         # Publish event
@@ -146,10 +144,10 @@ class TestWebhookDelivery:
 
         # Verify request details
         call_args = mock_requests.post.call_args
-        assert call_args[1]['json']['event_type'] == 'memory.stored'
-        assert call_args[1]['json']['memory_id'] == 'test123'
-        assert call_args[1]['json']['content'] == 'Test memory'
-        assert call_args[1]['timeout'] == 5
+        assert call_args[1]["json"]["event_type"] == "memory.stored"
+        assert call_args[1]["json"]["memory_id"] == "test123"
+        assert call_args[1]["json"]["content"] == "Test memory"
+        assert call_args[1]["timeout"] == 5
 
         # Cleanup
         dispatcher.stop()
@@ -162,8 +160,8 @@ class TestWebhookDelivery:
 
         dispatcher, mock_requests = dispatcher_with_mock_requests
         dispatcher.headers = {
-            'Authorization': 'Bearer secret_token',
-            'X-Custom-Header': 'custom_value'
+            "Authorization": "Bearer secret_token",
+            "X-Custom-Header": "custom_value",
         }
 
         # Get event bus (already reset in fixture)
@@ -171,11 +169,7 @@ class TestWebhookDelivery:
 
         dispatcher.start()
 
-        event = MemoryStoredEvent(
-            memory_id="test456",
-            content="Test",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="test456", content="Test", memory_type="fact")
         bus.publish(event)
 
         # Wait for background thread
@@ -183,10 +177,10 @@ class TestWebhookDelivery:
 
         # Verify headers
         call_args = mock_requests.post.call_args
-        headers = call_args[1]['headers']
-        assert headers['Content-Type'] == 'application/json'
-        assert headers['Authorization'] == 'Bearer secret_token'
-        assert headers['X-Custom-Header'] == 'custom_value'
+        headers = call_args[1]["headers"]
+        assert headers["Content-Type"] == "application/json"
+        assert headers["Authorization"] == "Bearer secret_token"
+        assert headers["X-Custom-Header"] == "custom_value"
 
         dispatcher.stop()
 
@@ -196,17 +190,14 @@ class TestWebhookDelivery:
         from omi.event_bus import get_event_bus
 
         dispatcher, mock_requests = dispatcher_with_mock_requests
-        dispatcher.event_types = ['belief.updated']
+        dispatcher.event_types = ["belief.updated"]
 
         bus = get_event_bus()
 
         dispatcher.start()
 
         event = BeliefUpdatedEvent(
-            belief_id="belief789",
-            old_confidence=0.7,
-            new_confidence=0.9,
-            evidence_id="evidence123"
+            belief_id="belief789", old_confidence=0.7, new_confidence=0.9, evidence_id="evidence123"
         )
         bus.publish(event)
 
@@ -214,12 +205,12 @@ class TestWebhookDelivery:
 
         # Verify serialization
         call_args = mock_requests.post.call_args
-        payload = call_args[1]['json']
-        assert payload['event_type'] == 'belief.updated'
-        assert payload['belief_id'] == 'belief789'
-        assert payload['old_confidence'] == 0.7
-        assert payload['new_confidence'] == 0.9
-        assert payload['evidence_id'] == 'evidence123'
+        payload = call_args[1]["json"]
+        assert payload["event_type"] == "belief.updated"
+        assert payload["belief_id"] == "belief789"
+        assert payload["old_confidence"] == 0.7
+        assert payload["new_confidence"] == 0.9
+        assert payload["evidence_id"] == "evidence123"
 
         dispatcher.stop()
 
@@ -247,9 +238,9 @@ class TestWebhookRetry:
 
         dispatcher = WebhookDispatcher(
             webhook_url="https://example.com/webhook",
-            event_types=['memory.stored'],
+            event_types=["memory.stored"],
             max_retries=2,
-            retry_delay=0.05  # Short delay for testing
+            retry_delay=0.05,  # Short delay for testing
         )
         dispatcher._requests = failing_requests
 
@@ -257,11 +248,7 @@ class TestWebhookRetry:
 
         dispatcher.start()
 
-        event = MemoryStoredEvent(
-            memory_id="test_retry",
-            content="Test",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="test_retry", content="Test", memory_type="fact")
         bus.publish(event)
 
         # Wait for retries to complete
@@ -291,9 +278,9 @@ class TestWebhookRetry:
 
         dispatcher = WebhookDispatcher(
             webhook_url="https://example.com/webhook",
-            event_types=['*'],
+            event_types=["*"],
             max_retries=2,
-            retry_delay=0.1  # 100ms base delay
+            retry_delay=0.1,  # 100ms base delay
         )
         dispatcher._requests = failing_requests
 
@@ -301,11 +288,7 @@ class TestWebhookRetry:
 
         dispatcher.start()
 
-        event = MemoryStoredEvent(
-            memory_id="test_backoff",
-            content="Test",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="test_backoff", content="Test", memory_type="fact")
         bus.publish(event)
 
         # Wait for all retries
@@ -353,9 +336,7 @@ class TestWebhookRetry:
         mock_requests.post.side_effect = side_effect
 
         dispatcher = WebhookDispatcher(
-            webhook_url="https://example.com/webhook",
-            max_retries=2,
-            retry_delay=0.05
+            webhook_url="https://example.com/webhook", max_retries=2, retry_delay=0.05
         )
         dispatcher._requests = mock_requests
 
@@ -363,11 +344,7 @@ class TestWebhookRetry:
 
         dispatcher.start()
 
-        event = MemoryStoredEvent(
-            memory_id="test_success",
-            content="Test",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="test_success", content="Test", memory_type="fact")
         bus.publish(event)
 
         # Wait for retry
@@ -401,7 +378,7 @@ class TestEventFiltering:
 
         dispatcher = WebhookDispatcher(
             webhook_url="https://example.com/webhook",
-            event_types=['memory.stored']  # Only subscribe to memory.stored
+            event_types=["memory.stored"],  # Only subscribe to memory.stored
         )
         dispatcher._requests = mock_requests
 
@@ -410,21 +387,13 @@ class TestEventFiltering:
         dispatcher.start()
 
         # Publish memory.stored event (should be delivered)
-        event1 = MemoryStoredEvent(
-            memory_id="test1",
-            content="Test",
-            memory_type="fact"
-        )
+        event1 = MemoryStoredEvent(memory_id="test1", content="Test", memory_type="fact")
         bus.publish(event1)
 
         time.sleep(0.1)
 
         # Publish belief.updated event (should NOT be delivered)
-        event2 = BeliefUpdatedEvent(
-            belief_id="belief1",
-            old_confidence=0.5,
-            new_confidence=0.8
-        )
+        event2 = BeliefUpdatedEvent(belief_id="belief1", old_confidence=0.5, new_confidence=0.8)
         bus.publish(event2)
 
         time.sleep(0.1)
@@ -432,7 +401,7 @@ class TestEventFiltering:
         # Only memory.stored should have been posted
         assert mock_requests.post.call_count == 1
         call_args = mock_requests.post.call_args
-        assert call_args[1]['json']['event_type'] == 'memory.stored'
+        assert call_args[1]["json"]["event_type"] == "memory.stored"
 
         dispatcher.stop()
 
@@ -444,8 +413,7 @@ class TestEventFiltering:
         reset_event_bus()
 
         dispatcher = WebhookDispatcher(
-            webhook_url="https://example.com/webhook",
-            event_types=['*']  # Wildcard - all events
+            webhook_url="https://example.com/webhook", event_types=["*"]  # Wildcard - all events
         )
         dispatcher._requests = mock_requests
 
@@ -454,17 +422,9 @@ class TestEventFiltering:
         dispatcher.start()
 
         # Publish different event types
-        bus.publish(MemoryStoredEvent(
-            memory_id="test1",
-            content="Test",
-            memory_type="fact"
-        ))
+        bus.publish(MemoryStoredEvent(memory_id="test1", content="Test", memory_type="fact"))
 
-        bus.publish(BeliefUpdatedEvent(
-            belief_id="belief1",
-            old_confidence=0.5,
-            new_confidence=0.8
-        ))
+        bus.publish(BeliefUpdatedEvent(belief_id="belief1", old_confidence=0.5, new_confidence=0.8))
 
         bus.publish(SessionStartedEvent(session_id="session1"))
 
@@ -485,7 +445,7 @@ class TestEventFiltering:
 
         dispatcher = WebhookDispatcher(
             webhook_url="https://example.com/webhook",
-            event_types=['memory.stored', 'belief.updated']  # Two specific types
+            event_types=["memory.stored", "belief.updated"],  # Two specific types
         )
         dispatcher._requests = mock_requests
 
@@ -494,17 +454,9 @@ class TestEventFiltering:
         dispatcher.start()
 
         # Publish matching events
-        bus.publish(MemoryStoredEvent(
-            memory_id="test1",
-            content="Test",
-            memory_type="fact"
-        ))
+        bus.publish(MemoryStoredEvent(memory_id="test1", content="Test", memory_type="fact"))
 
-        bus.publish(BeliefUpdatedEvent(
-            belief_id="belief1",
-            old_confidence=0.5,
-            new_confidence=0.8
-        ))
+        bus.publish(BeliefUpdatedEvent(belief_id="belief1", old_confidence=0.5, new_confidence=0.8))
 
         # Publish non-matching event
         bus.publish(SessionStartedEvent(session_id="session1"))
@@ -529,7 +481,7 @@ class TestDispatcherLifecycle:
 
         dispatcher = WebhookDispatcher(
             webhook_url="https://example.com/webhook",
-            event_types=['memory.stored', 'belief.updated']
+            event_types=["memory.stored", "belief.updated"],
         )
 
         # Initially no subscribers
@@ -550,8 +502,7 @@ class TestDispatcherLifecycle:
         bus = get_event_bus()
 
         dispatcher = WebhookDispatcher(
-            webhook_url="https://example.com/webhook",
-            event_types=['memory.stored']
+            webhook_url="https://example.com/webhook", event_types=["memory.stored"]
         )
 
         dispatcher.start()
@@ -569,14 +520,12 @@ class TestDispatcherLifecycle:
         from omi.event_bus import WebhookDispatcher
         import logging
 
-        dispatcher = WebhookDispatcher(
-            webhook_url="https://example.com/webhook"
-        )
+        dispatcher = WebhookDispatcher(webhook_url="https://example.com/webhook")
 
         dispatcher.start()
 
         # Try starting again
-        with patch('omi.event_bus.logger') as mock_logger:
+        with patch("omi.event_bus.logger") as mock_logger:
             dispatcher.start()
             mock_logger.warning.assert_called()
 
@@ -586,9 +535,7 @@ class TestDispatcherLifecycle:
         """Test stopping dispatcher that was never started."""
         from omi.event_bus import WebhookDispatcher
 
-        dispatcher = WebhookDispatcher(
-            webhook_url="https://example.com/webhook"
-        )
+        dispatcher = WebhookDispatcher(webhook_url="https://example.com/webhook")
 
         # Should not raise error
         dispatcher.stop()
@@ -606,14 +553,12 @@ class TestErrorHandling:
 
         # Create mock event without to_dict method
         mock_event = MagicMock()
-        mock_event.event_type = 'test.event'
+        mock_event.event_type = "test.event"
         del mock_event.to_dict  # Remove to_dict method
 
         mock_requests = MagicMock()
 
-        dispatcher = WebhookDispatcher(
-            webhook_url="https://example.com/webhook"
-        )
+        dispatcher = WebhookDispatcher(webhook_url="https://example.com/webhook")
         dispatcher._requests = mock_requests
 
         bus = get_event_bus()
@@ -642,9 +587,7 @@ class TestErrorHandling:
         mock_requests.post.side_effect = requests.exceptions.Timeout("Request timed out")
 
         dispatcher = WebhookDispatcher(
-            webhook_url="https://example.com/webhook",
-            max_retries=1,
-            retry_delay=0.05
+            webhook_url="https://example.com/webhook", max_retries=1, retry_delay=0.05
         )
         dispatcher._requests = mock_requests
 
@@ -652,11 +595,7 @@ class TestErrorHandling:
 
         dispatcher.start()
 
-        event = MemoryStoredEvent(
-            memory_id="test_timeout",
-            content="Test",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="test_timeout", content="Test", memory_type="fact")
         bus.publish(event)
 
         time.sleep(0.3)
@@ -677,13 +616,13 @@ class TestErrorHandling:
         mock_requests = MagicMock()
         mock_response = MagicMock()
         mock_response.status_code = 500
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("500 Server Error")
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "500 Server Error"
+        )
         mock_requests.post.return_value = mock_response
 
         dispatcher = WebhookDispatcher(
-            webhook_url="https://example.com/webhook",
-            max_retries=1,
-            retry_delay=0.05
+            webhook_url="https://example.com/webhook", max_retries=1, retry_delay=0.05
         )
         dispatcher._requests = mock_requests
 
@@ -691,11 +630,7 @@ class TestErrorHandling:
 
         dispatcher.start()
 
-        event = MemoryStoredEvent(
-            memory_id="test_error",
-            content="Test",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="test_error", content="Test", memory_type="fact")
         bus.publish(event)
 
         time.sleep(0.3)
@@ -728,9 +663,7 @@ class TestBackgroundExecution:
 
         mock_requests.post.side_effect = slow_post
 
-        dispatcher = WebhookDispatcher(
-            webhook_url="https://example.com/webhook"
-        )
+        dispatcher = WebhookDispatcher(webhook_url="https://example.com/webhook")
         dispatcher._requests = mock_requests
 
         bus = get_event_bus()
@@ -743,15 +676,11 @@ class TestBackgroundExecution:
         def track_event(event):
             events_published.append(event)
 
-        bus.subscribe('*', track_event)
+        bus.subscribe("*", track_event)
 
         # Publish event
         start_time = time.time()
-        event = MemoryStoredEvent(
-            memory_id="test_async",
-            content="Test",
-            memory_type="fact"
-        )
+        event = MemoryStoredEvent(memory_id="test_async", content="Test", memory_type="fact")
         bus.publish(event)
         publish_time = time.time() - start_time
 

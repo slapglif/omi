@@ -25,11 +25,13 @@ class AsyncNIMEmbedder:
     DEFAULT_MODEL = "baai/bge-m3"
     DEFAULT_DIM = 1024
 
-    def __init__(self,
-                 api_key: Optional[str] = None,
-                 base_url: str = "https://integrate.api.nvidia.com/v1",
-                 model: str = DEFAULT_MODEL,
-                 fallback_to_ollama: bool = True):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: str = "https://integrate.api.nvidia.com/v1",
+        model: str = DEFAULT_MODEL,
+        fallback_to_ollama: bool = True,
+    ):
         """
         Args:
             api_key: NVIDIA NIM API key (or NIM_API_KEY env var)
@@ -59,13 +61,14 @@ class AsyncNIMEmbedder:
     async def _init_client(self) -> None:
         """Initialize HTTP client"""
         try:
-            import httpx
+            import httpx  # type: ignore
+
             self._client = httpx.AsyncClient(
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
                 },
-                timeout=30.0
+                timeout=30.0,
             )
             await self._test_connection()
         except Exception as e:
@@ -77,9 +80,7 @@ class AsyncNIMEmbedder:
     async def _test_connection(self) -> None:
         """Test NIM connection"""
         test_response = await self._client.post(
-            f"{self.base_url}/embeddings",
-            json={"model": self.model, "input": "test"},
-            timeout=10.0
+            f"{self.base_url}/embeddings", json={"model": self.model, "input": "test"}, timeout=10.0
         )
         test_response.raise_for_status()
 
@@ -111,8 +112,8 @@ class AsyncNIMEmbedder:
             json={
                 "model": self.model,
                 "input": text[:512],  # Truncate to max tokens
-                "encoding_format": "float"
-            }
+                "encoding_format": "float",
+            },
         )
         response.raise_for_status()
 
@@ -123,13 +124,12 @@ class AsyncNIMEmbedder:
         """Generate embeddings for multiple texts"""
         results = []
         for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
+            batch = texts[i : i + batch_size]
             batch_results = [await self.embed(t) for t in batch]
             results.extend(batch_results)
         return results
 
-    def similarity(self, embedding1: List[float],
-                  embedding2: List[float]) -> float:
+    def similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
         """Cosine similarity (sync method, no I/O)"""
         v1 = np.array(embedding1)
         v2 = np.array(embedding2)
@@ -164,15 +164,15 @@ class AsyncOllamaEmbedder:
     DEFAULT_MODEL = "nomic-embed-text"
     DEFAULT_DIM = 768
 
-    def __init__(self, model: str = DEFAULT_MODEL,
-                 base_url: str = "http://localhost:11434"):
+    def __init__(self, model: str = DEFAULT_MODEL, base_url: str = "http://localhost:11434"):
         self.model = model
         self.base_url = base_url
         self._client = None
 
     async def _init_client(self) -> None:
         """Initialize HTTP client"""
-        import httpx
+        import httpx  # type: ignore
+
         self._client = httpx.AsyncClient(timeout=30.0)
 
     async def embed(self, text: str) -> List[float]:
@@ -181,11 +181,10 @@ class AsyncOllamaEmbedder:
             await self._init_client()
 
         response = await self._client.post(
-            f"{self.base_url}/api/embeddings",
-            json={"model": self.model, "prompt": text}
+            f"{self.base_url}/api/embeddings", json={"model": self.model, "prompt": text}
         )
         response.raise_for_status()
-        return response.json()['embedding']
+        return response.json()["embedding"]
 
     async def close(self) -> None:
         """Close HTTP client"""
@@ -203,7 +202,8 @@ class AsyncEmbeddingCache:
 
     async def _ensure_cache_dir(self) -> None:
         """Ensure cache directory exists"""
-        import aiofiles.os
+        import aiofiles.os  # type: ignore
+
         try:
             await aiofiles.os.makedirs(self.cache_dir, exist_ok=True)
         except FileExistsError:
@@ -211,8 +211,8 @@ class AsyncEmbeddingCache:
 
     async def get_or_compute(self, text: str) -> List[float]:
         """Get from cache or compute and store"""
-        import aiofiles
-        import aiofiles.os
+        import aiofiles  # type: ignore
+        import aiofiles.os  # type: ignore
 
         # Ensure cache directory exists
         await self._ensure_cache_dir()
@@ -224,7 +224,7 @@ class AsyncEmbeddingCache:
         try:
             await aiofiles.os.stat(cache_path)
             # File exists, load it
-            async with aiofiles.open(cache_path, 'rb') as f:
+            async with aiofiles.open(cache_path, "rb") as f:
                 content = await f.read()
             # Load numpy array from bytes
             buffer = BytesIO(content)
@@ -238,10 +238,10 @@ class AsyncEmbeddingCache:
             np.save(buffer, np.array(embedding))
             buffer.seek(0)
 
-            async with aiofiles.open(cache_path, 'wb') as f:
+            async with aiofiles.open(cache_path, "wb") as f:
                 await f.write(buffer.read())
 
             return embedding
 
 
-__all__ = ['AsyncNIMEmbedder', 'AsyncOllamaEmbedder', 'AsyncEmbeddingCache']
+__all__ = ["AsyncNIMEmbedder", "AsyncOllamaEmbedder", "AsyncEmbeddingCache"]

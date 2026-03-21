@@ -38,9 +38,9 @@ class TestDatabaseStats:
 
     def test_init_with_memory_db(self):
         """Test initialization with in-memory database"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
-        assert stats.db_path == ':memory:'
+        assert stats.db_path == ":memory:"
         assert stats._owns_connection is True
 
         stats.close()
@@ -66,7 +66,7 @@ class TestDatabaseStats:
 
     def test_get_stats_empty_database(self, tmp_path):
         """Test stats on empty database"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         result = stats.get_stats()
 
@@ -79,7 +79,7 @@ class TestDatabaseStats:
 
     def test_get_stats_with_memories(self, tmp_path):
         """Test stats with various memories"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         # Insert test memories of different types
         memories = [
@@ -91,10 +91,13 @@ class TestDatabaseStats:
         ]
 
         for mem_id, content, mem_type in memories:
-            stats._conn.execute("""
+            stats._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, content, mem_type, datetime.now().isoformat()))
+            """,
+                (mem_id, content, mem_type, datetime.now().isoformat()),
+            )
 
         result = stats.get_stats()
 
@@ -108,7 +111,7 @@ class TestDatabaseStats:
 
     def test_get_stats_with_edges(self, tmp_path):
         """Test stats with various edges"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         # Insert memories
         mem1_id = str(uuid.uuid4())
@@ -116,10 +119,13 @@ class TestDatabaseStats:
         mem3_id = str(uuid.uuid4())
 
         for mem_id in [mem1_id, mem2_id, mem3_id]:
-            stats._conn.execute("""
+            stats._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, f"Memory {mem_id}", "fact", datetime.now().isoformat()))
+            """,
+                (mem_id, f"Memory {mem_id}", "fact", datetime.now().isoformat()),
+            )
 
         # Insert edges of different types
         edges = [
@@ -130,10 +136,13 @@ class TestDatabaseStats:
         ]
 
         for edge_id, source, target, edge_type in edges:
-            stats._conn.execute("""
+            stats._conn.execute(
+                """
                 INSERT INTO edges (id, source_id, target_id, edge_type, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (edge_id, source, target, edge_type, datetime.now().isoformat()))
+            """,
+                (edge_id, source, target, edge_type, datetime.now().isoformat()),
+            )
 
         result = stats.get_stats()
 
@@ -146,21 +155,28 @@ class TestDatabaseStats:
 
     def test_get_compression_stats_all_memories(self, tmp_path):
         """Test compression stats for all memories"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         # Insert memories with varying content lengths
         memories = [
             (str(uuid.uuid4()), "Short fact", "fact"),
-            (str(uuid.uuid4()), "This is a longer experience with more content to compress", "experience"),
+            (
+                str(uuid.uuid4()),
+                "This is a longer experience with more content to compress",
+                "experience",
+            ),
             (str(uuid.uuid4()), "Another belief " * 10, "belief"),  # Repeated text
         ]
 
         total_chars = 0
         for mem_id, content, mem_type in memories:
-            stats._conn.execute("""
+            stats._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, content, mem_type, datetime.now().isoformat()))
+            """,
+                (mem_id, content, mem_type, datetime.now().isoformat()),
+            )
             total_chars += len(content)
 
         result = stats.get_compression_stats()
@@ -176,7 +192,7 @@ class TestDatabaseStats:
 
     def test_get_compression_stats_with_threshold(self, tmp_path):
         """Test compression stats with age threshold"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         now = datetime.now()
         old_date = now - timedelta(days=60)
@@ -186,15 +202,21 @@ class TestDatabaseStats:
         old_memory_id = str(uuid.uuid4())
         recent_memory_id = str(uuid.uuid4())
 
-        stats._conn.execute("""
+        stats._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?)
-        """, (old_memory_id, "Old memory content", "fact", old_date.isoformat()))
+        """,
+            (old_memory_id, "Old memory content", "fact", old_date.isoformat()),
+        )
 
-        stats._conn.execute("""
+        stats._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?)
-        """, (recent_memory_id, "Recent memory content", "fact", recent_date.isoformat()))
+        """,
+            (recent_memory_id, "Recent memory content", "fact", recent_date.isoformat()),
+        )
 
         # Get stats for memories before 30 days ago (should only include old one)
         threshold = now - timedelta(days=30)
@@ -208,7 +230,7 @@ class TestDatabaseStats:
 
     def test_get_compression_stats_empty_database(self, tmp_path):
         """Test compression stats on empty database"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         result = stats.get_compression_stats()
 
@@ -221,7 +243,7 @@ class TestDatabaseStats:
 
     def test_get_memories_before_basic(self, tmp_path):
         """Test querying memories before a threshold"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         now = datetime.now()
         old_date = now - timedelta(days=60)
@@ -233,20 +255,29 @@ class TestDatabaseStats:
         medium_id = str(uuid.uuid4())
         recent_id = str(uuid.uuid4())
 
-        stats._conn.execute("""
+        stats._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?)
-        """, (old_id, "Old memory", "fact", old_date.isoformat()))
+        """,
+            (old_id, "Old memory", "fact", old_date.isoformat()),
+        )
 
-        stats._conn.execute("""
+        stats._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?)
-        """, (medium_id, "Medium memory", "fact", medium_date.isoformat()))
+        """,
+            (medium_id, "Medium memory", "fact", medium_date.isoformat()),
+        )
 
-        stats._conn.execute("""
+        stats._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?)
-        """, (recent_id, "Recent memory", "fact", recent_date.isoformat()))
+        """,
+            (recent_id, "Recent memory", "fact", recent_date.isoformat()),
+        )
 
         # Query memories before 20 days ago (should get old and medium)
         threshold = now - timedelta(days=20)
@@ -263,7 +294,7 @@ class TestDatabaseStats:
 
     def test_get_memories_before_with_limit(self, tmp_path):
         """Test querying memories with limit"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         now = datetime.now()
 
@@ -271,10 +302,13 @@ class TestDatabaseStats:
         for i in range(5):
             mem_id = str(uuid.uuid4())
             created_at = now - timedelta(days=60 + i)
-            stats._conn.execute("""
+            stats._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, f"Memory {i}", "fact", created_at.isoformat()))
+            """,
+                (mem_id, f"Memory {i}", "fact", created_at.isoformat()),
+            )
 
         # Query with limit=3
         threshold = now - timedelta(days=30)
@@ -287,17 +321,20 @@ class TestDatabaseStats:
 
     def test_get_memories_before_empty_result(self, tmp_path):
         """Test querying with threshold that returns no results"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         now = datetime.now()
         recent_date = now - timedelta(days=5)
 
         # Insert only recent memories
         mem_id = str(uuid.uuid4())
-        stats._conn.execute("""
+        stats._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?)
-        """, (mem_id, "Recent memory", "fact", recent_date.isoformat()))
+        """,
+            (mem_id, "Recent memory", "fact", recent_date.isoformat()),
+        )
 
         # Query for memories before 30 days ago (should get none)
         threshold = now - timedelta(days=30)
@@ -309,7 +346,7 @@ class TestDatabaseStats:
 
     def test_get_memories_before_ordering(self, tmp_path):
         """Test that results are ordered oldest first"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         now = datetime.now()
 
@@ -325,10 +362,13 @@ class TestDatabaseStats:
         for date in dates:
             mem_id = str(uuid.uuid4())
             memory_ids.append((mem_id, date))
-            stats._conn.execute("""
+            stats._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, "Memory content", "fact", date.isoformat()))
+            """,
+                (mem_id, "Memory content", "fact", date.isoformat()),
+            )
 
         # Query all old memories
         threshold = now - timedelta(days=20)
@@ -350,10 +390,13 @@ class TestDatabaseStats:
 
         # Insert and delete some data to create fragmentation
         mem_id = str(uuid.uuid4())
-        stats._conn.execute("""
+        stats._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?)
-        """, (mem_id, "To be deleted", "fact", datetime.now().isoformat()))
+        """,
+            (mem_id, "To be deleted", "fact", datetime.now().isoformat()),
+        )
 
         stats._conn.execute("DELETE FROM memories WHERE id = ?", (mem_id,))
 
@@ -380,25 +423,31 @@ class TestDatabaseStats:
 
     def test_get_stats_combined(self, tmp_path):
         """Test comprehensive stats with memories and edges"""
-        stats = DatabaseStats(':memory:')
+        stats = DatabaseStats(":memory:")
 
         # Insert diverse data
         mem_ids = []
         for i in range(3):
             mem_id = str(uuid.uuid4())
             mem_ids.append(mem_id)
-            stats._conn.execute("""
+            stats._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, f"Memory {i}", "fact", datetime.now().isoformat()))
+            """,
+                (mem_id, f"Memory {i}", "fact", datetime.now().isoformat()),
+            )
 
         # Add some edges
         for i in range(2):
             edge_id = str(uuid.uuid4())
-            stats._conn.execute("""
+            stats._conn.execute(
+                """
                 INSERT INTO edges (id, source_id, target_id, edge_type, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (edge_id, mem_ids[i], mem_ids[i+1], "SUPPORTS", datetime.now().isoformat()))
+            """,
+                (edge_id, mem_ids[i], mem_ids[i + 1], "SUPPORTS", datetime.now().isoformat()),
+            )
 
         result = stats.get_stats()
 

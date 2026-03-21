@@ -60,7 +60,7 @@ class TestDebug:
                 runner.invoke(cli, ["init"])
 
             # Mock NIMEmbedder to raise an exception
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.side_effect = Exception("API key not set")
                 mock_embedder.return_value = mock_embedder_instance
@@ -97,18 +97,20 @@ class TestDebug:
                 embedding=None,
                 created_at=datetime.now(),
                 access_count=0,
-                last_accessed=None
+                last_accessed=None,
             )
 
             # Mock NIMEmbedder and GraphPalace
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.return_value = [0.1, 0.2, 0.3, 0.4, 0.5]
                 mock_embedder.return_value = mock_embedder_instance
 
-                with patch.object(GraphPalace, 'recall', return_value=[(mock_memory, 0.95)]):
+                with patch.object(GraphPalace, "recall", return_value=[(mock_memory, 0.95)]):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                        result = runner.invoke(cli, ["debug", "--operation", "recall", "test query"])
+                        result = runner.invoke(
+                            cli, ["debug", "--operation", "recall", "test query"]
+                        )
 
             assert result.exit_code == 0
             assert "=== DEBUG: Recall Operation ===" in result.output
@@ -133,14 +135,16 @@ class TestDebug:
                 runner.invoke(cli, ["init"])
 
             # Mock NIMEmbedder and GraphPalace
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.return_value = [0.1, 0.2, 0.3, 0.4, 0.5]
                 mock_embedder.return_value = mock_embedder_instance
 
-                with patch.object(GraphPalace, 'recall', return_value=[]):
+                with patch.object(GraphPalace, "recall", return_value=[]):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                        result = runner.invoke(cli, ["debug", "--operation", "recall", "test query"])
+                        result = runner.invoke(
+                            cli, ["debug", "--operation", "recall", "test query"]
+                        )
 
             assert result.exit_code == 0
             assert "no memories found" in result.output.lower()
@@ -160,19 +164,21 @@ class TestDebug:
                 runner.invoke(cli, ["init"])
 
             # Mock NIMEmbedder and GraphPalace
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.return_value = [0.1, 0.2, 0.3]
                 mock_embedder.return_value = mock_embedder_instance
 
-                with patch.object(GraphPalace, 'recall', return_value=[]) as mock_recall:
+                with patch.object(GraphPalace, "recall", return_value=[]) as mock_recall:
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                        result = runner.invoke(cli, ["debug", "--operation", "recall", "test query", "--limit", "5"])
+                        result = runner.invoke(
+                            cli, ["debug", "--operation", "recall", "test query", "--limit", "5"]
+                        )
 
                     # Verify that recall was called with the correct limit
                     mock_recall.assert_called_once()
                     call_kwargs = mock_recall.call_args[1]
-                    assert call_kwargs['limit'] == 5
+                    assert call_kwargs["limit"] == 5
 
             assert result.exit_code == 0
 
@@ -191,21 +197,26 @@ class TestDebug:
                 runner.invoke(cli, ["init"])
 
             # Mock NIMEmbedder and GraphPalace
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.return_value = [0.1, 0.2, 0.3, 0.4, 0.5]
                 mock_embedder.return_value = mock_embedder_instance
 
-                with patch.object(GraphPalace, 'store_memory', return_value="test-memory-id-123"):
-                    with patch.object(GraphPalace, 'recall', return_value=[]):
-                        with patch.object(GraphPalace, 'close'):
+                with patch.object(GraphPalace, "store_memory", return_value="test-memory-id-123"):
+                    with patch.object(GraphPalace, "recall", return_value=[]):
+                        with patch.object(GraphPalace, "close"):
                             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                                result = runner.invoke(cli, [
-                                    "debug",
-                                    "--operation", "store",
-                                    "Test memory content",
-                                    "--type", "experience"
-                                ])
+                                result = runner.invoke(
+                                    cli,
+                                    [
+                                        "debug",
+                                        "--operation",
+                                        "store",
+                                        "Test memory content",
+                                        "--type",
+                                        "experience",
+                                    ],
+                                )
 
             assert result.exit_code == 0
             assert "=== DEBUG: Store Operation ===" in result.output
@@ -232,22 +243,28 @@ class TestDebug:
                 runner.invoke(cli, ["init"])
 
             # Mock NIMEmbedder and GraphPalace
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.return_value = [0.1, 0.2, 0.3]
                 mock_embedder.return_value = mock_embedder_instance
 
-                with patch.object(GraphPalace, 'store_memory', return_value="test-id"):
-                    with patch.object(GraphPalace, 'recall', return_value=[]):
-                        with patch.object(GraphPalace, 'close'):
+                with patch.object(GraphPalace, "store_memory", return_value="test-id"):
+                    with patch.object(GraphPalace, "recall", return_value=[]):
+                        with patch.object(GraphPalace, "close"):
                             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                                result = runner.invoke(cli, [
-                                    "debug",
-                                    "--operation", "store",
-                                    "Test belief",
-                                    "--type", "belief",
-                                    "--confidence", "0.85"
-                                ])
+                                result = runner.invoke(
+                                    cli,
+                                    [
+                                        "debug",
+                                        "--operation",
+                                        "store",
+                                        "Test belief",
+                                        "--type",
+                                        "belief",
+                                        "--confidence",
+                                        "0.85",
+                                    ],
+                                )
 
             assert result.exit_code == 0
             assert "belief" in result.output.lower()
@@ -268,22 +285,28 @@ class TestDebug:
                 runner.invoke(cli, ["init"])
 
             # Mock NIMEmbedder and GraphPalace
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.return_value = [0.1, 0.2, 0.3]
                 mock_embedder.return_value = mock_embedder_instance
 
-                with patch.object(GraphPalace, 'store_memory', return_value="test-id"):
-                    with patch.object(GraphPalace, 'recall', return_value=[]):
-                        with patch.object(GraphPalace, 'close'):
+                with patch.object(GraphPalace, "store_memory", return_value="test-id"):
+                    with patch.object(GraphPalace, "recall", return_value=[]):
+                        with patch.object(GraphPalace, "close"):
                             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                                result = runner.invoke(cli, [
-                                    "debug",
-                                    "--operation", "store",
-                                    "Test fact",
-                                    "--type", "fact",
-                                    "--confidence", "0.9"
-                                ])
+                                result = runner.invoke(
+                                    cli,
+                                    [
+                                        "debug",
+                                        "--operation",
+                                        "store",
+                                        "Test fact",
+                                        "--type",
+                                        "fact",
+                                        "--confidence",
+                                        "0.9",
+                                    ],
+                                )
 
             assert result.exit_code == 0
             assert "warning" in result.output.lower()
@@ -314,11 +337,11 @@ class TestDebug:
                 embedding=None,
                 created_at=datetime.now(),
                 access_count=0,
-                last_accessed=None
+                last_accessed=None,
             )
 
             # Mock NIMEmbedder and GraphPalace
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.return_value = [0.1, 0.2, 0.3]
                 mock_embedder.return_value = mock_embedder_instance
@@ -330,15 +353,20 @@ class TestDebug:
                 mock_palace.add_edge = MagicMock()
                 mock_palace.close = MagicMock()
 
-                with patch.object(GraphPalace, '__init__', return_value=None):
-                    with patch('omi.cli.GraphPalace', return_value=mock_palace):
+                with patch.object(GraphPalace, "__init__", return_value=None):
+                    with patch("omi.cli.GraphPalace", return_value=mock_palace):
                         with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                            result = runner.invoke(cli, [
-                                "debug",
-                                "--operation", "store",
-                                "Test memory",
-                                "--type", "experience"
-                            ])
+                            result = runner.invoke(
+                                cli,
+                                [
+                                    "debug",
+                                    "--operation",
+                                    "store",
+                                    "Test memory",
+                                    "--type",
+                                    "experience",
+                                ],
+                            )
 
                         # Verify edge was created
                         mock_palace.add_edge.assert_called_once()
@@ -361,18 +389,16 @@ class TestDebug:
                 runner.invoke(cli, ["init"])
 
             # Mock NIMEmbedder to raise an exception
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.side_effect = Exception("API error")
                 mock_embedder.return_value = mock_embedder_instance
 
                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                    result = runner.invoke(cli, [
-                        "debug",
-                        "--operation", "store",
-                        "Test content",
-                        "--type", "experience"
-                    ])
+                    result = runner.invoke(
+                        cli,
+                        ["debug", "--operation", "store", "Test content", "--type", "experience"],
+                    )
 
             assert result.exit_code == 1
             assert "failed to generate embedding" in result.output.lower()
@@ -392,26 +418,33 @@ class TestDebug:
                 runner.invoke(cli, ["init"])
 
             # Mock NIMEmbedder and GraphPalace
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.return_value = [0.1, 0.2, 0.3]
                 mock_embedder.return_value = mock_embedder_instance
 
-                with patch.object(GraphPalace, 'store_memory', side_effect=Exception("Database error")):
+                with patch.object(
+                    GraphPalace, "store_memory", side_effect=Exception("Database error")
+                ):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                        result = runner.invoke(cli, [
-                            "debug",
-                            "--operation", "store",
-                            "Test content",
-                            "--type", "experience"
-                        ])
+                        result = runner.invoke(
+                            cli,
+                            [
+                                "debug",
+                                "--operation",
+                                "store",
+                                "Test content",
+                                "--type",
+                                "experience",
+                            ],
+                        )
 
             assert result.exit_code == 1
             assert "failed to store memory" in result.output.lower()
 
     def test_debug_store_all_memory_types(self):
         """Test debug store with all memory types."""
-        memory_types = ['fact', 'experience', 'belief', 'decision']
+        memory_types = ["fact", "experience", "belief", "decision"]
 
         for mem_type in memory_types:
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -427,21 +460,26 @@ class TestDebug:
                     runner.invoke(cli, ["init"])
 
                 # Mock NIMEmbedder and GraphPalace
-                with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+                with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                     mock_embedder_instance = MagicMock()
                     mock_embedder_instance.embed.return_value = [0.1, 0.2, 0.3]
                     mock_embedder.return_value = mock_embedder_instance
 
-                    with patch.object(GraphPalace, 'store_memory', return_value="test-id"):
-                        with patch.object(GraphPalace, 'recall', return_value=[]):
-                            with patch.object(GraphPalace, 'close'):
+                    with patch.object(GraphPalace, "store_memory", return_value="test-id"):
+                        with patch.object(GraphPalace, "recall", return_value=[]):
+                            with patch.object(GraphPalace, "close"):
                                 with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                                    result = runner.invoke(cli, [
-                                        "debug",
-                                        "--operation", "store",
-                                        f"Test {mem_type} content",
-                                        "--type", mem_type
-                                    ])
+                                    result = runner.invoke(
+                                        cli,
+                                        [
+                                            "debug",
+                                            "--operation",
+                                            "store",
+                                            f"Test {mem_type} content",
+                                            "--type",
+                                            mem_type,
+                                        ],
+                                    )
 
                 assert result.exit_code == 0, f"Failed for memory type: {mem_type}"
                 assert mem_type in result.output.lower()
@@ -461,14 +499,16 @@ class TestDebug:
                 runner.invoke(cli, ["init"])
 
             # Mock NIMEmbedder and GraphPalace
-            with patch('omi.embeddings.NIMEmbedder') as mock_embedder:
+            with patch("omi.embeddings.NIMEmbedder") as mock_embedder:
                 mock_embedder_instance = MagicMock()
                 mock_embedder_instance.embed.return_value = [0.1, 0.2, 0.3]
                 mock_embedder.return_value = mock_embedder_instance
 
-                with patch.object(GraphPalace, 'recall', side_effect=Exception("Search error")):
+                with patch.object(GraphPalace, "recall", side_effect=Exception("Search error")):
                     with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                        result = runner.invoke(cli, ["debug", "--operation", "recall", "test query"])
+                        result = runner.invoke(
+                            cli, ["debug", "--operation", "recall", "test query"]
+                        )
 
             assert result.exit_code == 1
             assert "search failed" in result.output.lower()

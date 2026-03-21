@@ -12,6 +12,7 @@ from typing import Optional, List
 @dataclass
 class NamespaceComponents:
     """Parsed components of a namespace hierarchy"""
+
     org: str
     team: Optional[str] = None
     agent: Optional[str] = None
@@ -40,10 +41,10 @@ class Namespace:
     """
 
     # Regex pattern: alphanumeric + hyphens/underscores, no special chars
-    COMPONENT_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+    COMPONENT_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
     # Special namespace that grants org-wide read access
-    COMMONS_NAME = 'commons'
+    COMMONS_NAME = "commons"
 
     def __init__(self, namespace: str):
         """
@@ -72,11 +73,11 @@ class Namespace:
             raise ValueError("Namespace cannot be empty")
 
         # Check for leading/trailing slashes
-        if namespace.startswith('/') or namespace.endswith('/'):
+        if namespace.startswith("/") or namespace.endswith("/"):
             raise ValueError("Namespace cannot start or end with '/'")
 
         # Split into components
-        parts = namespace.split('/')
+        parts = namespace.split("/")
 
         if len(parts) > 3:
             raise ValueError("Namespace cannot have more than 3 levels (org/team/agent)")
@@ -165,7 +166,7 @@ class Namespace:
         Args:
             pattern: Pattern string with optional wildcards
         """
-        if pattern.endswith('/*'):
+        if pattern.endswith("/*"):
             prefix = pattern[:-2]
             return self.raw.startswith(prefix)
         else:
@@ -219,17 +220,12 @@ def parse_namespace_pattern(pattern: str) -> dict:
     Returns:
         Dict with 'org', 'team', 'agent', 'wildcard' keys
     """
-    has_wildcard = pattern.endswith('/*')
+    has_wildcard = pattern.endswith("/*")
     if has_wildcard:
         pattern = pattern[:-2]
 
     try:
         ns = Namespace(pattern)
-        return {
-            'org': ns.org,
-            'team': ns.team,
-            'agent': ns.agent,
-            'wildcard': has_wildcard
-        }
+        return {"org": ns.org, "team": ns.team, "agent": ns.agent, "wildcard": has_wildcard}
     except ValueError:
         raise ValueError(f"Invalid namespace pattern: {pattern}")

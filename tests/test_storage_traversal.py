@@ -38,9 +38,9 @@ class TestGraphTraversal:
 
     def test_init_with_memory_db(self):
         """Test initialization with in-memory database"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
-        assert traversal.db_path == ':memory:'
+        assert traversal.db_path == ":memory:"
         assert traversal._owns_connection is True
 
         traversal.close()
@@ -66,7 +66,7 @@ class TestGraphTraversal:
 
     def test_calculate_recency_score_recent(self):
         """Test recency score for recent timestamp"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Recent timestamp (1 day ago)
         timestamp = datetime.now() - timedelta(days=1)
@@ -80,7 +80,7 @@ class TestGraphTraversal:
 
     def test_calculate_recency_score_old(self):
         """Test recency score for old timestamp"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Old timestamp (90 days ago, 3 half-lives)
         timestamp = datetime.now() - timedelta(days=90)
@@ -93,7 +93,7 @@ class TestGraphTraversal:
 
     def test_calculate_recency_score_at_half_life(self):
         """Test recency score at half-life (30 days)"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # At half-life (30 days ago)
         timestamp = datetime.now() - timedelta(days=30)
@@ -107,7 +107,7 @@ class TestGraphTraversal:
 
     def test_calculate_recency_score_none(self):
         """Test recency score with None timestamp"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         score = traversal._calculate_recency_score(None)
 
@@ -117,33 +117,48 @@ class TestGraphTraversal:
 
     def test_get_centrality_basic(self):
         """Test centrality calculation for a memory"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Insert memory with some access history
         mem_id = str(uuid.uuid4())
         last_accessed = datetime.now() - timedelta(days=5)
 
-        traversal._conn.execute("""
+        traversal._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at, last_accessed, access_count)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (mem_id, "Test memory", "fact", datetime.now().isoformat(),
-              last_accessed.isoformat(), 10))
+        """,
+            (
+                mem_id,
+                "Test memory",
+                "fact",
+                datetime.now().isoformat(),
+                last_accessed.isoformat(),
+                10,
+            ),
+        )
 
         # Add some edges
         other_ids = []
         for i in range(3):
             other_id = str(uuid.uuid4())
             other_ids.append(other_id)
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (other_id, f"Other {i}", "fact", datetime.now().isoformat()))
+            """,
+                (other_id, f"Other {i}", "fact", datetime.now().isoformat()),
+            )
 
             edge_id = str(uuid.uuid4())
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO edges (id, source_id, target_id, edge_type, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (edge_id, mem_id, other_id, "RELATED_TO", datetime.now().isoformat()))
+            """,
+                (edge_id, mem_id, other_id, "RELATED_TO", datetime.now().isoformat()),
+            )
 
         centrality = traversal.get_centrality(mem_id)
 
@@ -155,7 +170,7 @@ class TestGraphTraversal:
 
     def test_get_centrality_nonexistent_memory(self):
         """Test centrality for non-existent memory"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         fake_id = str(uuid.uuid4())
         centrality = traversal.get_centrality(fake_id)
@@ -166,14 +181,17 @@ class TestGraphTraversal:
 
     def test_get_centrality_isolated_memory(self):
         """Test centrality for isolated memory (no edges)"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Memory with no edges
         mem_id = str(uuid.uuid4())
-        traversal._conn.execute("""
+        traversal._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at, access_count)
             VALUES (?, ?, ?, ?, ?)
-        """, (mem_id, "Isolated", "fact", datetime.now().isoformat(), 0))
+        """,
+            (mem_id, "Isolated", "fact", datetime.now().isoformat(), 0),
+        )
 
         centrality = traversal.get_centrality(mem_id)
 
@@ -184,31 +202,46 @@ class TestGraphTraversal:
 
     def test_get_centrality_hub_memory(self):
         """Test centrality for highly connected hub memory"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Create hub memory with many edges and high access count
         hub_id = str(uuid.uuid4())
         last_accessed = datetime.now() - timedelta(days=1)  # Recent
 
-        traversal._conn.execute("""
+        traversal._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at, last_accessed, access_count)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (hub_id, "Hub memory", "fact", datetime.now().isoformat(),
-              last_accessed.isoformat(), 50))  # High access count
+        """,
+            (
+                hub_id,
+                "Hub memory",
+                "fact",
+                datetime.now().isoformat(),
+                last_accessed.isoformat(),
+                50,
+            ),
+        )  # High access count
 
         # Add many edges (high degree)
         for i in range(20):
             other_id = str(uuid.uuid4())
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (other_id, f"Connected {i}", "fact", datetime.now().isoformat()))
+            """,
+                (other_id, f"Connected {i}", "fact", datetime.now().isoformat()),
+            )
 
             edge_id = str(uuid.uuid4())
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO edges (id, source_id, target_id, edge_type, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (edge_id, hub_id, other_id, "RELATED_TO", datetime.now().isoformat()))
+            """,
+                (edge_id, hub_id, other_id, "RELATED_TO", datetime.now().isoformat()),
+            )
 
         centrality = traversal.get_centrality(hub_id)
 
@@ -219,7 +252,7 @@ class TestGraphTraversal:
 
     def test_get_connected_depth_1(self):
         """Test BFS traversal with depth=1 (immediate neighbors)"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Create memory graph: A -> B -> C -> D
         mem_a = str(uuid.uuid4())
@@ -228,18 +261,24 @@ class TestGraphTraversal:
         mem_d = str(uuid.uuid4())
 
         for mem_id, content in [(mem_a, "A"), (mem_b, "B"), (mem_c, "C"), (mem_d, "D")]:
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, content, "fact", datetime.now().isoformat()))
+            """,
+                (mem_id, content, "fact", datetime.now().isoformat()),
+            )
 
         # Create edges: A-B, B-C, C-D
         for source, target in [(mem_a, mem_b), (mem_b, mem_c), (mem_c, mem_d)]:
             edge_id = str(uuid.uuid4())
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO edges (id, source_id, target_id, edge_type, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (edge_id, source, target, "RELATED_TO", datetime.now().isoformat()))
+            """,
+                (edge_id, source, target, "RELATED_TO", datetime.now().isoformat()),
+            )
 
         # Traverse from A with depth=1 (should only get B)
         connected = traversal.get_connected(mem_a, depth=1)
@@ -252,7 +291,7 @@ class TestGraphTraversal:
 
     def test_get_connected_depth_2(self):
         """Test BFS traversal with depth=2 (2 hops)"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Create memory graph: A -> B -> C -> D
         mem_a = str(uuid.uuid4())
@@ -261,18 +300,24 @@ class TestGraphTraversal:
         mem_d = str(uuid.uuid4())
 
         for mem_id, content in [(mem_a, "A"), (mem_b, "B"), (mem_c, "C"), (mem_d, "D")]:
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, content, "fact", datetime.now().isoformat()))
+            """,
+                (mem_id, content, "fact", datetime.now().isoformat()),
+            )
 
         # Create edges: A-B, B-C, C-D
         for source, target in [(mem_a, mem_b), (mem_b, mem_c), (mem_c, mem_d)]:
             edge_id = str(uuid.uuid4())
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO edges (id, source_id, target_id, edge_type, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (edge_id, source, target, "RELATED_TO", datetime.now().isoformat()))
+            """,
+                (edge_id, source, target, "RELATED_TO", datetime.now().isoformat()),
+            )
 
         # Traverse from A with depth=2 (should get B and C)
         connected = traversal.get_connected(mem_a, depth=2)
@@ -287,13 +332,16 @@ class TestGraphTraversal:
 
     def test_get_connected_isolated_memory(self):
         """Test traversal from isolated memory (no neighbors)"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         mem_id = str(uuid.uuid4())
-        traversal._conn.execute("""
+        traversal._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?)
-        """, (mem_id, "Isolated", "fact", datetime.now().isoformat()))
+        """,
+            (mem_id, "Isolated", "fact", datetime.now().isoformat()),
+        )
 
         connected = traversal.get_connected(mem_id, depth=2)
 
@@ -303,23 +351,29 @@ class TestGraphTraversal:
 
     def test_get_connected_bidirectional_edges(self):
         """Test that traversal works in both directions"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Create A -> B edge
         mem_a = str(uuid.uuid4())
         mem_b = str(uuid.uuid4())
 
         for mem_id, content in [(mem_a, "A"), (mem_b, "B")]:
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, content, "fact", datetime.now().isoformat()))
+            """,
+                (mem_id, content, "fact", datetime.now().isoformat()),
+            )
 
         edge_id = str(uuid.uuid4())
-        traversal._conn.execute("""
+        traversal._conn.execute(
+            """
             INSERT INTO edges (id, source_id, target_id, edge_type, created_at)
             VALUES (?, ?, ?, ?, ?)
-        """, (edge_id, mem_a, mem_b, "RELATED_TO", datetime.now().isoformat()))
+        """,
+            (edge_id, mem_a, mem_b, "RELATED_TO", datetime.now().isoformat()),
+        )
 
         # Traverse from A should find B
         connected_from_a = traversal.get_connected(mem_a, depth=1)
@@ -335,7 +389,7 @@ class TestGraphTraversal:
 
     def test_get_connected_no_duplicates(self):
         """Test that BFS doesn't return duplicates in complex graphs"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Create diamond pattern: A -> B, A -> C, B -> D, C -> D
         mem_a = str(uuid.uuid4())
@@ -344,18 +398,24 @@ class TestGraphTraversal:
         mem_d = str(uuid.uuid4())
 
         for mem_id, content in [(mem_a, "A"), (mem_b, "B"), (mem_c, "C"), (mem_d, "D")]:
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, content, "fact", datetime.now().isoformat()))
+            """,
+                (mem_id, content, "fact", datetime.now().isoformat()),
+            )
 
         # Create diamond edges
         for source, target in [(mem_a, mem_b), (mem_a, mem_c), (mem_b, mem_d), (mem_c, mem_d)]:
             edge_id = str(uuid.uuid4())
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO edges (id, source_id, target_id, edge_type, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (edge_id, source, target, "RELATED_TO", datetime.now().isoformat()))
+            """,
+                (edge_id, source, target, "RELATED_TO", datetime.now().isoformat()),
+            )
 
         # Traverse from A with depth=2 (should get B, C, D once each)
         connected = traversal.get_connected(mem_a, depth=2)
@@ -371,7 +431,7 @@ class TestGraphTraversal:
 
     def test_get_top_central_basic(self):
         """Test getting top central memories"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Create memories with varying centrality
         mem_ids = []
@@ -382,26 +442,41 @@ class TestGraphTraversal:
             access_count = i * 5
             last_accessed = datetime.now() - timedelta(days=i)
 
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at, last_accessed, access_count)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (mem_id, f"Memory {i}", "fact", datetime.now().isoformat(),
-                  last_accessed.isoformat(), access_count))
+            """,
+                (
+                    mem_id,
+                    f"Memory {i}",
+                    "fact",
+                    datetime.now().isoformat(),
+                    last_accessed.isoformat(),
+                    access_count,
+                ),
+            )
 
         # Add varying numbers of edges (increase connectivity for higher i)
         for i, mem_id in enumerate(mem_ids):
             for j in range(i):  # Memory 0 gets 0 edges, Memory 4 gets 4 edges
                 other_id = str(uuid.uuid4())
-                traversal._conn.execute("""
+                traversal._conn.execute(
+                    """
                     INSERT INTO memories (id, content, memory_type, created_at)
                     VALUES (?, ?, ?, ?)
-                """, (other_id, f"Connected to {i}", "fact", datetime.now().isoformat()))
+                """,
+                    (other_id, f"Connected to {i}", "fact", datetime.now().isoformat()),
+                )
 
                 edge_id = str(uuid.uuid4())
-                traversal._conn.execute("""
+                traversal._conn.execute(
+                    """
                     INSERT INTO edges (id, source_id, target_id, edge_type, created_at)
                     VALUES (?, ?, ?, ?, ?)
-                """, (edge_id, mem_id, other_id, "RELATED_TO", datetime.now().isoformat()))
+                """,
+                    (edge_id, mem_id, other_id, "RELATED_TO", datetime.now().isoformat()),
+                )
 
         # Get top 3 central memories
         top_central = traversal.get_top_central(limit=3)
@@ -419,7 +494,7 @@ class TestGraphTraversal:
 
     def test_get_top_central_empty_database(self):
         """Test getting top central from empty database"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         top_central = traversal.get_top_central(limit=10)
 
@@ -429,15 +504,18 @@ class TestGraphTraversal:
 
     def test_get_top_central_less_than_limit(self):
         """Test when database has fewer memories than limit"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         # Insert only 2 memories
         for i in range(2):
             mem_id = str(uuid.uuid4())
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, f"Memory {i}", "fact", datetime.now().isoformat()))
+            """,
+                (mem_id, f"Memory {i}", "fact", datetime.now().isoformat()),
+            )
 
         # Request 10 but only 2 exist
         top_central = traversal.get_top_central(limit=10)
@@ -453,10 +531,13 @@ class TestGraphTraversal:
         with GraphTraversal(str(db_path)) as traversal:
             # Should work inside context
             mem_id = str(uuid.uuid4())
-            traversal._conn.execute("""
+            traversal._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?)
-            """, (mem_id, "Test", "fact", datetime.now().isoformat()))
+            """,
+                (mem_id, "Test", "fact", datetime.now().isoformat()),
+            )
 
             centrality = traversal.get_centrality(mem_id)
             assert centrality >= 0
@@ -466,7 +547,7 @@ class TestGraphTraversal:
 
     def test_recency_half_life_constant(self):
         """Test that recency half-life constant is correct"""
-        traversal = GraphTraversal(':memory:')
+        traversal = GraphTraversal(":memory:")
 
         assert traversal.RECENCY_HALF_LIFE == 30.0
 

@@ -1,4 +1,5 @@
 """Plugin management CLI commands"""
+
 import sys
 import click
 from ..plugins import PluginRegistry, PLUGIN_GROUPS
@@ -11,7 +12,7 @@ def plugins_group(ctx: click.Context) -> None:
     ctx.ensure_object(dict)
 
 
-@plugins_group.command(name='list')
+@plugins_group.command(name="list")
 @click.pass_context
 def list_plugins(ctx: click.Context) -> None:
     """List all installed plugins.
@@ -29,9 +30,9 @@ def list_plugins(ctx: click.Context) -> None:
 
         # Define friendly group names for display
         group_display_names = {
-            'omi.embedding_providers': 'Embedding Providers',
-            'omi.storage_backends': 'Storage Backends',
-            'omi.event_handlers': 'Event Handlers',
+            "omi.embedding_providers": "Embedding Providers",
+            "omi.storage_backends": "Storage Backends",
+            "omi.event_handlers": "Event Handlers",
         }
 
         # Track if any plugins were found
@@ -51,7 +52,11 @@ def list_plugins(ctx: click.Context) -> None:
                     # Format plugin info
                     name = plugin.name
                     class_name = plugin.attr
-                    status = click.style("✓ loaded", fg="green") if plugin.loaded else click.style("✗ not loaded", fg="yellow")
+                    status = (
+                        click.style("✓ loaded", fg="green")
+                        if plugin.loaded
+                        else click.style("✗ not loaded", fg="yellow")
+                    )
 
                     # Build plugin line with class name
                     plugin_line = f"  • {name} ({class_name})"
@@ -78,7 +83,9 @@ def list_plugins(ctx: click.Context) -> None:
         # Summary
         if total_plugins == 0:
             click.echo(click.style("\nNo plugins installed.", fg="yellow"))
-            click.echo("To install plugins, use pip to install packages that provide OMI plugin entry points.")
+            click.echo(
+                "To install plugins, use pip to install packages that provide OMI plugin entry points."
+            )
         else:
             click.echo(click.style(f"\nTotal: {total_plugins} plugin(s) found", fg="cyan"))
 

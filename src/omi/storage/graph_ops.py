@@ -38,7 +38,9 @@ class GraphOperations:
     # Valid edge types
     EDGE_TYPES = {"SUPPORTS", "CONTRADICTS", "RELATED_TO", "DEPENDS_ON", "POSTED", "DISCUSSED"}
 
-    def __init__(self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None):
+    def __init__(
+        self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None
+    ):
         """
         Initialize Graph Operations.
 
@@ -47,7 +49,7 @@ class GraphOperations:
             enable_wal: Enable WAL mode for concurrent writes (default: True)
             conn: Optional shared connection (for :memory: databases in facade pattern)
         """
-        self.db_path = Path(db_path) if db_path != ':memory:' else db_path
+        self.db_path = Path(db_path) if db_path != ":memory:" else db_path
         self._owns_connection = conn is None
 
         if conn is not None:
@@ -56,17 +58,14 @@ class GraphOperations:
             self._db_lock = threading.Lock()
         else:
             # Create parent directory if needed (skip for :memory:)
-            if self.db_path != ':memory:':
+            if self.db_path != ":memory:":
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Create persistent connection
             # check_same_thread=False allows multi-threaded access (safe with WAL mode)
             # isolation_level=None enables autocommit mode for better concurrency
             self._conn = sqlite3.connect(
-                self.db_path,
-                check_same_thread=False,
-                isolation_level=None,
-                timeout=30.0
+                self.db_path, check_same_thread=False, isolation_level=None, timeout=30.0
             )
 
             # Thread lock for serializing database operations
@@ -80,11 +79,9 @@ class GraphOperations:
         if edge_type not in self.EDGE_TYPES:
             raise ValueError(f"Invalid edge_type: {edge_type}. Must be one of: {self.EDGE_TYPES}")
 
-    def create_edge(self,
-                   source_id: str,
-                   target_id: str,
-                   edge_type: str,
-                   strength: Optional[float] = None) -> str:
+    def create_edge(
+        self, source_id: str, target_id: str, edge_type: str, strength: Optional[float] = None
+    ) -> str:
         """
         Create a relationship edge between memories.
 
@@ -101,10 +98,13 @@ class GraphOperations:
 
         edge_id = str(uuid.uuid4())
 
-        self._conn.execute("""
+        self._conn.execute(
+            """
             INSERT INTO edges (id, source_id, target_id, edge_type, strength, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (edge_id, source_id, target_id, edge_type, strength, datetime.now().isoformat()))
+        """,
+            (edge_id, source_id, target_id, edge_type, strength, datetime.now().isoformat()),
+        )
         self._conn.commit()
 
         return edge_id
@@ -129,25 +129,33 @@ class GraphOperations:
         edges = []
 
         if edge_type:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT id, source_id, target_id, edge_type, strength, created_at
                 FROM edges WHERE (source_id = ? OR target_id = ?) AND edge_type = ?
-            """, (memory_id, memory_id, edge_type))
+            """,
+                (memory_id, memory_id, edge_type),
+            )
         else:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT id, source_id, target_id, edge_type, strength, created_at
                 FROM edges WHERE source_id = ? OR target_id = ?
-            """, (memory_id, memory_id))
+            """,
+                (memory_id, memory_id),
+            )
 
         for row in cursor:
-            edges.append(Edge(
-                id=row[0],
-                source_id=row[1],
-                target_id=row[2],
-                edge_type=row[3],
-                strength=row[4],
-                created_at=datetime.fromisoformat(row[5]) if row[5] else None
-            ))
+            edges.append(
+                Edge(
+                    id=row[0],
+                    source_id=row[1],
+                    target_id=row[2],
+                    edge_type=row[3],
+                    strength=row[4],
+                    created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                )
+            )
 
         return edges
 
@@ -165,7 +173,8 @@ class GraphOperations:
         memories = []
 
         if edge_type:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                        m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
                 FROM memories m
@@ -173,31 +182,38 @@ class GraphOperations:
                 WHERE (e.source_id = ? OR e.target_id = ?)
                 AND m.id != ?
                 AND e.edge_type = ?
-            """, (memory_id, memory_id, memory_id, edge_type))
+            """,
+                (memory_id, memory_id, memory_id, edge_type),
+            )
         else:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                        m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
                 AND m.id != ?
-            """, (memory_id, memory_id, memory_id))
+            """,
+                (memory_id, memory_id, memory_id),
+            )
 
         for row in cursor:
             embedding = blob_to_embed(row[2]) if row[2] else None
-            memories.append(Memory(
-                id=row[0],
-                content=row[1],
-                embedding=embedding,
-                memory_type=row[3],
-                confidence=row[4],
-                created_at=datetime.fromisoformat(row[5]) if row[5] else None,
-                last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
-                access_count=row[7],
-                instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
-            ))
+            memories.append(
+                Memory(
+                    id=row[0],
+                    content=row[1],
+                    embedding=embedding,
+                    memory_type=row[3],
+                    confidence=row[4],
+                    created_at=datetime.fromisoformat(row[5]) if row[5] else None,
+                    last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
+                    access_count=row[7],
+                    instance_ids=json.loads(row[8]) if row[8] else [],
+                    content_hash=row[9],
+                )
+            )
 
         return memories
 
@@ -229,7 +245,7 @@ class GraphOperations:
 
     def close(self) -> None:
         """Close connection and cleanup."""
-        if self._owns_connection and hasattr(self, '_conn') and self._conn:
+        if self._owns_connection and hasattr(self, "_conn") and self._conn:
             self._conn.close()
 
     def __enter__(self):

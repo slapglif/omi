@@ -1,4 +1,5 @@
 """Configuration management commands for OMI CLI."""
+
 import sys
 from pathlib import Path
 import click
@@ -13,9 +14,9 @@ def config_group():
     pass
 
 
-@config_group.command('set')
-@click.argument('key')
-@click.argument('value')
+@config_group.command("set")
+@click.argument("key")
+@click.argument("value")
 @click.pass_context
 def config_set(ctx, key: str, value: str) -> None:
     """Set a configuration value.
@@ -30,20 +31,23 @@ def config_set(ctx, key: str, value: str) -> None:
         omi config set vault.enabled true
         omi config set events.webhook https://example.com/hook
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     config_path = base_path / "config.yaml"
-    verbosity = ctx.obj.get('verbosity', 1)
+    verbosity = ctx.obj.get("verbosity", 1)
 
     if not config_path.exists():
-        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        echo_quiet(
+            click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity
+        )
         sys.exit(1)
 
     try:
-        import yaml
+        import yaml  # type: ignore
+
         config_data = yaml.safe_load(config_path.read_text()) or {}
 
         # Parse nested keys (e.g., 'embedding.provider')
-        keys = key.split('.')
+        keys = key.split(".")
         current = config_data
         for k in keys[:-1]:
             if k not in current:
@@ -60,8 +64,8 @@ def config_set(ctx, key: str, value: str) -> None:
         sys.exit(1)
 
 
-@config_group.command('get')
-@click.argument('key')
+@config_group.command("get")
+@click.argument("key")
 @click.pass_context
 def config_get(ctx, key: str) -> None:
     """Get a configuration value.
@@ -73,20 +77,23 @@ def config_get(ctx, key: str) -> None:
         omi config get embedding.provider
         omi config get vault.enabled
     """
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     config_path = base_path / "config.yaml"
-    verbosity = ctx.obj.get('verbosity', 1)
+    verbosity = ctx.obj.get("verbosity", 1)
 
     if not config_path.exists():
-        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        echo_quiet(
+            click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity
+        )
         sys.exit(1)
 
     try:
-        import yaml
+        import yaml  # type: ignore
+
         config_data = yaml.safe_load(config_path.read_text()) or {}
 
         # Parse nested keys
-        keys = key.split('.')
+        keys = key.split(".")
         current = config_data
         for k in keys:
             if k not in current:
@@ -100,16 +107,18 @@ def config_get(ctx, key: str) -> None:
         sys.exit(1)
 
 
-@config_group.command('show')
+@config_group.command("show")
 @click.pass_context
 def config_show(ctx) -> None:
     """Display full configuration."""
-    base_path = get_base_path(ctx.obj.get('data_dir'))
+    base_path = get_base_path(ctx.obj.get("data_dir"))
     config_path = base_path / "config.yaml"
-    verbosity = ctx.obj.get('verbosity', 1)
+    verbosity = ctx.obj.get("verbosity", 1)
 
     if not config_path.exists():
-        echo_quiet(click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity)
+        echo_quiet(
+            click.style("Error: OMI not initialized. Run 'omi init' first.", fg="red"), verbosity
+        )
         sys.exit(1)
 
     content = config_path.read_text()

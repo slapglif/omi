@@ -45,7 +45,9 @@ class TestNIMConnection:
         embedding = embedder.embed("hello world")
 
         assert isinstance(embedding, list), "Embedding should be a list"
-        assert len(embedding) == REQUIRED_DIM, f"Expected {REQUIRED_DIM} dimensions, got {len(embedding)}"
+        assert (
+            len(embedding) == REQUIRED_DIM
+        ), f"Expected {REQUIRED_DIM} dimensions, got {len(embedding)}"
         assert all(isinstance(x, float) for x in embedding), "All elements should be floats"
         assert not all(x == 0 for x in embedding), "Embedding should not be all zeros"
 
@@ -66,10 +68,12 @@ class TestNIMConnection:
         response = requests.get(
             "https://integrate.api.nvidia.com/v1/models",
             headers={"Authorization": f"Bearer {NIM_API_KEY}"},
-            timeout=10
+            timeout=10,
         )
 
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        assert (
+            response.status_code == 200
+        ), f"Expected 200, got {response.status_code}: {response.text}"
 
         data = response.json()
         models = [m.get("id", "") for m in data.get("data", [])]
@@ -144,7 +148,7 @@ class TestNIMConnection:
             "cloud computing infrastructure",
             "distributed systems design",
             "software engineering practices",
-            "database optimization strategies"
+            "database optimization strategies",
         ]
 
         # Measure sequential embedding time
@@ -170,8 +174,10 @@ class TestNIMConnection:
 
         # Verify performance improvement: batch should be at least 30% faster
         # (batch_time should be <= 70% of sequential_time)
-        speedup_ratio = sequential_time / batch_time if batch_time > 0 else float('inf')
-        time_saved_pct = ((sequential_time - batch_time) / sequential_time * 100) if sequential_time > 0 else 0
+        speedup_ratio = sequential_time / batch_time if batch_time > 0 else float("inf")
+        time_saved_pct = (
+            ((sequential_time - batch_time) / sequential_time * 100) if sequential_time > 0 else 0
+        )
 
         assert batch_time < sequential_time, (
             f"Batch embedding should be faster than sequential. "
@@ -303,6 +309,7 @@ class TestNIMErrorHandling:
         """
         # Check that timeout is configured in the code
         import inspect
+
         source = inspect.getsource(NIMEmbedder._embed_nim)
         assert "timeout" in source, "Timeout should be configured in _embed_nim"
 
@@ -429,17 +436,11 @@ class TestNIMSimilarity:
         }
 
         ml_ai_sim = embedder.similarity(
-            embeddings["machine learning"],
-            embeddings["artificial intelligence"]
+            embeddings["machine learning"], embeddings["artificial intelligence"]
         )
-        ml_pizza_sim = embedder.similarity(
-            embeddings["machine learning"],
-            embeddings["pizza"]
-        )
+        ml_pizza_sim = embedder.similarity(embeddings["machine learning"], embeddings["pizza"])
 
-        assert ml_ai_sim > ml_pizza_sim, (
-            "ML should be more similar to AI than to pizza"
-        )
+        assert ml_ai_sim > ml_pizza_sim, "ML should be more similar to AI than to pizza"
 
 
 # Marks for pytest

@@ -18,7 +18,7 @@ def embed_to_blob(embedding: List[float]) -> bytes:
     Returns:
         Binary blob representation (packed float32 values)
     """
-    return struct.pack(f'{len(embedding)}f', *embedding)
+    return struct.pack(f"{len(embedding)}f", *embedding)
 
 
 def blob_to_embed(blob: bytes) -> List[float]:
@@ -34,7 +34,7 @@ def blob_to_embed(blob: bytes) -> List[float]:
     if not blob:
         return []
     num_floats = len(blob) // 4
-    return list(struct.unpack(f'{num_floats}f', blob))
+    return list(struct.unpack(f"{num_floats}f", blob))
 
 
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:

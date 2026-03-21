@@ -49,18 +49,12 @@ class MigrationBase(ABC):
 
     def __init__(self):
         """Initialize migration and validate required attributes."""
-        if not hasattr(self, 'version') or not isinstance(self.version, int):
-            raise ValueError(
-                f"{self.__class__.__name__} must define 'version' as an integer"
-            )
-        if not hasattr(self, 'description') or not isinstance(self.description, str):
-            raise ValueError(
-                f"{self.__class__.__name__} must define 'description' as a string"
-            )
+        if not hasattr(self, "version") or not isinstance(self.version, int):
+            raise ValueError(f"{self.__class__.__name__} must define 'version' as an integer")
+        if not hasattr(self, "description") or not isinstance(self.description, str):
+            raise ValueError(f"{self.__class__.__name__} must define 'description' as a string")
         if self.version < 1:
-            raise ValueError(
-                f"Migration version must be >= 1, got {self.version}"
-            )
+            raise ValueError(f"Migration version must be >= 1, got {self.version}")
 
     @abstractmethod
     def up(self, conn: sqlite3.Connection) -> None:

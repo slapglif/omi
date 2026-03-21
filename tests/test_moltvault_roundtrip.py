@@ -23,6 +23,7 @@ from unittest.mock import Mock, MagicMock, patch
 import sys
 import os
 
+
 # Ensure omi modules are importable
 def ensure_omi_importable():
     """Add src to path if needed."""
@@ -30,6 +31,7 @@ def ensure_omi_importable():
     src_path = test_dir.parent / "src"
     if str(src_path) not in sys.path:
         sys.path.insert(0, str(src_path))
+
 
 ensure_omi_importable()
 

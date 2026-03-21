@@ -22,6 +22,7 @@ class TestCLICacheStats:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -38,6 +39,7 @@ class TestCLICacheStats:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -49,6 +51,7 @@ class TestCLICacheStats:
                 embeddings_dir = base_path / "embeddings"
                 if embeddings_dir.exists():
                     import shutil
+
                     shutil.rmtree(embeddings_dir)
 
                 result = runner.invoke(cli, ["cache", "stats"])
@@ -65,6 +68,7 @@ class TestCLICacheStats:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -90,6 +94,7 @@ class TestCLICacheStats:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -123,6 +128,7 @@ class TestCLICacheClear:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -139,6 +145,7 @@ class TestCLICacheClear:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -156,14 +163,14 @@ class TestCLICacheClear:
                     np.save(embeddings_dir / f"test_embedding_{i}.npy", embedding)
 
                 # Verify files exist
-                assert len(list(embeddings_dir.glob('*.npy'))) == 3
+                assert len(list(embeddings_dir.glob("*.npy"))) == 3
 
                 result = runner.invoke(cli, ["cache", "clear", "--force"])
 
             assert result.exit_code == 0
             assert "Cleared 3 cache entries" in result.output
             # Verify files were deleted
-            assert len(list(embeddings_dir.glob('*.npy'))) == 0
+            assert len(list(embeddings_dir.glob("*.npy"))) == 0
 
     def test_cache_clear_with_confirmation(self):
         """Test cache clear without force (with confirmation)."""
@@ -172,6 +179,7 @@ class TestCLICacheClear:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -194,7 +202,7 @@ class TestCLICacheClear:
             assert result.exit_code == 0
             assert "Delete 2 cache entries?" in result.output
             assert "Cleared 2 cache entries" in result.output
-            assert len(list(embeddings_dir.glob('*.npy'))) == 0
+            assert len(list(embeddings_dir.glob("*.npy"))) == 0
 
     def test_cache_clear_cancelled(self):
         """Test cache clear when user cancels confirmation."""
@@ -203,6 +211,7 @@ class TestCLICacheClear:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -225,7 +234,7 @@ class TestCLICacheClear:
             assert result.exit_code == 0
             assert "Cancelled" in result.output
             # Verify files were NOT deleted
-            assert len(list(embeddings_dir.glob('*.npy'))) == 2
+            assert len(list(embeddings_dir.glob("*.npy"))) == 2
 
     def test_cache_clear_no_directory(self):
         """Test cache clear when cache directory doesn't exist."""
@@ -234,6 +243,7 @@ class TestCLICacheClear:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -245,6 +255,7 @@ class TestCLICacheClear:
                 embeddings_dir = base_path / "embeddings"
                 if embeddings_dir.exists():
                     import shutil
+
                     shutil.rmtree(embeddings_dir)
 
                 result = runner.invoke(cli, ["cache", "clear", "--force"])
@@ -259,6 +270,7 @@ class TestCLICacheClear:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -284,6 +296,7 @@ class TestCLICacheHelp:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -297,6 +310,7 @@ class TestCLICacheHelp:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -309,6 +323,7 @@ class TestCLICacheHelp:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 

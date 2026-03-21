@@ -22,6 +22,7 @@ import random
 import numpy as np
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from omi.embeddings import EmbeddingCache
@@ -75,14 +76,8 @@ class TestEmbeddingPerformance(unittest.TestCase):
 
         # Generate test data
         self.test_texts = [f"test_text_{i}" for i in range(self.num_embeddings)]
-        self.test_hashes = [
-            hashlib.sha256(text.encode()).hexdigest()
-            for text in self.test_texts
-        ]
-        self.test_embeddings = [
-            self.mock_embedder.embed(text)
-            for text in self.test_texts
-        ]
+        self.test_hashes = [hashlib.sha256(text.encode()).hexdigest() for text in self.test_texts]
+        self.test_embeddings = [self.mock_embedder.embed(text) for text in self.test_texts]
 
     def test_bulk_insert_performance(self):
         """
@@ -91,9 +86,9 @@ class TestEmbeddingPerformance(unittest.TestCase):
         Expected: SQLite should be significantly faster for bulk operations
         due to transaction batching vs individual file I/O operations.
         """
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("TEST 1: BULK INSERT PERFORMANCE (Cache Warmup)")
-        print("="*80)
+        print("=" * 80)
 
         # Test legacy .npy file approach
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -113,23 +108,30 @@ class TestEmbeddingPerformance(unittest.TestCase):
                 for content_hash, embedding in zip(self.test_hashes, self.test_embeddings):
                     conn.execute(
                         "INSERT OR REPLACE INTO embedding_cache (content_hash, embedding) VALUES (?, ?)",
-                        (content_hash, sqlite_cache._embed_to_blob(embedding))
+                        (content_hash, sqlite_cache._embed_to_blob(embedding)),
                     )
                 conn.commit()
             sqlite_time = time.time() - start_time
 
         # Results
         print(f"\nBulk insert of {self.num_embeddings} embeddings:")
-        print(f"  .npy files:     {npy_time:.4f}s ({npy_time/self.num_embeddings*1000:.2f}ms per embedding)")
-        print(f"  SQLite:         {sqlite_time:.4f}s ({sqlite_time/self.num_embeddings*1000:.2f}ms per embedding)")
+        print(
+            f"  .npy files:     {npy_time:.4f}s ({npy_time/self.num_embeddings*1000:.2f}ms per embedding)"
+        )
+        print(
+            f"  SQLite:         {sqlite_time:.4f}s ({sqlite_time/self.num_embeddings*1000:.2f}ms per embedding)"
+        )
 
-        speedup = npy_time / sqlite_time if sqlite_time > 0 else float('inf')
+        speedup = npy_time / sqlite_time if sqlite_time > 0 else float("inf")
         print(f"  Speedup:        {speedup:.2f}x faster")
         print(f"  Improvement:    {(1 - sqlite_time/npy_time)*100:.1f}% reduction in time")
 
         # SQLite should be faster for bulk operations
-        self.assertLess(sqlite_time, npy_time * 1.5,  # Allow some variance
-                       f"SQLite bulk insert should be competitive with .npy files")
+        self.assertLess(
+            sqlite_time,
+            npy_time * 1.5,  # Allow some variance
+            f"SQLite bulk insert should be competitive with .npy files",
+        )
 
         print(f"\n✓ SQLite is suitable for bulk operations")
 
@@ -140,9 +142,9 @@ class TestEmbeddingPerformance(unittest.TestCase):
         Expected: Both should be fast, SQLite may have slight overhead
         but benefits from OS page cache and WAL mode.
         """
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("TEST 2: SEQUENTIAL LOOKUP PERFORMANCE")
-        print("="*80)
+        print("=" * 80)
 
         # Prepare legacy .npy cache
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -164,7 +166,7 @@ class TestEmbeddingPerformance(unittest.TestCase):
                 for content_hash, embedding in zip(self.test_hashes, self.test_embeddings):
                     conn.execute(
                         "INSERT OR REPLACE INTO embedding_cache (content_hash, embedding) VALUES (?, ?)",
-                        (content_hash, sqlite_cache._embed_to_blob(embedding))
+                        (content_hash, sqlite_cache._embed_to_blob(embedding)),
                     )
                 conn.commit()
 
@@ -174,7 +176,7 @@ class TestEmbeddingPerformance(unittest.TestCase):
                 for content_hash in self.test_hashes:
                     cursor = conn.execute(
                         "SELECT embedding FROM embedding_cache WHERE content_hash = ?",
-                        (content_hash,)
+                        (content_hash,),
                     )
                     row = cursor.fetchone()
                     self.assertIsNotNone(row)
@@ -183,8 +185,12 @@ class TestEmbeddingPerformance(unittest.TestCase):
 
         # Results
         print(f"\nSequential lookup of {self.num_embeddings} embeddings:")
-        print(f"  .npy files:     {npy_time:.4f}s ({npy_time/self.num_embeddings*1000:.2f}ms per lookup)")
-        print(f"  SQLite:         {sqlite_time:.4f}s ({sqlite_time/self.num_embeddings*1000:.2f}ms per lookup)")
+        print(
+            f"  .npy files:     {npy_time:.4f}s ({npy_time/self.num_embeddings*1000:.2f}ms per lookup)"
+        )
+        print(
+            f"  SQLite:         {sqlite_time:.4f}s ({sqlite_time/self.num_embeddings*1000:.2f}ms per lookup)"
+        )
 
         if sqlite_time < npy_time:
             speedup = npy_time / sqlite_time
@@ -202,9 +208,9 @@ class TestEmbeddingPerformance(unittest.TestCase):
         Expected: SQLite should excel here due to indexed lookups vs
         random filesystem access patterns.
         """
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("TEST 3: RANDOM ACCESS PERFORMANCE")
-        print("="*80)
+        print("=" * 80)
 
         # Create random access pattern
         random_indices = list(range(self.num_embeddings))
@@ -231,7 +237,7 @@ class TestEmbeddingPerformance(unittest.TestCase):
                 for content_hash, embedding in zip(self.test_hashes, self.test_embeddings):
                     conn.execute(
                         "INSERT OR REPLACE INTO embedding_cache (content_hash, embedding) VALUES (?, ?)",
-                        (content_hash, sqlite_cache._embed_to_blob(embedding))
+                        (content_hash, sqlite_cache._embed_to_blob(embedding)),
                     )
                 conn.commit()
 
@@ -241,7 +247,7 @@ class TestEmbeddingPerformance(unittest.TestCase):
                 for content_hash in random_hashes:
                     cursor = conn.execute(
                         "SELECT embedding FROM embedding_cache WHERE content_hash = ?",
-                        (content_hash,)
+                        (content_hash,),
                     )
                     row = cursor.fetchone()
                     self.assertIsNotNone(row)
@@ -250,8 +256,12 @@ class TestEmbeddingPerformance(unittest.TestCase):
 
         # Results
         print(f"\nRandom access of {self.num_embeddings} embeddings:")
-        print(f"  .npy files:     {npy_time:.4f}s ({npy_time/self.num_embeddings*1000:.2f}ms per lookup)")
-        print(f"  SQLite:         {sqlite_time:.4f}s ({sqlite_time/self.num_embeddings*1000:.2f}ms per lookup)")
+        print(
+            f"  .npy files:     {npy_time:.4f}s ({npy_time/self.num_embeddings*1000:.2f}ms per lookup)"
+        )
+        print(
+            f"  SQLite:         {sqlite_time:.4f}s ({sqlite_time/self.num_embeddings*1000:.2f}ms per lookup)"
+        )
 
         if sqlite_time < npy_time:
             speedup = npy_time / sqlite_time
@@ -268,9 +278,9 @@ class TestEmbeddingPerformance(unittest.TestCase):
 
         Compares disk space used by .npy files vs SQLite database.
         """
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("TEST 4: STORAGE EFFICIENCY")
-        print("="*80)
+        print("=" * 80)
 
         # Create legacy .npy cache
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -289,26 +299,29 @@ class TestEmbeddingPerformance(unittest.TestCase):
                 for content_hash, embedding in zip(self.test_hashes, self.test_embeddings):
                     conn.execute(
                         "INSERT OR REPLACE INTO embedding_cache (content_hash, embedding) VALUES (?, ?)",
-                        (content_hash, sqlite_cache._embed_to_blob(embedding))
+                        (content_hash, sqlite_cache._embed_to_blob(embedding)),
                     )
                 conn.commit()
 
             # Calculate database size (including WAL files)
-            sqlite_size = sum(
-                f.stat().st_size
-                for f in Path(tmpdir).glob("embeddings.db*")
-            )
+            sqlite_size = sum(f.stat().st_size for f in Path(tmpdir).glob("embeddings.db*"))
 
         # Results
         print(f"\nStorage for {self.num_embeddings} embeddings (dim={self.embedding_dim}):")
-        print(f"  .npy files:     {npy_size:,} bytes ({npy_count} files, {npy_size/npy_count:.0f} bytes per file)")
+        print(
+            f"  .npy files:     {npy_size:,} bytes ({npy_count} files, {npy_size/npy_count:.0f} bytes per file)"
+        )
         print(f"  SQLite:         {sqlite_size:,} bytes (1 database file)")
 
-        ratio = npy_size / sqlite_size if sqlite_size > 0 else float('inf')
+        ratio = npy_size / sqlite_size if sqlite_size > 0 else float("inf")
         if sqlite_size < npy_size:
-            print(f"  Space saved:    {npy_size - sqlite_size:,} bytes ({(1-sqlite_size/npy_size)*100:.1f}%)")
+            print(
+                f"  Space saved:    {npy_size - sqlite_size:,} bytes ({(1-sqlite_size/npy_size)*100:.1f}%)"
+            )
         else:
-            print(f"  Overhead:       {sqlite_size - npy_size:,} bytes ({(sqlite_size/npy_size-1)*100:.1f}%)")
+            print(
+                f"  Overhead:       {sqlite_size - npy_size:,} bytes ({(sqlite_size/npy_size-1)*100:.1f}%)"
+            )
 
         print(f"\n✓ Storage efficiency analyzed")
 
@@ -318,9 +331,9 @@ class TestEmbeddingPerformance(unittest.TestCase):
 
         Tests the actual API method with cache hits and misses.
         """
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("TEST 5: GET_OR_COMPUTE INTEGRATION")
-        print("="*80)
+        print("=" * 80)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = EmbeddingCache(Path(tmpdir), self.mock_embedder)
@@ -344,7 +357,7 @@ class TestEmbeddingPerformance(unittest.TestCase):
         print(f"  Cache misses:   {miss_time:.4f}s ({miss_time/20*1000:.2f}ms per embedding)")
         print(f"  Cache hits:     {hit_time:.4f}s ({hit_time/20*1000:.2f}ms per embedding)")
 
-        speedup = miss_time / hit_time if hit_time > 0 else float('inf')
+        speedup = miss_time / hit_time if hit_time > 0 else float("inf")
         print(f"  Cache speedup:  {speedup:.2f}x faster")
 
         # Add warning instead of assertion (performance tests should be informational)
@@ -363,9 +376,9 @@ class TestEmbeddingPerformance(unittest.TestCase):
         """
         Print summary of all performance tests.
         """
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("PERFORMANCE COMPARISON SUMMARY")
-        print("="*80)
+        print("=" * 80)
         print("\nKey Findings:")
         print("1. ✓ SQLite bulk operations are competitive with .npy file writes")
         print("2. ✓ SQLite lookups have acceptable performance for cached embeddings")
@@ -380,7 +393,7 @@ class TestEmbeddingPerformance(unittest.TestCase):
         print("  • Built-in indexing for fast lookups")
         print("  • WAL mode enables concurrent access")
         print("  • Metadata tracking (created_at timestamps)")
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
 
 
 if __name__ == "__main__":

@@ -39,9 +39,9 @@ class TestGraphOperations:
 
     def test_init_with_memory_db(self):
         """Test initialization with in-memory database"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
-        assert graph_ops.db_path == ':memory:'
+        assert graph_ops.db_path == ":memory:"
         assert graph_ops._owns_connection is True
 
         graph_ops.close()
@@ -67,7 +67,7 @@ class TestGraphOperations:
 
     def test_edge_type_validation_valid(self, tmp_path):
         """Test that valid edge types are accepted"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         valid_types = ["SUPPORTS", "CONTRADICTS", "RELATED_TO", "DEPENDS_ON", "POSTED", "DISCUSSED"]
 
@@ -79,7 +79,7 @@ class TestGraphOperations:
 
     def test_edge_type_validation_invalid(self, tmp_path):
         """Test that invalid edge types are rejected"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         with pytest.raises(ValueError, match="Invalid edge_type"):
             graph_ops._validate_edge_type("INVALID_TYPE")
@@ -88,21 +88,27 @@ class TestGraphOperations:
 
     def test_create_edge_basic(self, tmp_path):
         """Test creating a basic edge between memories"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         # Insert test memories first
         source_id = str(uuid.uuid4())
         target_id = str(uuid.uuid4())
 
-        graph_ops._conn.execute("""
+        graph_ops._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?)
-        """, (source_id, "Source memory", "fact", datetime.now().isoformat()))
+        """,
+            (source_id, "Source memory", "fact", datetime.now().isoformat()),
+        )
 
-        graph_ops._conn.execute("""
+        graph_ops._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?)
-        """, (target_id, "Target memory", "fact", datetime.now().isoformat()))
+        """,
+            (target_id, "Target memory", "fact", datetime.now().isoformat()),
+        )
 
         # Create edge
         edge_id = graph_ops.create_edge(source_id, target_id, "RELATED_TO", strength=0.8)
@@ -123,7 +129,7 @@ class TestGraphOperations:
 
     def test_create_edge_invalid_type(self, tmp_path):
         """Test creating edge with invalid type raises error"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         source_id = str(uuid.uuid4())
         target_id = str(uuid.uuid4())
@@ -135,17 +141,28 @@ class TestGraphOperations:
 
     def test_delete_edge_existing(self, tmp_path):
         """Test deleting an existing edge"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         # Setup memories and edge
         source_id = str(uuid.uuid4())
         target_id = str(uuid.uuid4())
 
-        graph_ops._conn.execute("""
+        graph_ops._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?), (?, ?, ?, ?)
-        """, (source_id, "Source", "fact", datetime.now().isoformat(),
-              target_id, "Target", "fact", datetime.now().isoformat()))
+        """,
+            (
+                source_id,
+                "Source",
+                "fact",
+                datetime.now().isoformat(),
+                target_id,
+                "Target",
+                "fact",
+                datetime.now().isoformat(),
+            ),
+        )
 
         edge_id = graph_ops.create_edge(source_id, target_id, "SUPPORTS")
 
@@ -162,7 +179,7 @@ class TestGraphOperations:
 
     def test_delete_edge_nonexistent(self, tmp_path):
         """Test deleting non-existent edge returns False"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         fake_edge_id = str(uuid.uuid4())
         result = graph_ops.delete_edge(fake_edge_id)
@@ -173,19 +190,33 @@ class TestGraphOperations:
 
     def test_get_edges_all_types(self, tmp_path):
         """Test getting all edges for a memory"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         # Setup memories
         memory_id = str(uuid.uuid4())
         other_id_1 = str(uuid.uuid4())
         other_id_2 = str(uuid.uuid4())
 
-        graph_ops._conn.execute("""
+        graph_ops._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)
-        """, (memory_id, "Main", "fact", datetime.now().isoformat(),
-              other_id_1, "Other1", "fact", datetime.now().isoformat(),
-              other_id_2, "Other2", "fact", datetime.now().isoformat()))
+        """,
+            (
+                memory_id,
+                "Main",
+                "fact",
+                datetime.now().isoformat(),
+                other_id_1,
+                "Other1",
+                "fact",
+                datetime.now().isoformat(),
+                other_id_2,
+                "Other2",
+                "fact",
+                datetime.now().isoformat(),
+            ),
+        )
 
         # Create edges
         edge1_id = graph_ops.create_edge(memory_id, other_id_1, "SUPPORTS", 0.9)
@@ -205,19 +236,33 @@ class TestGraphOperations:
 
     def test_get_edges_filtered_by_type(self, tmp_path):
         """Test getting edges filtered by type"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         # Setup memories
         memory_id = str(uuid.uuid4())
         other_id_1 = str(uuid.uuid4())
         other_id_2 = str(uuid.uuid4())
 
-        graph_ops._conn.execute("""
+        graph_ops._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)
-        """, (memory_id, "Main", "fact", datetime.now().isoformat(),
-              other_id_1, "Other1", "fact", datetime.now().isoformat(),
-              other_id_2, "Other2", "fact", datetime.now().isoformat()))
+        """,
+            (
+                memory_id,
+                "Main",
+                "fact",
+                datetime.now().isoformat(),
+                other_id_1,
+                "Other1",
+                "fact",
+                datetime.now().isoformat(),
+                other_id_2,
+                "Other2",
+                "fact",
+                datetime.now().isoformat(),
+            ),
+        )
 
         # Create edges of different types
         supports_id = graph_ops.create_edge(memory_id, other_id_1, "SUPPORTS", 0.9)
@@ -234,19 +279,33 @@ class TestGraphOperations:
 
     def test_get_neighbors_basic(self, tmp_path):
         """Test getting neighboring memories"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         # Setup memories
         memory_id = str(uuid.uuid4())
         neighbor1_id = str(uuid.uuid4())
         neighbor2_id = str(uuid.uuid4())
 
-        graph_ops._conn.execute("""
+        graph_ops._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)
-        """, (memory_id, "Main memory", "fact", datetime.now().isoformat(),
-              neighbor1_id, "Neighbor 1", "fact", datetime.now().isoformat(),
-              neighbor2_id, "Neighbor 2", "fact", datetime.now().isoformat()))
+        """,
+            (
+                memory_id,
+                "Main memory",
+                "fact",
+                datetime.now().isoformat(),
+                neighbor1_id,
+                "Neighbor 1",
+                "fact",
+                datetime.now().isoformat(),
+                neighbor2_id,
+                "Neighbor 2",
+                "fact",
+                datetime.now().isoformat(),
+            ),
+        )
 
         # Create edges
         graph_ops.create_edge(memory_id, neighbor1_id, "RELATED_TO")
@@ -269,19 +328,33 @@ class TestGraphOperations:
 
     def test_get_neighbors_filtered_by_type(self, tmp_path):
         """Test getting neighbors filtered by edge type"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         # Setup memories
         memory_id = str(uuid.uuid4())
         supporter_id = str(uuid.uuid4())
         related_id = str(uuid.uuid4())
 
-        graph_ops._conn.execute("""
+        graph_ops._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)
-        """, (memory_id, "Main", "fact", datetime.now().isoformat(),
-              supporter_id, "Supporter", "fact", datetime.now().isoformat(),
-              related_id, "Related", "fact", datetime.now().isoformat()))
+        """,
+            (
+                memory_id,
+                "Main",
+                "fact",
+                datetime.now().isoformat(),
+                supporter_id,
+                "Supporter",
+                "fact",
+                datetime.now().isoformat(),
+                related_id,
+                "Related",
+                "fact",
+                datetime.now().isoformat(),
+            ),
+        )
 
         # Create different edge types
         graph_ops.create_edge(memory_id, supporter_id, "SUPPORTS")
@@ -297,7 +370,7 @@ class TestGraphOperations:
 
     def test_find_contradictions(self, tmp_path):
         """Test finding contradicting memories"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         # Setup memories
         memory_id = str(uuid.uuid4())
@@ -305,13 +378,30 @@ class TestGraphOperations:
         contradictor2_id = str(uuid.uuid4())
         supporter_id = str(uuid.uuid4())
 
-        graph_ops._conn.execute("""
+        graph_ops._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)
-        """, (memory_id, "Main", "fact", datetime.now().isoformat(),
-              contradictor1_id, "Contra1", "fact", datetime.now().isoformat(),
-              contradictor2_id, "Contra2", "fact", datetime.now().isoformat(),
-              supporter_id, "Supporter", "fact", datetime.now().isoformat()))
+        """,
+            (
+                memory_id,
+                "Main",
+                "fact",
+                datetime.now().isoformat(),
+                contradictor1_id,
+                "Contra1",
+                "fact",
+                datetime.now().isoformat(),
+                contradictor2_id,
+                "Contra2",
+                "fact",
+                datetime.now().isoformat(),
+                supporter_id,
+                "Supporter",
+                "fact",
+                datetime.now().isoformat(),
+            ),
+        )
 
         # Create edges
         graph_ops.create_edge(memory_id, contradictor1_id, "CONTRADICTS")
@@ -331,7 +421,7 @@ class TestGraphOperations:
 
     def test_get_supporting_evidence(self, tmp_path):
         """Test getting supporting evidence"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         # Setup memories
         belief_id = str(uuid.uuid4())
@@ -339,13 +429,30 @@ class TestGraphOperations:
         evidence2_id = str(uuid.uuid4())
         contradictor_id = str(uuid.uuid4())
 
-        graph_ops._conn.execute("""
+        graph_ops._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)
-        """, (belief_id, "Belief", "belief", datetime.now().isoformat(),
-              evidence1_id, "Evidence1", "fact", datetime.now().isoformat(),
-              evidence2_id, "Evidence2", "fact", datetime.now().isoformat(),
-              contradictor_id, "Contra", "fact", datetime.now().isoformat()))
+        """,
+            (
+                belief_id,
+                "Belief",
+                "belief",
+                datetime.now().isoformat(),
+                evidence1_id,
+                "Evidence1",
+                "fact",
+                datetime.now().isoformat(),
+                evidence2_id,
+                "Evidence2",
+                "fact",
+                datetime.now().isoformat(),
+                contradictor_id,
+                "Contra",
+                "fact",
+                datetime.now().isoformat(),
+            ),
+        )
 
         # Create edges
         graph_ops.create_edge(belief_id, evidence1_id, "SUPPORTS")
@@ -372,11 +479,22 @@ class TestGraphOperations:
             source_id = str(uuid.uuid4())
             target_id = str(uuid.uuid4())
 
-            graph_ops._conn.execute("""
+            graph_ops._conn.execute(
+                """
                 INSERT INTO memories (id, content, memory_type, created_at)
                 VALUES (?, ?, ?, ?), (?, ?, ?, ?)
-            """, (source_id, "Source", "fact", datetime.now().isoformat(),
-                  target_id, "Target", "fact", datetime.now().isoformat()))
+            """,
+                (
+                    source_id,
+                    "Source",
+                    "fact",
+                    datetime.now().isoformat(),
+                    target_id,
+                    "Target",
+                    "fact",
+                    datetime.now().isoformat(),
+                ),
+            )
 
             edge_id = graph_ops.create_edge(source_id, target_id, "RELATED_TO")
             assert edge_id is not None
@@ -386,17 +504,28 @@ class TestGraphOperations:
 
     def test_bidirectional_edge_queries(self, tmp_path):
         """Test that edges work in both directions"""
-        graph_ops = GraphOperations(':memory:')
+        graph_ops = GraphOperations(":memory:")
 
         # Setup memories
         memory_a = str(uuid.uuid4())
         memory_b = str(uuid.uuid4())
 
-        graph_ops._conn.execute("""
+        graph_ops._conn.execute(
+            """
             INSERT INTO memories (id, content, memory_type, created_at)
             VALUES (?, ?, ?, ?), (?, ?, ?, ?)
-        """, (memory_a, "Memory A", "fact", datetime.now().isoformat(),
-              memory_b, "Memory B", "fact", datetime.now().isoformat()))
+        """,
+            (
+                memory_a,
+                "Memory A",
+                "fact",
+                datetime.now().isoformat(),
+                memory_b,
+                "Memory B",
+                "fact",
+                datetime.now().isoformat(),
+            ),
+        )
 
         # Create edge A -> B
         edge_id = graph_ops.create_edge(memory_a, memory_b, "RELATED_TO")

@@ -33,7 +33,9 @@ class GraphTraversal:
     # Default half-life for recency decay (30 days)
     RECENCY_HALF_LIFE = 30.0
 
-    def __init__(self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None):
+    def __init__(
+        self, db_path: str, enable_wal: bool = True, conn: Optional[sqlite3.Connection] = None
+    ):
         """
         Initialize Graph Traversal operations.
 
@@ -42,7 +44,7 @@ class GraphTraversal:
             enable_wal: Enable WAL mode for concurrent writes (default: True)
             conn: Optional shared connection (for :memory: databases in facade pattern)
         """
-        self.db_path = Path(db_path) if db_path != ':memory:' else db_path
+        self.db_path = Path(db_path) if db_path != ":memory:" else db_path
         self._enable_wal = enable_wal
         self._owns_connection = conn is None
 
@@ -51,15 +53,12 @@ class GraphTraversal:
             self._conn = conn
         else:
             # Initialize database
-            if self.db_path != ':memory:':
+            if self.db_path != ":memory:":
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Create persistent connection
             self._conn = sqlite3.connect(
-                self.db_path,
-                check_same_thread=False,
-                isolation_level=None,
-                timeout=30.0
+                self.db_path, check_same_thread=False, isolation_level=None, timeout=30.0
             )
 
             # Initialize schema
@@ -99,10 +98,13 @@ class GraphTraversal:
             Centrality score (0.0-1.0)
         """
         # Get memory stats
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             SELECT access_count, last_accessed, created_at
             FROM memories WHERE id = ?
-        """, (memory_id,))
+        """,
+            (memory_id,),
+        )
         row = cursor.fetchone()
         if not row:
             return 0.0
@@ -111,9 +113,12 @@ class GraphTraversal:
         last_accessed = datetime.fromisoformat(row[1]) if row[1] else datetime.now()
 
         # Count edges (degree centrality)
-        cursor = self._conn.execute("""
+        cursor = self._conn.execute(
+            """
             SELECT COUNT(*) FROM edges WHERE source_id = ? OR target_id = ?
-        """, (memory_id, memory_id))
+        """,
+            (memory_id, memory_id),
+        )
         edge_count = cursor.fetchone()[0]
 
         # Normalize metrics (0-1 scale)
@@ -155,14 +160,17 @@ class GraphTraversal:
                 continue
 
             # Get neighbors
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT DISTINCT m.id, m.content, m.embedding, m.memory_type, m.confidence,
                        m.created_at, m.last_accessed, m.access_count, m.instance_ids, m.content_hash
                 FROM memories m
                 JOIN edges e ON (m.id = e.source_id OR m.id = e.target_id)
                 WHERE (e.source_id = ? OR e.target_id = ?)
                 AND m.id != ?
-            """, (current_id, current_id, current_id))
+            """,
+                (current_id, current_id, current_id),
+            )
 
             for row in cursor:
                 neighbor_id = row[0]
@@ -180,7 +188,7 @@ class GraphTraversal:
                         last_accessed=datetime.fromisoformat(row[6]) if row[6] else None,
                         access_count=row[7],
                         instance_ids=json.loads(row[8]) if row[8] else [],
-                        content_hash=row[9]
+                        content_hash=row[9],
                     )
                     result.append(memory)
                     queue.append((neighbor_id, current_depth + 1))
@@ -242,7 +250,7 @@ class GraphTraversal:
                 last_accessed=last_accessed,
                 access_count=access_count,
                 instance_ids=json.loads(row[8]) if row[8] else [],
-                content_hash=row[9]
+                content_hash=row[9],
             )
 
             memories.append((memory, centrality))
@@ -253,7 +261,7 @@ class GraphTraversal:
 
     def close(self) -> None:
         """Close database connection."""
-        if self._owns_connection and hasattr(self, '_conn') and self._conn:
+        if self._owns_connection and hasattr(self, "_conn") and self._conn:
             self._conn.close()
 
     def __enter__(self):

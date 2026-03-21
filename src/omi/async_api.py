@@ -32,7 +32,7 @@ from .events import (
     BeliefUpdatedEvent,
     ContradictionDetectedEvent,
     SessionStartedEvent,
-    SessionEndedEvent
+    SessionEndedEvent,
 )
 from .event_bus import get_event_bus
 
@@ -45,18 +45,20 @@ class AsyncMemoryTools:
     Non-blocking async/await versions using AsyncGraphPalace and AsyncEmbeddingCache
     """
 
-    def __init__(self, palace_store: AsyncGraphPalace,
-                 embedder: AsyncNIMEmbedder,
-                 cache: AsyncEmbeddingCache):
+    def __init__(
+        self, palace_store: AsyncGraphPalace, embedder: AsyncNIMEmbedder, cache: AsyncEmbeddingCache
+    ):
         self.palace = palace_store
         self.embedder = embedder
         self.cache = cache
 
-    async def recall(self,
-                    query: str,
-                    limit: int = 10,
-                    min_relevance: float = 0.7,
-                    memory_type: Optional[str] = None) -> List[dict]:
+    async def recall(
+        self,
+        query: str,
+        limit: int = 10,
+        min_relevance: float = 0.7,
+        memory_type: Optional[str] = None,
+    ) -> List[dict]:
         """
         memory_recall: Async semantic search with recency weighting
 
@@ -73,12 +75,11 @@ class AsyncMemoryTools:
         query_embedding = await self.cache.get_or_compute(query)
 
         # Get candidates (async)
-        candidates = await self.palace.recall(query_embedding, limit=limit*2)
+        candidates = await self.palace.recall(query_embedding, limit=limit * 2)
 
         # Filter by type
         if memory_type:
-            candidates = [c for c in candidates
-                         if c.get('memory_type') == memory_type]
+            candidates = [c for c in candidates if c.get("memory_type") == memory_type]
 
         # Apply recency weighting
         # calculate_recency_score already imported at module level
@@ -86,7 +87,7 @@ class AsyncMemoryTools:
 
         weighted = []
         for mem in candidates:
-            created_at = mem.get('created_at')
+            created_at = mem.get("created_at")
             if isinstance(created_at, str):
                 try:
                     created_at = datetime.fromisoformat(created_at)
@@ -97,29 +98,27 @@ class AsyncMemoryTools:
             days_ago = (datetime.now() - created_at).days
             recency = calculate_recency_score(days_ago, half_life)
 
-            final_score = (mem.get('relevance', 0.7) * 0.7) + (recency * 0.3)
-            mem['final_score'] = final_score
+            final_score = (mem.get("relevance", 0.7) * 0.7) + (recency * 0.3)
+            mem["final_score"] = final_score
             weighted.append(mem)
 
         # Sort by final score
-        weighted.sort(key=lambda x: x['final_score'], reverse=True)
+        weighted.sort(key=lambda x: x["final_score"], reverse=True)
         results = weighted[:limit]
 
         # Emit event
-        event = MemoryRecalledEvent(
-            query=query,
-            result_count=len(results),
-            top_results=results
-        )
+        event = MemoryRecalledEvent(query=query, result_count=len(results), top_results=results)
         get_event_bus().publish(event)
 
         return results
 
-    async def store(self,
-                   content: str,
-                   memory_type: str = 'experience',
-                   related_to: Optional[List[str]] = None,
-                   confidence: Optional[float] = None) -> str:
+    async def store(
+        self,
+        content: str,
+        memory_type: str = "experience",
+        related_to: Optional[List[str]] = None,
+        confidence: Optional[float] = None,
+    ) -> str:
         """
         memory_store: Async persist memory with embedding
 
@@ -137,22 +136,17 @@ class AsyncMemoryTools:
 
         # Store in palace (async)
         memory_id = await self.palace.store_memory(
-            content=content,
-            memory_type=memory_type,
-            confidence=confidence
+            content=content, memory_type=memory_type, confidence=confidence
         )
 
         # Create relationships (async)
         if related_to:
             for related_id in related_to:
-                await self.palace.create_edge(memory_id, related_id, 'RELATED_TO', 0.5)
+                await self.palace.create_edge(memory_id, related_id, "RELATED_TO", 0.5)
 
         # Emit event
         event = MemoryStoredEvent(
-            memory_id=memory_id,
-            content=content,
-            memory_type=memory_type,
-            confidence=confidence
+            memory_id=memory_id, content=content, memory_type=memory_type, confidence=confidence
         )
         get_event_bus().publish(event)
 
@@ -164,14 +158,11 @@ class AsyncBeliefTools:
     Async belief network operations
     """
 
-    def __init__(self, belief_network: BeliefNetwork,
-                 detector: ContradictionDetector):
+    def __init__(self, belief_network: BeliefNetwork, detector: ContradictionDetector):
         self.belief = belief_network
         self.detector = detector
 
-    async def create(self,
-                    content: str,
-                    initial_confidence: float = 0.5) -> str:
+    async def create(self, content: str, initial_confidence: float = 0.5) -> str:
         """
         belief_create: Async create new belief with confidence
 
@@ -184,17 +175,13 @@ class AsyncBeliefTools:
         """
         # Direct async call to palace since BeliefNetwork is sync
         belief_id = await self.belief.palace.store_memory(
-            content=content,
-            memory_type='belief',
-            confidence=initial_confidence
+            content=content, memory_type="belief", confidence=initial_confidence
         )
         return belief_id
 
-    async def update(self,
-                    belief_id: str,
-                    evidence_memory_id: str,
-                    supports: bool,
-                    strength: float) -> float:
+    async def update(
+        self, belief_id: str, evidence_memory_id: str, supports: bool, strength: float
+    ) -> float:
         """
         belief_update: Async add evidence, update confidence
 
@@ -214,8 +201,7 @@ class AsyncBeliefTools:
         old_confidence = current.confidence if current.confidence is not None else 0.5
 
         # Calculate new confidence using EMA
-        lambda_val = (self.belief.SUPPORT_LAMBDA if supports
-                     else self.belief.CONTRADICT_LAMBDA)
+        lambda_val = self.belief.SUPPORT_LAMBDA if supports else self.belief.CONTRADICT_LAMBDA
 
         # Calculate target
         if supports:
@@ -233,7 +219,7 @@ class AsyncBeliefTools:
         await self.belief.palace.update_belief_confidence(belief_id, new_confidence)
 
         # Create evidence edge (await async call)
-        edge_type = 'SUPPORTS' if supports else 'CONTRADICTS'
+        edge_type = "SUPPORTS" if supports else "CONTRADICTS"
         await self.belief.palace.create_edge(belief_id, evidence_memory_id, edge_type, strength)
 
         # Emit event
@@ -241,41 +227,39 @@ class AsyncBeliefTools:
             belief_id=belief_id,
             old_confidence=old_confidence,
             new_confidence=new_confidence,
-            evidence_id=evidence_memory_id
+            evidence_id=evidence_memory_id,
         )
         get_event_bus().publish(event)
 
         return new_confidence
 
-    async def retrieve(self,
-                      query: str,
-                      min_confidence: Optional[float] = None) -> List[dict]:
+    async def retrieve(self, query: str, min_confidence: Optional[float] = None) -> List[dict]:
         """
         belief_retrieve: Async get beliefs with confidence weighting
 
         High-confidence beliefs rank exponentially higher
         """
         # Get candidates via semantic search (await async call)
-        candidates = await self.belief.palace.recall(query, memory_type='belief')
+        candidates = await self.belief.palace.recall(query, memory_type="belief")
 
         # Apply confidence weighting
         CONFIDENCE_EXPONENT = 1.5
 
         weighted = []
         for belief in candidates:
-            confidence = belief.get('confidence', 0.5)
+            confidence = belief.get("confidence", 0.5)
 
             # Filter by min confidence if specified
             if min_confidence and confidence < min_confidence:
                 continue
 
             # Apply exponential weighting
-            weight = CONFIDENCE_EXPONENT ** confidence
-            belief['weighted_score'] = belief.get('relevance', 0.7) * weight
+            weight = CONFIDENCE_EXPONENT**confidence
+            belief["weighted_score"] = belief.get("relevance", 0.7) * weight
             weighted.append(belief)
 
         # Sort by weighted score
-        return sorted(weighted, key=lambda x: x['weighted_score'], reverse=True)
+        return sorted(weighted, key=lambda x: x["weighted_score"], reverse=True)
 
     async def check_contradiction(self, memory1_id: str, memory2_id: str) -> bool:
         """
@@ -288,8 +272,7 @@ class AsyncBeliefTools:
         mem2 = await self.belief.palace.get_memory(memory2_id)
 
         is_contradiction, pattern = self.detector.detect_contradiction_with_pattern(
-            mem1.content if mem1.content else '',
-            mem2.content if mem2.content else ''
+            mem1.content if mem1.content else "", mem2.content if mem2.content else ""
         )
 
         # Emit event if contradiction detected
@@ -297,7 +280,7 @@ class AsyncBeliefTools:
             event = ContradictionDetectedEvent(
                 memory_id_1=memory1_id,
                 memory_id_2=memory2_id,
-                contradiction_pattern=pattern or "unknown"
+                contradiction_pattern=pattern or "unknown",
             )
             get_event_bus().publish(event)
 
@@ -323,9 +306,9 @@ class AsyncBeliefTools:
 
             evidence = Evidence(
                 memory_id=memory_id,
-                supports=(edge.edge_type == 'SUPPORTS'),
+                supports=(edge.edge_type == "SUPPORTS"),
                 strength=edge.strength if edge.strength is not None else 0.5,
-                timestamp=edge.created_at
+                timestamp=edge.created_at,
             )
             evidence_chain.append(evidence)
 
@@ -335,10 +318,10 @@ class AsyncBeliefTools:
         # Convert to dict format
         return [
             {
-                'memory_id': e.memory_id,
-                'supports': e.supports,
-                'strength': e.strength,
-                'timestamp': e.timestamp.isoformat()
+                "memory_id": e.memory_id,
+                "supports": e.supports,
+                "strength": e.strength,
+                "timestamp": e.timestamp.isoformat(),
             }
             for e in evidence_chain
         ]
@@ -349,8 +332,7 @@ class AsyncCheckpointTools:
     Async session checkpoint and recovery
     """
 
-    def __init__(self, now_store,
-                 vault: MoltVault):
+    def __init__(self, now_store, vault: MoltVault):
         # NOWStore is now an alias for NowStorage
         self.now = now_store
         self.vault = vault
@@ -369,21 +351,23 @@ class AsyncCheckpointTools:
             try:
                 entry = NOWEntry.from_markdown(content)
                 return {
-                    'current_task': entry.current_task,
-                    'recent_completions': entry.recent_completions,
-                    'pending_decisions': entry.pending_decisions,
-                    'key_files': entry.key_files,
-                    'timestamp': entry.timestamp.isoformat()
+                    "current_task": entry.current_task,
+                    "recent_completions": entry.recent_completions,
+                    "pending_decisions": entry.pending_decisions,
+                    "key_files": entry.key_files,
+                    "timestamp": entry.timestamp.isoformat(),
                 }
             except Exception:
                 pass
         return {}
 
-    async def now_update(self,
-                        current_task: Optional[str] = None,
-                        recent_completions: Optional[List[str]] = None,
-                        pending_decisions: Optional[List[str]] = None,
-                        key_files: Optional[List[str]] = None) -> None:
+    async def now_update(
+        self,
+        current_task: Optional[str] = None,
+        recent_completions: Optional[List[str]] = None,
+        pending_decisions: Optional[List[str]] = None,
+        key_files: Optional[List[str]] = None,
+    ) -> None:
         """
         now_update: Async update operational state
 
@@ -394,12 +378,10 @@ class AsyncCheckpointTools:
             current_task=current_task,
             recent_completions=recent_completions,
             pending_decisions=pending_decisions,
-            key_files=key_files
+            key_files=key_files,
         )
 
-    async def create_capsule(self,
-                            intent: str,
-                            partial_plan: str) -> dict:
+    async def create_capsule(self, intent: str, partial_plan: str) -> dict:
         """
         capsule_create: Async serialize state for recovery
 
@@ -413,15 +395,15 @@ class AsyncCheckpointTools:
         import hashlib
 
         capsule = {
-            'version': '1.0',
-            'intent_hash': hashlib.sha256(intent.encode()).hexdigest()[:16],
-            'partial_plan': partial_plan,
-            'timestamp': datetime.now().isoformat()
+            "version": "1.0",
+            "intent_hash": hashlib.sha256(intent.encode()).hexdigest()[:16],
+            "partial_plan": partial_plan,
+            "timestamp": datetime.now().isoformat(),
         }
 
         # Generate checksum
         content = json.dumps(capsule, sort_keys=True)
-        capsule['checksum'] = hashlib.sha256(content.encode()).hexdigest()
+        capsule["checksum"] = hashlib.sha256(content.encode()).hexdigest()
 
         return capsule
 
@@ -507,13 +489,15 @@ class AsyncSession:
             await session.belief.create("belief content")
     """
 
-    def __init__(self,
-                 memory_tools: AsyncMemoryTools,
-                 belief_tools: Optional[AsyncBeliefTools] = None,
-                 checkpoint_tools: Optional[AsyncCheckpointTools] = None,
-                 daily_log_tools: Optional[AsyncDailyLogTools] = None,
-                 session_id: Optional[str] = None,
-                 metadata: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        memory_tools: AsyncMemoryTools,
+        belief_tools: Optional[AsyncBeliefTools] = None,
+        checkpoint_tools: Optional[AsyncCheckpointTools] = None,
+        daily_log_tools: Optional[AsyncDailyLogTools] = None,
+        session_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
         """
         Initialize async session context manager.
 
@@ -543,10 +527,7 @@ class AsyncSession:
         self._start_time = datetime.now()
 
         # Emit session started event
-        event = SessionStartedEvent(
-            session_id=self.session_id,
-            metadata=self.metadata
-        )
+        event = SessionStartedEvent(session_id=self.session_id, metadata=self.metadata)
         get_event_bus().publish(event)
 
         return self
@@ -571,13 +552,11 @@ class AsyncSession:
         # Prepare metadata with error if present
         metadata = dict(self.metadata) if self.metadata else {}
         if exc_val:
-            metadata['error'] = str(exc_val)
+            metadata["error"] = str(exc_val)
 
         # Emit session ended event
         event = SessionEndedEvent(
-            session_id=self.session_id,
-            duration_seconds=duration,
-            metadata=metadata
+            session_id=self.session_id, duration_seconds=duration, metadata=metadata
         )
         get_event_bus().publish(event)
 
@@ -585,12 +564,14 @@ class AsyncSession:
         return False
 
 
-def async_session(memory_tools: AsyncMemoryTools,
-                  belief_tools: Optional[AsyncBeliefTools] = None,
-                  checkpoint_tools: Optional[AsyncCheckpointTools] = None,
-                  daily_log_tools: Optional[AsyncDailyLogTools] = None,
-                  session_id: Optional[str] = None,
-                  metadata: Optional[Dict[str, Any]] = None) -> AsyncSession:
+def async_session(
+    memory_tools: AsyncMemoryTools,
+    belief_tools: Optional[AsyncBeliefTools] = None,
+    checkpoint_tools: Optional[AsyncCheckpointTools] = None,
+    daily_log_tools: Optional[AsyncDailyLogTools] = None,
+    session_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> AsyncSession:
     """
     Create an async session context manager for memory operations.
 
@@ -618,15 +599,15 @@ def async_session(memory_tools: AsyncMemoryTools,
         checkpoint_tools=checkpoint_tools,
         daily_log_tools=daily_log_tools,
         session_id=session_id,
-        metadata=metadata
+        metadata=metadata,
     )
 
 
 __all__ = [
-    'AsyncMemoryTools',
-    'AsyncBeliefTools',
-    'AsyncCheckpointTools',
-    'AsyncDailyLogTools',
-    'AsyncSession',
-    'async_session'
+    "AsyncMemoryTools",
+    "AsyncBeliefTools",
+    "AsyncCheckpointTools",
+    "AsyncDailyLogTools",
+    "AsyncSession",
+    "async_session",
 ]

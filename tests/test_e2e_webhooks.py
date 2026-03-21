@@ -12,6 +12,7 @@ Covers:
 This is an E2E test that verifies the complete flow:
     Memory Operation → EventBus → WebhookDispatcher → HTTP POST → Webhook Server
 """
+
 import pytest
 import json
 import time
@@ -29,7 +30,7 @@ from omi.events import MemoryStoredEvent
 def find_free_port():
     """Find an available port for the webhook server."""
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(('', 0))
+        s.bind(("", 0))
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         return s.getsockname()[1]
 
@@ -43,31 +44,29 @@ class WebhookHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         """Handle POST request from webhook."""
         # Read body
-        content_length = int(self.headers['Content-Length'])
+        content_length = int(self.headers["Content-Length"])
         body = self.rfile.read(content_length)
 
         # Parse JSON
         try:
-            webhook_data = json.loads(body.decode('utf-8'))
+            webhook_data = json.loads(body.decode("utf-8"))
 
             # Store webhook data
-            self.received_webhooks.append({
-                'headers': dict(self.headers),
-                'body': webhook_data,
-                'timestamp': datetime.now()
-            })
+            self.received_webhooks.append(
+                {"headers": dict(self.headers), "body": webhook_data, "timestamp": datetime.now()}
+            )
 
             # Send success response
             self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
+            self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({'status': 'received'}).encode('utf-8'))
+            self.wfile.write(json.dumps({"status": "received"}).encode("utf-8"))
 
         except Exception as e:
             # Send error response
             self.send_response(500)
             self.end_headers()
-            self.wfile.write(str(e).encode('utf-8'))
+            self.wfile.write(str(e).encode("utf-8"))
 
     def log_message(self, format, *args):
         """Suppress HTTP server logs."""
@@ -87,7 +86,7 @@ def run_webhook_server(port: int, ready_event: threading.Event, stop_event: thre
     WebhookHandler.received_webhooks = []
 
     # Create server
-    server = HTTPServer(('127.0.0.1', port), WebhookHandler)
+    server = HTTPServer(("127.0.0.1", port), WebhookHandler)
     server.timeout = 0.5  # Poll timeout for checking stop_event
 
     # Signal ready
@@ -123,9 +122,7 @@ def webhook_server(webhook_port):
 
     # Start server thread
     thread = threading.Thread(
-        target=run_webhook_server,
-        args=(webhook_port, ready_event, stop_event),
-        daemon=True
+        target=run_webhook_server, args=(webhook_port, ready_event, stop_event), daemon=True
     )
     thread.start()
 
@@ -151,11 +148,7 @@ class TestWebhookIntegration:
     """Test webhook delivery with real HTTP server and memory operations."""
 
     def test_webhook_receives_memory_stored_event(
-        self,
-        webhook_server,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache
+        self, webhook_server, temp_omi_setup, mock_embedder, mock_embedding_cache
     ):
         """
         End-to-end verification of webhook delivery.
@@ -179,9 +172,7 @@ class TestWebhookIntegration:
 
         # Create and start webhook dispatcher
         dispatcher = WebhookDispatcher(
-            webhook_url=webhook_url,
-            event_types=['memory.stored'],
-            timeout=5
+            webhook_url=webhook_url, event_types=["memory.stored"], timeout=5
         )
         dispatcher.start()
 
@@ -195,9 +186,7 @@ class TestWebhookIntegration:
             test_confidence = 0.92
 
             memory_id = memory_tools.store(
-                content=test_content,
-                memory_type=test_type,
-                confidence=test_confidence
+                content=test_content, memory_type=test_type, confidence=test_confidence
             )
 
             # Wait for webhook delivery (background thread)
@@ -211,19 +200,19 @@ class TestWebhookIntegration:
             webhook = webhooks[-1]
 
             # Verify headers
-            assert webhook['headers']['Content-Type'] == 'application/json'
+            assert webhook["headers"]["Content-Type"] == "application/json"
 
             # Verify payload
-            body = webhook['body']
-            assert body['event_type'] == 'memory.stored'
-            assert body['memory_id'] == memory_id
-            assert body['content'] == test_content
-            assert body['memory_type'] == test_type
-            assert body['confidence'] == test_confidence
-            assert 'timestamp' in body
+            body = webhook["body"]
+            assert body["event_type"] == "memory.stored"
+            assert body["memory_id"] == memory_id
+            assert body["content"] == test_content
+            assert body["memory_type"] == test_type
+            assert body["confidence"] == test_confidence
+            assert "timestamp" in body
 
             # Verify timestamp is recent
-            timestamp_str = body['timestamp']
+            timestamp_str = body["timestamp"]
             event_timestamp = datetime.fromisoformat(timestamp_str)
             time_delta = abs((datetime.now() - event_timestamp).total_seconds())
             assert time_delta < 5.0, "Event timestamp should be recent"
@@ -233,11 +222,7 @@ class TestWebhookIntegration:
             dispatcher.stop()
 
     def test_webhook_with_custom_headers(
-        self,
-        webhook_server,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache
+        self, webhook_server, temp_omi_setup, mock_embedder, mock_embedding_cache
     ):
         """
         Test webhook includes custom headers.
@@ -260,12 +245,12 @@ class TestWebhookIntegration:
         # Create dispatcher with custom headers
         dispatcher = WebhookDispatcher(
             webhook_url=webhook_url,
-            event_types=['memory.stored'],
+            event_types=["memory.stored"],
             headers={
-                'Authorization': 'Bearer test_token_123',
-                'X-Custom-Header': 'integration_test'
+                "Authorization": "Bearer test_token_123",
+                "X-Custom-Header": "integration_test",
             },
-            timeout=5
+            timeout=5,
         )
         dispatcher.start()
 
@@ -274,10 +259,7 @@ class TestWebhookIntegration:
             WebhookHandler.received_webhooks = []
 
             # Perform memory operation
-            memory_tools.store(
-                content="Test custom headers",
-                memory_type="fact"
-            )
+            memory_tools.store(content="Test custom headers", memory_type="fact")
 
             # Wait for webhook delivery
             time.sleep(1.0)
@@ -288,19 +270,15 @@ class TestWebhookIntegration:
 
             # Verify custom headers
             webhook = webhooks[-1]
-            headers = webhook['headers']
-            assert headers['Authorization'] == 'Bearer test_token_123'
-            assert headers['X-Custom-Header'] == 'integration_test'
+            headers = webhook["headers"]
+            assert headers["Authorization"] == "Bearer test_token_123"
+            assert headers["X-Custom-Header"] == "integration_test"
 
         finally:
             dispatcher.stop()
 
     def test_webhook_wildcard_subscription(
-        self,
-        webhook_server,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache
+        self, webhook_server, temp_omi_setup, mock_embedder, mock_embedding_cache
     ):
         """
         Test webhook with wildcard subscription receives all event types.
@@ -322,9 +300,7 @@ class TestWebhookIntegration:
 
         # Create dispatcher with wildcard subscription
         dispatcher = WebhookDispatcher(
-            webhook_url=webhook_url,
-            event_types=['*'],  # Subscribe to all events
-            timeout=5
+            webhook_url=webhook_url, event_types=["*"], timeout=5  # Subscribe to all events
         )
         dispatcher.start()
 
@@ -345,13 +321,13 @@ class TestWebhookIntegration:
             assert len(webhooks) >= 3, f"Expected at least 3 webhooks, got {len(webhooks)}"
 
             # Verify event types
-            event_types = [w['body']['event_type'] for w in webhooks]
-            assert 'memory.stored' in event_types
-            assert 'memory.recalled' in event_types
+            event_types = [w["body"]["event_type"] for w in webhooks]
+            assert "memory.stored" in event_types
+            assert "memory.recalled" in event_types
 
             # Count event types
-            stored_count = event_types.count('memory.stored')
-            recalled_count = event_types.count('memory.recalled')
+            stored_count = event_types.count("memory.stored")
+            recalled_count = event_types.count("memory.recalled")
             assert stored_count >= 2, "Should have at least 2 memory.stored events"
             assert recalled_count >= 1, "Should have at least 1 memory.recalled event"
 
@@ -359,11 +335,7 @@ class TestWebhookIntegration:
             dispatcher.stop()
 
     def test_webhook_event_type_filtering(
-        self,
-        webhook_server,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache
+        self, webhook_server, temp_omi_setup, mock_embedder, mock_embedding_cache
     ):
         """
         Test webhook only receives subscribed event types.
@@ -386,8 +358,8 @@ class TestWebhookIntegration:
         # Create dispatcher with specific event type
         dispatcher = WebhookDispatcher(
             webhook_url=webhook_url,
-            event_types=['memory.stored'],  # Only subscribe to memory.stored
-            timeout=5
+            event_types=["memory.stored"],  # Only subscribe to memory.stored
+            timeout=5,
         )
         dispatcher.start()
 
@@ -408,22 +380,20 @@ class TestWebhookIntegration:
             assert len(webhooks) >= 2, f"Expected at least 2 webhooks, got {len(webhooks)}"
 
             # Verify all webhooks are memory.stored events only
-            event_types = [w['body']['event_type'] for w in webhooks]
+            event_types = [w["body"]["event_type"] for w in webhooks]
             for event_type in event_types:
-                assert event_type == 'memory.stored', f"Expected only memory.stored, got {event_type}"
+                assert (
+                    event_type == "memory.stored"
+                ), f"Expected only memory.stored, got {event_type}"
 
             # Verify no memory.recalled events
-            assert 'memory.recalled' not in event_types
+            assert "memory.recalled" not in event_types
 
         finally:
             dispatcher.stop()
 
     def test_webhook_multiple_operations_sequence(
-        self,
-        webhook_server,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache
+        self, webhook_server, temp_omi_setup, mock_embedder, mock_embedding_cache
     ):
         """
         Test webhook correctly handles sequence of multiple memory operations.
@@ -446,9 +416,7 @@ class TestWebhookIntegration:
 
         # Create dispatcher
         dispatcher = WebhookDispatcher(
-            webhook_url=webhook_url,
-            event_types=['memory.stored'],
-            timeout=5
+            webhook_url=webhook_url, event_types=["memory.stored"], timeout=5
         )
         dispatcher.start()
 
@@ -466,9 +434,7 @@ class TestWebhookIntegration:
             memory_ids = []
             for mem in test_memories:
                 mid = memory_tools.store(
-                    content=mem["content"],
-                    memory_type=mem["type"],
-                    confidence=mem["confidence"]
+                    content=mem["content"], memory_type=mem["type"], confidence=mem["confidence"]
                 )
                 memory_ids.append(mid)
 
@@ -484,12 +450,12 @@ class TestWebhookIntegration:
 
             # Verify each webhook has correct data
             for i, webhook in enumerate(recent_webhooks):
-                body = webhook['body']
-                assert body['event_type'] == 'memory.stored'
-                assert body['memory_id'] == memory_ids[i]
-                assert body['content'] == test_memories[i]["content"]
-                assert body['memory_type'] == test_memories[i]["type"]
-                assert body['confidence'] == test_memories[i]["confidence"]
+                body = webhook["body"]
+                assert body["event_type"] == "memory.stored"
+                assert body["memory_id"] == memory_ids[i]
+                assert body["content"] == test_memories[i]["content"]
+                assert body["memory_type"] == test_memories[i]["type"]
+                assert body["confidence"] == test_memories[i]["confidence"]
 
         finally:
             dispatcher.stop()
@@ -499,11 +465,7 @@ class TestWebhookRetry:
     """Test webhook retry logic with failing server."""
 
     def test_webhook_retries_on_server_error(
-        self,
-        webhook_port,
-        temp_omi_setup,
-        mock_embedder,
-        mock_embedding_cache
+        self, webhook_port, temp_omi_setup, mock_embedder, mock_embedding_cache
     ):
         """
         Test webhook dispatcher retries on server errors.
@@ -533,29 +495,27 @@ class TestWebhookRetry:
             retry_attempts.append(datetime.now())
             # Raise connection error to trigger retry
             import requests
+
             raise requests.exceptions.ConnectionError("Connection failed")
 
         # Create dispatcher with short retry delay
         dispatcher = WebhookDispatcher(
             webhook_url=webhook_url,
-            event_types=['memory.stored'],
+            event_types=["memory.stored"],
             timeout=1,
             max_retries=3,
-            retry_delay=0.5  # Short delay for faster testing
+            retry_delay=0.5,  # Short delay for faster testing
         )
 
         # Patch requests.post to track retries
-        with patch.object(dispatcher, '_requests') as mock_requests:
+        with patch.object(dispatcher, "_requests") as mock_requests:
             mock_requests.post = mock_post
 
             dispatcher.start()
 
             try:
                 # Perform memory operation
-                memory_tools.store(
-                    content="Test retry logic",
-                    memory_type="fact"
-                )
+                memory_tools.store(content="Test retry logic", memory_type="fact")
 
                 # Wait for retries to complete
                 # With retry_delay=0.5s and exponential backoff: 0.5s, 1.0s, 2.0s
@@ -565,8 +525,12 @@ class TestWebhookRetry:
                 # Verify retry attempts
                 # max_retries=3 means retry up to 3 times (initial + 3 retries = 4 attempts)
                 # However, the implementation may count differently, so we verify >= 3
-                assert len(retry_attempts) >= 3, f"Expected at least 3 retry attempts, got {len(retry_attempts)}"
-                assert len(retry_attempts) <= 4, f"Expected at most 4 retry attempts, got {len(retry_attempts)}"
+                assert (
+                    len(retry_attempts) >= 3
+                ), f"Expected at least 3 retry attempts, got {len(retry_attempts)}"
+                assert (
+                    len(retry_attempts) <= 4
+                ), f"Expected at most 4 retry attempts, got {len(retry_attempts)}"
 
                 # Verify exponential backoff timing
                 # Delays should be approximately: 0.5s, 1.0s, 2.0s

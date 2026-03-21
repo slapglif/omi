@@ -20,10 +20,11 @@ from dataclasses import dataclass
 @dataclass
 class MigrationRecord:
     """A stored migration record."""
+
     id: int
     version: int
     description: str
-    applied_at: datetime
+    applied_at: Optional[datetime] = None
     duration_ms: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
 
@@ -35,7 +36,7 @@ class MigrationRecord:
             "description": self.description,
             "applied_at": self.applied_at.isoformat() if self.applied_at else None,
             "duration_ms": self.duration_ms,
-            "metadata": self.metadata or {}
+            "metadata": self.metadata or {},
         }
 
 
@@ -122,11 +123,13 @@ class MigrationManager:
             conn.execute(f"PRAGMA user_version = {version}")
             conn.commit()
 
-    def record_migration(self,
-                        version: int,
-                        description: str,
-                        duration_ms: Optional[int] = None,
-                        metadata: Optional[Dict[str, Any]] = None) -> int:
+    def record_migration(
+        self,
+        version: int,
+        description: str,
+        duration_ms: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> int:
         """
         Record a successfully applied migration.
 
@@ -143,16 +146,19 @@ class MigrationManager:
             sqlite3.IntegrityError: If migration version already recorded
         """
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 INSERT INTO _migrations (version, description, applied_at, duration_ms, metadata)
                 VALUES (?, ?, ?, ?, ?)
-            """, (
-                version,
-                description,
-                datetime.now().isoformat(),
-                duration_ms,
-                json.dumps(metadata) if metadata else None
-            ))
+            """,
+                (
+                    version,
+                    description,
+                    datetime.now().isoformat(),
+                    duration_ms,
+                    json.dumps(metadata) if metadata else None,
+                ),
+            )
             conn.commit()
             return cursor.lastrowid
 
@@ -167,10 +173,13 @@ class MigrationManager:
             MigrationRecord or None if not found
         """
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, version, description, applied_at, duration_ms, metadata
                 FROM _migrations WHERE version = ?
-            """, (version,))
+            """,
+                (version,),
+            )
 
             row = cursor.fetchone()
             if not row:
@@ -182,7 +191,7 @@ class MigrationManager:
                 description=row[2],
                 applied_at=datetime.fromisoformat(row[3]) if row[3] else None,
                 duration_ms=row[4],
-                metadata=json.loads(row[5]) if row[5] else None
+                metadata=json.loads(row[5]) if row[5] else None,
             )
 
     def get_applied_migrations(self) -> List[MigrationRecord]:
@@ -202,14 +211,16 @@ class MigrationManager:
             """)
 
             for row in cursor:
-                migrations.append(MigrationRecord(
-                    id=row[0],
-                    version=row[1],
-                    description=row[2],
-                    applied_at=datetime.fromisoformat(row[3]) if row[3] else None,
-                    duration_ms=row[4],
-                    metadata=json.loads(row[5]) if row[5] else None
-                ))
+                migrations.append(
+                    MigrationRecord(
+                        id=row[0],
+                        version=row[1],
+                        description=row[2],
+                        applied_at=datetime.fromisoformat(row[3]) if row[3] else None,
+                        duration_ms=row[4],
+                        metadata=json.loads(row[5]) if row[5] else None,
+                    )
+                )
 
         return migrations
 
@@ -238,7 +249,7 @@ class MigrationManager:
                 description=row[2],
                 applied_at=datetime.fromisoformat(row[3]) if row[3] else None,
                 duration_ms=row[4],
-                metadata=json.loads(row[5]) if row[5] else None
+                metadata=json.loads(row[5]) if row[5] else None,
             )
 
     def is_migration_applied(self, version: int) -> bool:
@@ -252,9 +263,12 @@ class MigrationManager:
             True if migration is recorded, False otherwise
         """
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT COUNT(*) FROM _migrations WHERE version = ?
-            """, (version,))
+            """,
+                (version,),
+            )
             count = cursor.fetchone()[0]
             return count > 0
 

@@ -25,6 +25,7 @@ class TestCLIEventsGroup:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -38,6 +39,7 @@ class TestCLIEventsGroup:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -51,6 +53,7 @@ class TestCLIEventsGroup:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -69,6 +72,7 @@ class TestCLIEventsList:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -83,6 +87,7 @@ class TestCLIEventsList:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -102,6 +107,7 @@ class TestCLIEventsList:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -123,6 +129,7 @@ class TestCLIEventsList:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -146,6 +153,7 @@ class TestCLIEventsList:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.event_history import EventHistory, EventRecord
@@ -160,7 +168,7 @@ class TestCLIEventsList:
             event_id = history.store_event(
                 event_type="memory.stored",
                 payload={"memory_id": "test-123", "content": "Test memory"},
-                metadata={"source": "test"}
+                metadata={"source": "test"},
             )
 
             # List events
@@ -178,6 +186,7 @@ class TestCLIEventsList:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.event_history import EventHistory
@@ -191,7 +200,7 @@ class TestCLIEventsList:
             history = EventHistory(events_db)
             history.store_event(
                 event_type="memory.stored",
-                payload={"memory_id": "test-123", "content": "Test memory"}
+                payload={"memory_id": "test-123", "content": "Test memory"},
             )
 
             # List events with JSON output
@@ -213,6 +222,7 @@ class TestCLIEventsList:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.event_history import EventHistory
@@ -224,18 +234,16 @@ class TestCLIEventsList:
             # Create event history and store multiple event types
             events_db = base_path / "events.sqlite"
             history = EventHistory(events_db)
+            history.store_event(event_type="memory.stored", payload={"memory_id": "test-1"})
             history.store_event(
-                event_type="memory.stored",
-                payload={"memory_id": "test-1"}
-            )
-            history.store_event(
-                event_type="session.started",
-                payload={"session_id": "test-session"}
+                event_type="session.started", payload={"session_id": "test-session"}
             )
 
             # List events filtered by type
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, ["events", "list", "--type", "memory.stored", "--json-output"])
+                result = runner.invoke(
+                    cli, ["events", "list", "--type", "memory.stored", "--json-output"]
+                )
 
             assert result.exit_code == 0
             output = json.loads(result.output.strip())
@@ -249,6 +257,7 @@ class TestCLIEventsList:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.event_history import EventHistory
@@ -262,17 +271,16 @@ class TestCLIEventsList:
             history = EventHistory(events_db)
 
             # Store an event
-            history.store_event(
-                event_type="memory.stored",
-                payload={"memory_id": "test-1"}
-            )
+            history.store_event(event_type="memory.stored", payload={"memory_id": "test-1"})
 
             # Get a future timestamp
             future_time = (datetime.now() + timedelta(days=1)).isoformat()
 
             # List events with since filter (should be empty)
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, ["events", "list", "--since", future_time, "--json-output"])
+                result = runner.invoke(
+                    cli, ["events", "list", "--since", future_time, "--json-output"]
+                )
 
             assert result.exit_code == 0
             output = json.loads(result.output.strip())
@@ -285,6 +293,7 @@ class TestCLIEventsList:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.event_history import EventHistory
@@ -298,17 +307,16 @@ class TestCLIEventsList:
             history = EventHistory(events_db)
 
             # Store an event
-            history.store_event(
-                event_type="memory.stored",
-                payload={"memory_id": "test-1"}
-            )
+            history.store_event(event_type="memory.stored", payload={"memory_id": "test-1"})
 
             # Get a past timestamp
             past_time = (datetime.now() - timedelta(days=1)).isoformat()
 
             # List events with until filter (should be empty)
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, ["events", "list", "--until", past_time, "--json-output"])
+                result = runner.invoke(
+                    cli, ["events", "list", "--until", past_time, "--json-output"]
+                )
 
             assert result.exit_code == 0
             output = json.loads(result.output.strip())
@@ -321,6 +329,7 @@ class TestCLIEventsList:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.event_history import EventHistory
@@ -333,10 +342,7 @@ class TestCLIEventsList:
             events_db = base_path / "events.sqlite"
             history = EventHistory(events_db)
             for i in range(10):
-                history.store_event(
-                    event_type="memory.stored",
-                    payload={"memory_id": f"test-{i}"}
-                )
+                history.store_event(event_type="memory.stored", payload={"memory_id": f"test-{i}"})
 
             # List events with limit
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
@@ -353,6 +359,7 @@ class TestCLIEventsList:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -363,6 +370,7 @@ class TestCLIEventsList:
             # Create events.sqlite (empty is fine)
             events_db = base_path / "events.sqlite"
             from omi.event_history import EventHistory
+
             EventHistory(events_db)
 
             # List events with invalid since format
@@ -380,6 +388,7 @@ class TestCLIEventsList:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
@@ -390,6 +399,7 @@ class TestCLIEventsList:
             # Create events.sqlite (empty is fine)
             events_db = base_path / "events.sqlite"
             from omi.event_history import EventHistory
+
             EventHistory(events_db)
 
             # List events with invalid until format
@@ -410,11 +420,14 @@ class TestCLIEventsSubscribe:
             runner = CliRunner()
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(Path(tmpdir) / "not_initialized")}):
-                result = runner.invoke(cli, ["events", "subscribe"], input="\x03")  # Ctrl+C immediately
+                result = runner.invoke(
+                    cli, ["events", "subscribe"], input="\x03"
+                )  # Ctrl+C immediately
 
             assert result.exit_code == 1
             assert "not initialized" in result.output.lower()
@@ -424,6 +437,7 @@ class TestCLIEventsSubscribe:
         runner = CliRunner()
 
         import sys
+
         sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
         from omi.cli import cli
 
@@ -453,6 +467,7 @@ class TestCLIEventsIntegration:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.event_history import EventHistory
@@ -474,17 +489,15 @@ class TestCLIEventsIntegration:
             # Subscribe to all events and persist them
             def persist_event(event):
                 """Persist events from event bus to event history."""
-                if hasattr(event, 'to_dict'):
+                if hasattr(event, "to_dict"):
                     event_dict = event.to_dict()
-                    event_type = event_dict.pop('event_type', event.event_type)
-                    timestamp = event_dict.pop('timestamp', None)
+                    event_type = event_dict.pop("event_type", event.event_type)
+                    timestamp = event_dict.pop("timestamp", None)
                     event_history.store_event(
-                        event_type=event_type,
-                        payload=event_dict,
-                        metadata={}
+                        event_type=event_type, payload=event_dict, metadata={}
                     )
 
-            event_bus.subscribe('*', persist_event)
+            event_bus.subscribe("*", persist_event)
 
             # Step 3: Initialize GraphPalace (this will create the proper schema)
             db_path = base_path / "palace.sqlite"
@@ -515,43 +528,53 @@ class TestCLIEventsIntegration:
             # Use a timestamp from yesterday to capture all today's events
             yesterday = (datetime.now() - timedelta(days=1)).isoformat()
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, ["events", "list", "--since", yesterday, "--json-output"])
+                result = runner.invoke(
+                    cli, ["events", "list", "--since", yesterday, "--json-output"]
+                )
 
             assert result.exit_code == 0
             all_events = json.loads(result.output.strip())
 
             # Should have at least 4 memory.stored events (from our operations)
             memory_stored_events = [e for e in all_events if e["event_type"] == "memory.stored"]
-            assert len(memory_stored_events) >= 4, f"Expected at least 4 memory.stored events, got {len(memory_stored_events)}"
+            assert (
+                len(memory_stored_events) >= 4
+            ), f"Expected at least 4 memory.stored events, got {len(memory_stored_events)}"
 
             # Verify each memory operation generated an event
             memory_contents = [op[0] for op in memory_operations]
             for content in memory_contents:
                 matching_events = [
-                    e for e in memory_stored_events
-                    if e["payload"].get("content") == content
+                    e for e in memory_stored_events if e["payload"].get("content") == content
                 ]
                 assert len(matching_events) >= 1, f"No event found for memory: {content}"
 
             # Step 7: Query events filtered by --type memory.stored
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, ["events", "list", "--type", "memory.stored", "--json-output"])
+                result = runner.invoke(
+                    cli, ["events", "list", "--type", "memory.stored", "--json-output"]
+                )
 
             assert result.exit_code == 0
             filtered_events = json.loads(result.output.strip())
 
             # Step 8: Verify only memory.stored events are shown
-            assert len(filtered_events) >= 4, f"Expected at least 4 events, got {len(filtered_events)}"
+            assert (
+                len(filtered_events) >= 4
+            ), f"Expected at least 4 events, got {len(filtered_events)}"
 
             # All filtered events should be memory.stored type
             for event in filtered_events:
-                assert event["event_type"] == "memory.stored", \
-                    f"Expected only memory.stored events, found {event['event_type']}"
+                assert (
+                    event["event_type"] == "memory.stored"
+                ), f"Expected only memory.stored events, found {event['event_type']}"
 
             # Verify payloads contain expected data
             for event in filtered_events:
                 assert "content" in event["payload"], "Event payload missing 'content' field"
-                assert "memory_type" in event["payload"], "Event payload missing 'memory_type' field"
+                assert (
+                    "memory_type" in event["payload"]
+                ), "Event payload missing 'memory_type' field"
                 assert "memory_id" in event["payload"], "Event payload missing 'memory_id' field"
 
     def test_event_query_with_multiple_filters(self):
@@ -561,6 +584,7 @@ class TestCLIEventsIntegration:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
             from omi.event_history import EventHistory
@@ -578,12 +602,12 @@ class TestCLIEventsIntegration:
             history.store_event(
                 event_type="memory.stored",
                 payload={"test_id": "test-0"},
-                metadata={"source": "integration_test"}
+                metadata={"source": "integration_test"},
             )
             history.store_event(
                 event_type="session.started",
                 payload={"test_id": "test-1"},
-                metadata={"source": "integration_test"}
+                metadata={"source": "integration_test"},
             )
 
             # Wait a bit to ensure timestamp difference
@@ -599,22 +623,28 @@ class TestCLIEventsIntegration:
             history.store_event(
                 event_type="memory.stored",
                 payload={"test_id": "test-2"},
-                metadata={"source": "integration_test"}
+                metadata={"source": "integration_test"},
             )
             history.store_event(
                 event_type="session.ended",
                 payload={"test_id": "test-3"},
-                metadata={"source": "integration_test"}
+                metadata={"source": "integration_test"},
             )
 
             # Query with type filter and since filter
             with patch.dict(os.environ, {"OMI_BASE_PATH": str(base_path)}):
-                result = runner.invoke(cli, [
-                    "events", "list",
-                    "--type", "memory.stored",
-                    "--since", since_time,
-                    "--json-output"
-                ])
+                result = runner.invoke(
+                    cli,
+                    [
+                        "events",
+                        "list",
+                        "--type",
+                        "memory.stored",
+                        "--since",
+                        since_time,
+                        "--json-output",
+                    ],
+                )
 
             assert result.exit_code == 0
             events = json.loads(result.output.strip())
@@ -626,7 +656,9 @@ class TestCLIEventsIntegration:
 
             # Verify the first batch is NOT included
             event_ids = [e["payload"]["test_id"] for e in events]
-            assert "test-0" not in event_ids, "Event test-0 should not be included (before since_time)"
+            assert (
+                "test-0" not in event_ids
+            ), "Event test-0 should not be included (before since_time)"
             assert "test-1" not in event_ids, "Event test-1 should not be included (wrong type)"
 
     def test_event_query_limit_parameter(self):
@@ -636,6 +668,7 @@ class TestCLIEventsIntegration:
             base_path = Path(tmpdir) / "omi"
 
             import sys
+
             sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
             from omi.cli import cli
 

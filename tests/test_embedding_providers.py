@@ -25,7 +25,7 @@ from omi.embeddings import (
     OllamaEmbedder,
     SentenceTransformerEmbedder,
     EmbeddingProviderFactory,
-    PROVIDER_REGISTRY
+    PROVIDER_REGISTRY,
 )
 
 
@@ -47,14 +47,15 @@ class TestEmbeddingProviderInterface:
         Verify EmbeddingProvider defines required abstract methods
         """
         # Check that embed() and dimensions are abstract
-        assert hasattr(EmbeddingProvider, 'embed'), "Should have embed() method"
-        assert hasattr(EmbeddingProvider, 'dimensions'), "Should have dimensions property"
-        assert hasattr(EmbeddingProvider, 'similarity'), "Should have similarity() method"
+        assert hasattr(EmbeddingProvider, "embed"), "Should have embed() method"
+        assert hasattr(EmbeddingProvider, "dimensions"), "Should have dimensions property"
+        assert hasattr(EmbeddingProvider, "similarity"), "Should have similarity() method"
 
     def test_similarity_is_concrete(self):
         """
         Verify similarity() is a concrete method with default implementation
         """
+
         # Create a minimal concrete implementation
         class MinimalProvider(EmbeddingProvider):
             def embed(self, text: str) -> List[float]:
@@ -78,6 +79,7 @@ class TestEmbeddingProviderInterface:
         """
         Test that similarity() correctly calculates cosine similarity
         """
+
         class MinimalProvider(EmbeddingProvider):
             def embed(self, text: str) -> List[float]:
                 return [1.0, 0.0, 0.0]
@@ -104,6 +106,7 @@ class TestEmbeddingProviderInterface:
         """
         Test that similarity() handles zero vectors gracefully
         """
+
         class MinimalProvider(EmbeddingProvider):
             def embed(self, text: str) -> List[float]:
                 return [1.0, 0.0, 0.0]
@@ -126,37 +129,53 @@ class TestProviderInheritance:
 
     def test_nim_embedder_inheritance(self):
         """Verify NIMEmbedder inherits from EmbeddingProvider"""
-        assert issubclass(NIMEmbedder, EmbeddingProvider), "NIMEmbedder should inherit from EmbeddingProvider"
-        assert hasattr(NIMEmbedder, 'embed'), "NIMEmbedder should have embed() method"
-        assert hasattr(NIMEmbedder, 'dimensions'), "NIMEmbedder should have dimensions property"
+        assert issubclass(
+            NIMEmbedder, EmbeddingProvider
+        ), "NIMEmbedder should inherit from EmbeddingProvider"
+        assert hasattr(NIMEmbedder, "embed"), "NIMEmbedder should have embed() method"
+        assert hasattr(NIMEmbedder, "dimensions"), "NIMEmbedder should have dimensions property"
 
     def test_openai_embedder_inheritance(self):
         """Verify OpenAIEmbedder inherits from EmbeddingProvider"""
-        assert issubclass(OpenAIEmbedder, EmbeddingProvider), "OpenAIEmbedder should inherit from EmbeddingProvider"
-        assert hasattr(OpenAIEmbedder, 'embed'), "OpenAIEmbedder should have embed() method"
-        assert hasattr(OpenAIEmbedder, 'dimensions'), "OpenAIEmbedder should have dimensions property"
+        assert issubclass(
+            OpenAIEmbedder, EmbeddingProvider
+        ), "OpenAIEmbedder should inherit from EmbeddingProvider"
+        assert hasattr(OpenAIEmbedder, "embed"), "OpenAIEmbedder should have embed() method"
+        assert hasattr(
+            OpenAIEmbedder, "dimensions"
+        ), "OpenAIEmbedder should have dimensions property"
 
     def test_cohere_embedder_inheritance(self):
         """Verify CohereEmbedder inherits from EmbeddingProvider"""
-        assert issubclass(CohereEmbedder, EmbeddingProvider), "CohereEmbedder should inherit from EmbeddingProvider"
-        assert hasattr(CohereEmbedder, 'embed'), "CohereEmbedder should have embed() method"
-        assert hasattr(CohereEmbedder, 'dimensions'), "CohereEmbedder should have dimensions property"
+        assert issubclass(
+            CohereEmbedder, EmbeddingProvider
+        ), "CohereEmbedder should inherit from EmbeddingProvider"
+        assert hasattr(CohereEmbedder, "embed"), "CohereEmbedder should have embed() method"
+        assert hasattr(
+            CohereEmbedder, "dimensions"
+        ), "CohereEmbedder should have dimensions property"
 
     def test_ollama_embedder_inheritance(self):
         """Verify OllamaEmbedder inherits from EmbeddingProvider"""
-        assert issubclass(OllamaEmbedder, EmbeddingProvider), "OllamaEmbedder should inherit from EmbeddingProvider"
-        assert hasattr(OllamaEmbedder, 'embed'), "OllamaEmbedder should have embed() method"
-        assert hasattr(OllamaEmbedder, 'dimensions'), "OllamaEmbedder should have dimensions property"
+        assert issubclass(
+            OllamaEmbedder, EmbeddingProvider
+        ), "OllamaEmbedder should inherit from EmbeddingProvider"
+        assert hasattr(OllamaEmbedder, "embed"), "OllamaEmbedder should have embed() method"
+        assert hasattr(
+            OllamaEmbedder, "dimensions"
+        ), "OllamaEmbedder should have dimensions property"
 
     def test_sentence_transformer_embedder_inheritance(self):
         """Verify SentenceTransformerEmbedder inherits from EmbeddingProvider"""
-        assert issubclass(SentenceTransformerEmbedder, EmbeddingProvider), (
-            "SentenceTransformerEmbedder should inherit from EmbeddingProvider"
-        )
-        assert hasattr(SentenceTransformerEmbedder, 'embed'), "SentenceTransformerEmbedder should have embed() method"
-        assert hasattr(SentenceTransformerEmbedder, 'dimensions'), (
-            "SentenceTransformerEmbedder should have dimensions property"
-        )
+        assert issubclass(
+            SentenceTransformerEmbedder, EmbeddingProvider
+        ), "SentenceTransformerEmbedder should inherit from EmbeddingProvider"
+        assert hasattr(
+            SentenceTransformerEmbedder, "embed"
+        ), "SentenceTransformerEmbedder should have embed() method"
+        assert hasattr(
+            SentenceTransformerEmbedder, "dimensions"
+        ), "SentenceTransformerEmbedder should have dimensions property"
 
 
 class TestProviderRegistry:
@@ -178,10 +197,12 @@ class TestProviderRegistry:
         }
 
         for provider_name, provider_class in expected_providers.items():
-            assert provider_name in PROVIDER_REGISTRY, f"{provider_name} should be in PROVIDER_REGISTRY"
-            assert PROVIDER_REGISTRY[provider_name] == provider_class, (
-                f"PROVIDER_REGISTRY[{provider_name}] should map to {provider_class.__name__}"
-            )
+            assert (
+                provider_name in PROVIDER_REGISTRY
+            ), f"{provider_name} should be in PROVIDER_REGISTRY"
+            assert (
+                PROVIDER_REGISTRY[provider_name] == provider_class
+            ), f"PROVIDER_REGISTRY[{provider_name}] should map to {provider_class.__name__}"
 
     def test_registry_supports_hyphenated_names(self):
         """Verify PROVIDER_REGISTRY supports both underscore and hyphen naming"""
@@ -195,9 +216,9 @@ class TestProviderRegistry:
     def test_all_registry_values_are_providers(self):
         """Verify all values in PROVIDER_REGISTRY are EmbeddingProvider subclasses"""
         for provider_name, provider_class in PROVIDER_REGISTRY.items():
-            assert issubclass(provider_class, EmbeddingProvider), (
-                f"{provider_name} should map to an EmbeddingProvider subclass"
-            )
+            assert issubclass(
+                provider_class, EmbeddingProvider
+            ), f"{provider_name} should map to an EmbeddingProvider subclass"
 
 
 class TestEmbeddingProviderFactory:
@@ -217,7 +238,7 @@ class TestEmbeddingProviderFactory:
     def test_factory_has_provider_map(self):
         """Verify factory has PROVIDER_MAP with all providers"""
         factory = EmbeddingProviderFactory()
-        assert hasattr(factory, 'PROVIDER_MAP'), "Factory should have PROVIDER_MAP"
+        assert hasattr(factory, "PROVIDER_MAP"), "Factory should have PROVIDER_MAP"
         assert len(factory.PROVIDER_MAP) > 0, "PROVIDER_MAP should not be empty"
 
         # Should contain all main providers
@@ -230,10 +251,12 @@ class TestEmbeddingProviderFactory:
     def test_factory_default_provider(self):
         """Verify factory has a default provider"""
         factory = EmbeddingProviderFactory()
-        assert hasattr(factory, 'DEFAULT_PROVIDER'), "Factory should have DEFAULT_PROVIDER"
-        assert factory.DEFAULT_PROVIDER in factory.PROVIDER_MAP, "Default provider should be in PROVIDER_MAP"
+        assert hasattr(factory, "DEFAULT_PROVIDER"), "Factory should have DEFAULT_PROVIDER"
+        assert (
+            factory.DEFAULT_PROVIDER in factory.PROVIDER_MAP
+        ), "Default provider should be in PROVIDER_MAP"
 
-    @patch('omi.embeddings.OllamaEmbedder.__init__')
+    @patch("omi.embeddings.OllamaEmbedder.__init__")
     def test_factory_creates_ollama_provider(self, mock_init):
         """Test factory creates OllamaEmbedder from config"""
         mock_init.return_value = None
@@ -249,7 +272,7 @@ class TestEmbeddingProviderFactory:
         # Verify __init__ was called with correct params
         mock_init.assert_called_once_with(model="nomic-embed-text")
 
-    @patch('omi.embeddings.SentenceTransformerEmbedder.__init__')
+    @patch("omi.embeddings.SentenceTransformerEmbedder.__init__")
     def test_factory_creates_sentence_transformer_provider(self, mock_init):
         """Test factory creates SentenceTransformerEmbedder from config"""
         mock_init.return_value = None
@@ -260,9 +283,9 @@ class TestEmbeddingProviderFactory:
         provider = factory.get_provider(config)
 
         # Verify correct provider type
-        assert isinstance(provider, SentenceTransformerEmbedder), (
-            "Should create SentenceTransformerEmbedder"
-        )
+        assert isinstance(
+            provider, SentenceTransformerEmbedder
+        ), "Should create SentenceTransformerEmbedder"
 
         # Verify __init__ was called with correct params
         mock_init.assert_called_once_with(model="all-MiniLM-L6-v2")
@@ -279,7 +302,7 @@ class TestEmbeddingProviderFactory:
         assert "unknown_provider_xyz" in str(exc_info.value), "Should mention the specific provider"
         assert "Available providers" in str(exc_info.value), "Should list available providers"
 
-    @patch('omi.embeddings.OllamaEmbedder.__init__')
+    @patch("omi.embeddings.OllamaEmbedder.__init__")
     def test_factory_merges_default_config(self, mock_init):
         """Test factory merges default config with provided config"""
         mock_init.return_value = None
@@ -296,7 +319,7 @@ class TestEmbeddingProviderFactory:
         assert isinstance(provider, OllamaEmbedder), "Should use default provider (ollama)"
         mock_init.assert_called_once_with(model="custom-model")
 
-    @patch('omi.embeddings.OllamaEmbedder.__init__')
+    @patch("omi.embeddings.OllamaEmbedder.__init__")
     def test_factory_provided_config_overrides_default(self, mock_init):
         """Test provided config overrides default config"""
         mock_init.return_value = None
@@ -313,7 +336,7 @@ class TestEmbeddingProviderFactory:
         assert isinstance(provider, OllamaEmbedder), "Should use provided provider (ollama)"
         mock_init.assert_called_once_with(model="custom-model")
 
-    @patch('omi.embeddings.OllamaEmbedder.__init__')
+    @patch("omi.embeddings.OllamaEmbedder.__init__")
     def test_factory_filters_provider_key_from_params(self, mock_init):
         """Test factory doesn't pass 'provider' key to provider __init__"""
         mock_init.return_value = None
@@ -339,10 +362,12 @@ class TestEmbeddingProviderFactory:
         with pytest.raises(RuntimeError) as exc_info:
             factory.get_provider(config)
 
-        assert "Failed to initialize" in str(exc_info.value), "Should mention initialization failure"
+        assert "Failed to initialize" in str(
+            exc_info.value
+        ), "Should mention initialization failure"
         assert "nim" in str(exc_info.value), "Should mention the provider that failed"
 
-    @patch('omi.embeddings.OllamaEmbedder.__init__')
+    @patch("omi.embeddings.OllamaEmbedder.__init__")
     def test_factory_get_provider_without_config(self, mock_init):
         """Test factory can create provider with None config (uses defaults)"""
         mock_init.return_value = None
@@ -356,7 +381,7 @@ class TestEmbeddingProviderFactory:
 
         assert isinstance(provider, OllamaEmbedder), "Should create provider from default config"
 
-    @patch('omi.embeddings.OllamaEmbedder.__init__')
+    @patch("omi.embeddings.OllamaEmbedder.__init__")
     def test_factory_uses_default_provider_when_not_specified(self, mock_init):
         """Test factory uses DEFAULT_PROVIDER when provider not in config"""
         mock_init.return_value = None
@@ -379,31 +404,37 @@ class TestProviderDimensionConsistency:
 
     def test_nim_embedder_dimensions(self):
         """Verify NIMEmbedder has correct default dimensions"""
-        assert hasattr(NIMEmbedder, 'DEFAULT_DIM'), "NIMEmbedder should have DEFAULT_DIM"
+        assert hasattr(NIMEmbedder, "DEFAULT_DIM"), "NIMEmbedder should have DEFAULT_DIM"
         assert NIMEmbedder.DEFAULT_DIM == 1024, "NIM default should be 1024 (baai/bge-m3)"
 
     def test_openai_embedder_dimensions(self):
         """Verify OpenAIEmbedder has correct model dimensions"""
-        assert hasattr(OpenAIEmbedder, 'MODEL_DIMENSIONS'), "OpenAIEmbedder should have MODEL_DIMENSIONS"
+        assert hasattr(
+            OpenAIEmbedder, "MODEL_DIMENSIONS"
+        ), "OpenAIEmbedder should have MODEL_DIMENSIONS"
         assert OpenAIEmbedder.MODEL_DIMENSIONS["text-embedding-3-small"] == 1536
         assert OpenAIEmbedder.MODEL_DIMENSIONS["text-embedding-3-large"] == 3072
 
     def test_cohere_embedder_dimensions(self):
         """Verify CohereEmbedder has correct model dimensions"""
-        assert hasattr(CohereEmbedder, 'MODEL_DIMENSIONS'), "CohereEmbedder should have MODEL_DIMENSIONS"
+        assert hasattr(
+            CohereEmbedder, "MODEL_DIMENSIONS"
+        ), "CohereEmbedder should have MODEL_DIMENSIONS"
         assert CohereEmbedder.MODEL_DIMENSIONS["embed-english-v3.0"] == 1024
         assert CohereEmbedder.MODEL_DIMENSIONS["embed-multilingual-v3.0"] == 1024
 
     def test_ollama_embedder_dimensions(self):
         """Verify OllamaEmbedder has correct model dimensions"""
-        assert hasattr(OllamaEmbedder, 'MODEL_DIMENSIONS'), "OllamaEmbedder should have MODEL_DIMENSIONS"
+        assert hasattr(
+            OllamaEmbedder, "MODEL_DIMENSIONS"
+        ), "OllamaEmbedder should have MODEL_DIMENSIONS"
         assert OllamaEmbedder.MODEL_DIMENSIONS["nomic-embed-text"] == 768
         assert OllamaEmbedder.MODEL_DIMENSIONS["mxbai-embed-large"] == 1024
 
     def test_sentence_transformer_embedder_dimensions(self):
         """Verify SentenceTransformerEmbedder has correct model dimensions"""
-        assert hasattr(SentenceTransformerEmbedder, 'MODEL_DIMENSIONS'), (
-            "SentenceTransformerEmbedder should have MODEL_DIMENSIONS"
-        )
+        assert hasattr(
+            SentenceTransformerEmbedder, "MODEL_DIMENSIONS"
+        ), "SentenceTransformerEmbedder should have MODEL_DIMENSIONS"
         assert SentenceTransformerEmbedder.MODEL_DIMENSIONS["all-MiniLM-L6-v2"] == 384
         assert SentenceTransformerEmbedder.MODEL_DIMENSIONS["all-mpnet-base-v2"] == 768

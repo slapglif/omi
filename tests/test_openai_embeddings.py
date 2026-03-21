@@ -45,7 +45,9 @@ class TestOpenAIConnection:
         embedding = embedder.embed("hello world")
 
         assert isinstance(embedding, list), "Embedding should be a list"
-        assert len(embedding) == SMALL_MODEL_DIM, f"Expected {SMALL_MODEL_DIM} dimensions, got {len(embedding)}"
+        assert (
+            len(embedding) == SMALL_MODEL_DIM
+        ), f"Expected {SMALL_MODEL_DIM} dimensions, got {len(embedding)}"
         assert all(isinstance(x, float) for x in embedding), "All elements should be floats"
         assert not all(x == 0 for x in embedding), "Embedding should not be all zeros"
 
@@ -65,7 +67,9 @@ class TestOpenAIConnection:
         embedder = OpenAIEmbedder(api_key=OPENAI_API_KEY, model="text-embedding-3-large")
         embedding = embedder.embed("test text")
 
-        assert len(embedding) == LARGE_MODEL_DIM, f"Expected {LARGE_MODEL_DIM} dimensions, got {len(embedding)}"
+        assert (
+            len(embedding) == LARGE_MODEL_DIM
+        ), f"Expected {LARGE_MODEL_DIM} dimensions, got {len(embedding)}"
 
         # Check L2 norm is reasonable
         norm = np.linalg.norm(embedding)
@@ -137,7 +141,7 @@ class TestOpenAIErrorHandling:
         """
         with patch.dict(os.environ, {}, clear=True):
             # Mock _test_connection to avoid actual API call
-            with patch.object(OpenAIEmbedder, '_test_connection'):
+            with patch.object(OpenAIEmbedder, "_test_connection"):
                 with pytest.raises(ValueError) as exc_info:
                     OpenAIEmbedder(api_key=None)
 
@@ -166,7 +170,7 @@ class TestOpenAIErrorHandling:
         import requests
 
         # Mock _test_connection to avoid actual API call during init
-        with patch.object(OpenAIEmbedder, '_test_connection'):
+        with patch.object(OpenAIEmbedder, "_test_connection"):
             embedder = OpenAIEmbedder(api_key="sk-dummy_key")
 
             # Mock a 429 response
@@ -185,11 +189,13 @@ class TestOpenAIErrorHandling:
         import requests
 
         # Mock _test_connection to avoid actual API call during init
-        with patch.object(OpenAIEmbedder, '_test_connection'):
+        with patch.object(OpenAIEmbedder, "_test_connection"):
             embedder = OpenAIEmbedder(api_key="sk-dummy_key")
 
             # Mock timeout
-            with patch.object(embedder._session, "post", side_effect=requests.Timeout("Request timed out")):
+            with patch.object(
+                embedder._session, "post", side_effect=requests.Timeout("Request timed out")
+            ):
                 with pytest.raises(requests.Timeout):
                     embedder.embed("test")
 
@@ -200,11 +206,15 @@ class TestOpenAIErrorHandling:
         import requests
 
         # Mock _test_connection to avoid actual API call during init
-        with patch.object(OpenAIEmbedder, '_test_connection'):
+        with patch.object(OpenAIEmbedder, "_test_connection"):
             embedder = OpenAIEmbedder(api_key="sk-dummy_key")
 
             # Simulate various network errors
-            for error in [requests.ConnectionError, requests.ConnectTimeout, requests.RequestException]:
+            for error in [
+                requests.ConnectionError,
+                requests.ConnectTimeout,
+                requests.RequestException,
+            ]:
                 with patch.object(embedder._session, "post", side_effect=error("Network error")):
                     with pytest.raises(error):
                         embedder.embed("test")
@@ -219,7 +229,7 @@ class TestOpenAIConfig:
         """
         with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test123"}):
             # Mock _test_connection to avoid actual API call during init
-            with patch.object(OpenAIEmbedder, '_test_connection'):
+            with patch.object(OpenAIEmbedder, "_test_connection"):
                 embedder = OpenAIEmbedder()
                 assert embedder.api_key == "sk-test123"
 
@@ -229,7 +239,7 @@ class TestOpenAIConfig:
         """
         with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-env_key"}):
             # Mock _test_connection to avoid actual API call during init
-            with patch.object(OpenAIEmbedder, '_test_connection'):
+            with patch.object(OpenAIEmbedder, "_test_connection"):
                 embedder = OpenAIEmbedder(api_key="sk-explicit_key")
                 assert embedder.api_key == "sk-explicit_key"
 
@@ -246,11 +256,8 @@ class TestOpenAIConfig:
         Test custom base URL configuration
         """
         # Mock _test_connection to avoid actual API call during init
-        with patch.object(OpenAIEmbedder, '_test_connection'):
-            embedder = OpenAIEmbedder(
-                api_key="sk-dummy",
-                base_url="https://api.custom.com/v1/"
-            )
+        with patch.object(OpenAIEmbedder, "_test_connection"):
+            embedder = OpenAIEmbedder(api_key="sk-dummy", base_url="https://api.custom.com/v1/")
             assert embedder.base_url == "https://api.custom.com/v1"  # Trailing slash stripped
 
 
@@ -288,7 +295,7 @@ class TestOpenAISimilarity:
     def test_cosine_similarity_identical(self):
         """Identical vectors should have similarity 1.0"""
         # Mock _test_connection to avoid actual API call during init
-        with patch.object(OpenAIEmbedder, '_test_connection'):
+        with patch.object(OpenAIEmbedder, "_test_connection"):
             embedder = OpenAIEmbedder(api_key="sk-dummy_key")
 
             v = [1.0, 0.0, 0.0]
@@ -299,7 +306,7 @@ class TestOpenAISimilarity:
     def test_cosine_similarity_orthogonal(self):
         """Orthogonal vectors should have similarity 0.0"""
         # Mock _test_connection to avoid actual API call during init
-        with patch.object(OpenAIEmbedder, '_test_connection'):
+        with patch.object(OpenAIEmbedder, "_test_connection"):
             embedder = OpenAIEmbedder(api_key="sk-dummy_key")
 
             v1 = [1.0, 0.0, 0.0]
@@ -311,7 +318,7 @@ class TestOpenAISimilarity:
     def test_cosine_similarity_opposite(self):
         """Opposite vectors should have similarity -1.0"""
         # Mock _test_connection to avoid actual API call during init
-        with patch.object(OpenAIEmbedder, '_test_connection'):
+        with patch.object(OpenAIEmbedder, "_test_connection"):
             embedder = OpenAIEmbedder(api_key="sk-dummy_key")
 
             v1 = [1.0, 0.0, 0.0]
@@ -339,17 +346,11 @@ class TestOpenAISimilarity:
         }
 
         ml_ai_sim = embedder.similarity(
-            embeddings["machine learning"],
-            embeddings["artificial intelligence"]
+            embeddings["machine learning"], embeddings["artificial intelligence"]
         )
-        ml_pizza_sim = embedder.similarity(
-            embeddings["machine learning"],
-            embeddings["pizza"]
-        )
+        ml_pizza_sim = embedder.similarity(embeddings["machine learning"], embeddings["pizza"])
 
-        assert ml_ai_sim > ml_pizza_sim, (
-            "ML should be more similar to AI than to pizza"
-        )
+        assert ml_ai_sim > ml_pizza_sim, "ML should be more similar to AI than to pizza"
 
 
 class TestOpenAIBatchProcessing:
@@ -379,7 +380,7 @@ class TestOpenAIBatchProcessing:
         Test batch embedding with empty list
         """
         # Mock _test_connection to avoid actual API call during init
-        with patch.object(OpenAIEmbedder, '_test_connection'):
+        with patch.object(OpenAIEmbedder, "_test_connection"):
             embedder = OpenAIEmbedder(api_key="sk-dummy_key")
 
             with patch.object(embedder._session, "post") as mock_post:

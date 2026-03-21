@@ -17,6 +17,7 @@ from unittest.mock import Mock, MagicMock, patch, call
 import sys
 import os
 
+
 # Ensure omi modules are importable
 def ensure_omi_importable():
     """Add src to path if needed."""
@@ -24,6 +25,7 @@ def ensure_omi_importable():
     src_path = test_dir.parent / "src"
     if str(src_path) not in sys.path:
         sys.path.insert(0, str(src_path))
+
 
 ensure_omi_importable()
 
@@ -80,18 +82,25 @@ class TestStorageBackend:
         class TestBackend(StorageBackend):
             def upload(self, local_path, key, metadata=None):
                 pass
+
             def download(self, key, local_path):
                 pass
+
             def list(self, prefix="", max_keys=None):
                 pass
+
             def delete(self, key):
                 pass
+
             def exists(self, key):
                 pass
+
             def get_metadata(self, key):
                 pass
+
             async def async_upload(self, local_path, key, metadata=None):
                 pass
+
             async def async_download(self, key, local_path):
                 pass
 
@@ -114,18 +123,25 @@ class TestStorageBackend:
         class TestBackend(StorageBackend):
             def upload(self, local_path, key, metadata=None):
                 pass
+
             def download(self, key, local_path):
                 pass
+
             def list(self, prefix="", max_keys=None):
                 pass
+
             def delete(self, key):
                 pass
+
             def exists(self, key):
                 pass
+
             def get_metadata(self, key):
                 pass
+
             async def async_upload(self, local_path, key, metadata=None):
                 pass
+
             async def async_download(self, key, local_path):
                 pass
 
@@ -701,7 +717,12 @@ class TestAzureBackend:
         """Test AzureBackend initialization with AZURE_STORAGE_CONNECTION_STRING env var."""
         from omi.storage_backends import AzureBackend
 
-        with patch.dict(os.environ, {"AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountName=envtest;AccountKey=envkey;EndpointSuffix=core.windows.net"}):
+        with patch.dict(
+            os.environ,
+            {
+                "AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountName=envtest;AccountKey=envkey;EndpointSuffix=core.windows.net"
+            },
+        ):
             mock_client = MagicMock()
             with patch.object(AzureBackend, "_create_client", return_value=mock_client):
                 backend = AzureBackend(bucket="test-container")
