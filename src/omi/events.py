@@ -9,6 +9,7 @@ This module defines typed events emitted during memory operations:
 - SessionStartedEvent: When a session starts
 - SessionEndedEvent: When a session ends
 - PolicyTriggeredEvent: When a memory policy is triggered
+- MemorySyncEvent: When a memory operation needs to be synced across instances
 
 All events include full context (memory content, metadata, timestamps).
 """
@@ -151,6 +152,7 @@ class SessionEndedEvent:
 
 
 @dataclass
+@dataclass
 class PolicyTriggeredEvent:
     """Event emitted when a memory policy is triggered."""
     policy_id: str
@@ -174,6 +176,34 @@ class PolicyTriggeredEvent:
         }
 
 
+@dataclass
+class MemorySyncEvent:
+    """Event emitted when a memory operation needs to be synced across instances."""
+    memory_id: str
+    instance_id: str
+    operation: str  # store | update | delete
+    content: Optional[str] = None
+    memory_type: Optional[str] = None
+    confidence: Optional[float] = None
+    timestamp: datetime = field(default_factory=datetime.now)
+    event_type: str = "memory.sync"
+    metadata: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "event_type": self.event_type,
+            "memory_id": self.memory_id,
+            "instance_id": self.instance_id,
+            "operation": self.operation,
+            "content": self.content,
+            "memory_type": self.memory_type,
+            "confidence": self.confidence,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "metadata": self.metadata or {}
+        }
+
+
 # Export all event types
 __all__ = [
     "MemoryStoredEvent",
@@ -183,4 +213,5 @@ __all__ = [
     "SessionStartedEvent",
     "SessionEndedEvent",
     "PolicyTriggeredEvent",
+    "MemorySyncEvent",
 ]

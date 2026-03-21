@@ -4,6 +4,7 @@ import BeliefNetwork from './components/BeliefNetwork';
 import StorageStats from './components/StorageStats';
 import SessionTimeline from './components/SessionTimeline';
 import VersionTimeline from './components/VersionTimeline';
+import SyncStatus from './components/SyncStatus';
 
 function App() {
   const [activeTab, setActiveTab] = useState('graph');
@@ -13,7 +14,8 @@ function App() {
     { id: 'beliefs', label: 'Beliefs', icon: '💡' },
     { id: 'stats', label: 'Stats', icon: '📊' },
     { id: 'timeline', label: 'Timeline', icon: '📅' },
-    { id: 'versions', label: 'Versions', icon: '🕰️' }
+    { id: 'versions', label: 'Versions', icon: '🕰️' },
+    { id: 'sync', label: 'Sync', icon: '🔄' }
   ];
 
   const renderTabContent = () => {
@@ -51,6 +53,13 @@ function App() {
           <div className="tab-content">
             <h2>Version Timeline</h2>
             <VersionTimeline />
+          </div>
+        );
+      case 'sync':
+        return (
+          <div className="tab-content">
+            <h2>Sync Status</h2>
+            <SyncStatus />
           </div>
         );
       default:

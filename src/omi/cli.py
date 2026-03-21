@@ -20,6 +20,12 @@ from omi.storage.ann_index import ANNIndex
 from .event_bus import get_event_bus
 from .events import SessionStartedEvent, SessionEndedEvent
 
+# Import sync command group (distributed sync commands from modular CLI)
+try:
+    from omi.cli import sync_commands
+except ImportError:
+    sync_commands = None
+
 # CLI version - matches project version
 __version__ = "0.2.0"
 
@@ -2636,6 +2642,30 @@ def belief_update(ctx, belief_id: str, evidence: str, evidence_type: str, streng
     except Exception as e:
         click.echo(click.style(f"Error: {str(e)}", fg="red"))
         sys.exit(1)
+
+
+@cli.group()
+@click.pass_context
+def sync(ctx: click.Context) -> None:
+    """Multi-instance synchronization commands.
+
+    Sync memory stores across multiple OMI instances for high-availability
+    and multi-region deployments.
+    """
+    ctx.ensure_object(dict)
+
+
+# Import and register sync subcommands
+if sync_commands is not None:
+    # Add distributed sync commands
+    try:
+        sync.add_command(sync_commands.sync_init)
+        sync.add_command(sync_commands.sync_status)
+        sync.add_command(sync_commands.sync_start)
+        sync.add_command(sync_commands.sync_stop)
+        sync.add_command(sync_commands.sync_reconcile)
+    except AttributeError:
+        pass  # Sync commands module not fully loaded
 
 
 @cli.group()

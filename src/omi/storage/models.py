@@ -28,6 +28,8 @@ class Memory:
     version_number: Optional[int] = None  # Version tracking
     version_id: Optional[str] = None  # Version identifier
     previous_version_id: Optional[str] = None  # Link to previous version
+    vector_clock: Optional[Dict[str, int]] = None  # For distributed conflict resolution
+    version: int = 1  # Monotonically increasing version number
 
     def __post_init__(self):
         if self.created_at is None:
@@ -38,6 +40,8 @@ class Memory:
             self.content_hash = hashlib.sha256(self.content.encode()).hexdigest()
         if self.instance_ids is None:
             self.instance_ids = []
+        if self.vector_clock is None:
+            self.vector_clock = {}
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -55,7 +59,9 @@ class Memory:
             "archived": self.archived,
             "version_number": self.version_number,
             "version_id": self.version_id,
-            "previous_version_id": self.previous_version_id
+            "previous_version_id": self.previous_version_id,
+            "vector_clock": self.vector_clock,
+            "version": self.version
         }
 
 
